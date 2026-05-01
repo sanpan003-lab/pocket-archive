@@ -1,0 +1,38 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+
+# ── Build output ──────────────────────────────────────────────────────────────
+frontend/dist/
+frontend/dist-ssr/
+
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+**/.env
+**/.env.local
+**/.env.*.local
+backend/config.json
+
+# ── Backend served frontend build ────────────────────────────────────────────
+backend/public/
+
+# ── PocketSync archive output (personal data) ────────────────────────────────
+sync/01_Original_Notes/
+sync/02_Transcripts/
+sync/03_Recordings/
+sync/04_AI_Notes/
+sync/05_Calendar_Events/
+sync/_state/
+sync/state.json
+sync/_logs/
+
+# ── Claude Code session files ─────────────────────────────────────────────────
+.claude/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

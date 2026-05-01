@@ -1,0 +1,16 @@
+# Core HTTP & environment
+requests==2.31.0
+python-dotenv==1.0.0
+
+# Claude AI integration
+# Upgraded from 0.28.0 in CONTEXT.md — 0.40+ required for stable claude-3-5-sonnet-20241022 support
+anthropic==0.40.0
+
+# Progress bar for resumable audio downloads
+tqdm==4.66.4
+
+# Calendar file generation for 05_Calendar_Events/
+icalendar==5.0.14
+
+# PDF generation for 04_AI_Notes/ (charts, timelines, flowcharts)
+reportlab==4.2.5
