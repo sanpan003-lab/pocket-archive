@@ -74,7 +74,7 @@ function TimelineRow({ rec, isFav, onToggleFav, onClick }) {
       onClick={onClick}
     >
       {rec.hasAudio && (
-        <audio ref={audioRef} src={audioUrl(`${rec.id}.mp3`)} preload="metadata" />
+        <audio ref={audioRef} src={audioUrl(rec.audioFilename || `${rec.id}.mp3`)} preload="metadata" />
       )}
 
       {/* Mini play button */}

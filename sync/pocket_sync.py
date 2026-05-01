@@ -1187,10 +1187,20 @@ def sync(args: argparse.Namespace) -> None:
     all_recordings = pocket.get_all_recordings()
     log(f"Total recordings in account: {len(all_recordings)}")
 
+    # Skip recordings soft-deleted via the web UI
+    deleted_folder = export_folder / "99_Deleted"
+    deleted_ids: set[str] = set()
+    if deleted_folder.exists():
+        deleted_ids = {d.name for d in deleted_folder.iterdir() if d.is_dir()}
+    if deleted_ids:
+        log(f"Soft-deleted recordings to skip: {len(deleted_ids)}")
+
     new_recordings = [
         r for r in all_recordings
         if r.get("state") == "completed"
         and r["id"] not in processed_ids
+        and not r["id"].startswith("manual_")
+        and r["id"] not in deleted_ids
         and (
             last_run is None
             or r.get("recording_at", r.get("recordingAt", "")) > last_run

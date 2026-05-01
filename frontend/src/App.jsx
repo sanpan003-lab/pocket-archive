@@ -9,6 +9,8 @@ import SettingsPage from './pages/SettingsPage';
 import FilteredListPage from './pages/FilteredListPage';
 import CalendarPage from './pages/CalendarPage';
 import LoginPage from './pages/LoginPage';
+import TrashPage from './pages/TrashPage';
+import CreateRecordingPage from './pages/CreateRecordingPage';
 
 // ── Full-screen spinner (shown while checking session cookie) ─────────────────
 
@@ -84,6 +86,8 @@ export default function App() {
               />
             } />
             <Route path="calendar" element={<CalendarPage />} />
+            <Route path="trash"   element={<TrashPage />} />
+            <Route path="new"     element={<CreateRecordingPage />} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

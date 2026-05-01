@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Layers, Headphones, Sparkles,
-  Star, LayoutGrid, List, AlertCircle, Mic2,
+  Star, LayoutGrid, List, AlertCircle, Mic2, Plus,
 } from 'lucide-react';
 import { getRecordings, getStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -98,6 +98,7 @@ const STAT_COLORS = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { favorites, toggleFavorite, viewMode, setViewMode, darkMode, syncVersion } = useApp();
 
   const [recordings, setRecordings] = useState([]);
@@ -106,6 +107,16 @@ export default function Dashboard() {
   const [error, setError]           = useState(null);
   const [activeTab, setActiveTab]   = useState('all');
   const [search, setSearch]         = useState('');
+  const [toast, setToast]           = useState(location.state?.toast || null);
+  const toastTimer                  = useRef(null);
+
+  useEffect(() => {
+    if (toast) {
+      clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setToast(null), 3500);
+    }
+    return () => clearTimeout(toastTimer.current);
+  }, [toast]);
 
   useEffect(() => {
     setLoading(true);
@@ -160,6 +171,14 @@ export default function Dashboard() {
         <StatCard icon={Sparkles}   label="AI Notes"   value={stats?.withAiNotes} color={STAT_COLORS.withAiNote} loading={loading} />
       </div>
 
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-sm font-medium text-white shadow-xl animate-slide-up"
+          style={{ background: 'linear-gradient(135deg,#10B981,#059669)', boxShadow: '0 8px 24px rgba(16,185,129,0.35)' }}>
+          {toast}
+        </div>
+      )}
+
       {/* Toolbar: tabs + search + view toggle */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-5">
         <div className="overflow-x-auto shrink-0 -mx-1 px-1">
@@ -182,6 +201,14 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3 flex-1 min-w-0">
+          <button
+            className="btn-gold shrink-0 flex items-center gap-1.5 px-3 py-2 text-sm"
+            onClick={() => navigate('/new')}
+          >
+            <Plus size={15} />
+            <span className="hidden sm:inline">New</span>
+          </button>
+
           <div className="relative flex-1 min-w-0">
             <svg
               className="absolute left-3 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40"

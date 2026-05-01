@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Mic2, LayoutDashboard, Search, Star, Settings,
   ChevronLeft, ChevronRight, Moon, Sun, RefreshCw, Check, AlertCircle,
-  Sparkles, Mic, Calendar, BookOpen, LogOut,
+  Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -313,6 +313,18 @@ export default function Sidebar() {
             {sidebarOpen && <span className="animate-fade-in">Collapse</span>}
           </button>
         )}
+
+        {/* Trash */}
+        <NavLink
+          to="/trash"
+          className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          title="Trash"
+          onClick={closeMobileMenu}
+          style={({ isActive }) => isActive ? {} : { color: '#94A3B8' }}
+        >
+          <Trash2 size={18} className="shrink-0" />
+          {showLabels && <span className="animate-fade-in">Trash</span>}
+        </NavLink>
 
         {/* Sign Out */}
         <button

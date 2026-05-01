@@ -34,3 +34,21 @@ export const uploadAttachment   = (id, file, onProgress) => {
     onUploadProgress: e => onProgress?.(Math.round((e.loaded * 100) / e.total)),
   }).then(r => r.data);
 };
+
+// Editing
+export const updateTitle        = (id, title)   => http.put(`/recordings/${id}/title`, { title }).then(r => r.data);
+export const updateDate         = (id, date)    => http.put(`/recordings/${id}/date`, { date }).then(r => r.data);
+export const updateOriginalNotes = (id, content) => http.put(`/recordings/${id}/original-notes`, { content }).then(r => r.data);
+
+// Create
+export const createRecording = (formData, onProgress) =>
+  http.post('/recordings/create', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: e => onProgress?.(Math.round((e.loaded * 100) / e.total)),
+  }).then(r => r.data);
+
+// Trash / delete
+export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);
+export const deleteRecording        = id   => http.post(`/recordings/${id}/delete`).then(r => r.data);
+export const restoreRecording       = id   => http.post(`/recordings/${id}/restore`).then(r => r.data);
+export const permanentDeleteRecording = id => http.post(`/recordings/${id}/permanent-delete`).then(r => r.data);

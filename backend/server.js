@@ -1,11 +1,12 @@
 require('dotenv').config();
 
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-const fs      = require('fs');
+const express      = require('express');
+const cors         = require('cors');
+const path         = require('path');
+const fs           = require('fs');
 const multer       = require('multer');
 const cookieParser = require('cookie-parser');
+const { randomUUID } = require('crypto');
 const {
   verifyPassword, generateToken, verifyToken,
   hashPassword, savePassword, mustChangePassword,
@@ -23,16 +24,21 @@ const DIRS = {
   recordings:  path.join(ARCHIVE_PATH, '03_Recordings'),
   aiNotes:     path.join(ARCHIVE_PATH, '04_AI_Notes'),
   attachments: path.join(ARCHIVE_PATH, '05_Attachments'),
+  deleted:     path.join(ARCHIVE_PATH, '99_Deleted'),
 };
+
+// Ensure deleted folder exists
+fs.mkdirSync(DIRS.deleted, { recursive: true });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  credentials: true,
 }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve MP3s — Express handles Range/streaming natively
+// Serve audio files — Express handles Range/streaming natively
 app.use('/api/audio', express.static(DIRS.recordings, {
   setHeaders: (res) => {
     res.set('Accept-Ranges', 'bytes');
@@ -52,6 +58,17 @@ const attachmentStorage = multer.diskStorage({
 const upload = multer({
   storage: attachmentStorage,
   limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+// ── Multer — audio uploads for Create Recording ────────────────────────────
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.mp3', '.m4a', '.wav', '.ogg'].includes(ext)) cb(null, true);
+    else cb(new Error(`Unsupported audio format: ${ext}`));
+  },
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -75,20 +92,88 @@ function extractVisualizations(markdown) {
   return vizs;
 }
 
+// ID parsing for standard date-prefixed IDs
 function parseTitle(id) { return id.slice(11).replace(/_/g, ' '); }
 function parseDate(id)  { return id.slice(0, 10); }
 
+function isManualId(id) { return typeof id === 'string' && id.startsWith('manual_'); }
+
+// Per-recording metadata overrides (title, date, etc.)
+function readMeta(id) {
+  const p = path.join(DIRS.notes, `${id}.meta.json`);
+  if (!fs.existsSync(p)) return {};
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch { return {}; }
+}
+
+function writeMeta(id, data) {
+  fs.mkdirSync(DIRS.notes, { recursive: true });
+  fs.writeFileSync(
+    path.join(DIRS.notes, `${id}.meta.json`),
+    JSON.stringify(data, null, 2),
+    'utf8',
+  );
+}
+
+function getTitle(id) {
+  const meta = readMeta(id);
+  if (meta.title) return meta.title;
+  if (isManualId(id)) return id;
+  return parseTitle(id);
+}
+
+function getDate(id) {
+  const meta = readMeta(id);
+  if (meta.date) return meta.date;
+  if (isManualId(id)) return new Date().toISOString().slice(0, 10);
+  return parseDate(id);
+}
+
+function findAudioFile(id) {
+  for (const ext of ['.mp3', '.m4a', '.wav', '.ogg']) {
+    if (fs.existsSync(path.join(DIRS.recordings, `${id}${ext}`))) return `${id}${ext}`;
+  }
+  return null;
+}
+
+function getDeletedIds() {
+  if (!fs.existsSync(DIRS.deleted)) return new Set();
+  return new Set(
+    fs.readdirSync(DIRS.deleted, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => e.name),
+  );
+}
+
 function getAllIds() {
-  const seen = new Set();
-  for (const dir of Object.values(DIRS)) {
+  const seen      = new Set();
+  const deletedIds = getDeletedIds();
+
+  for (const [key, dir] of Object.entries(DIRS)) {
+    if (key === 'deleted' || key === 'attachments') continue;
     if (!fs.existsSync(dir)) continue;
     for (const file of fs.readdirSync(dir)) {
+      if (file.endsWith('.meta.json')) continue;
       if (!/\.(md|mp3|m4a|wav|ogg|txt|json)$/i.test(file)) continue;
       const base = file.replace(/\.[^.]+$/, '');
-      if (/^\d{4}-\d{2}-\d{2}_/.test(base)) seen.add(base);
+      if (/^\d{4}-\d{2}-\d{2}_/.test(base) || /^manual_/.test(base)) {
+        if (!deletedIds.has(base)) seen.add(base);
+      }
     }
   }
-  return [...seen].sort((a, b) => b.localeCompare(a));
+
+  // Also discover manual recordings stored only as meta.json (no content files yet)
+  if (fs.existsSync(DIRS.notes)) {
+    for (const file of fs.readdirSync(DIRS.notes)) {
+      if (!file.endsWith('.meta.json')) continue;
+      const base = file.slice(0, -10); // strip '.meta.json'
+      if (/^manual_/.test(base) && !deletedIds.has(base)) seen.add(base);
+    }
+  }
+
+  const ids = [...seen];
+  ids.sort((a, b) => getDate(b).localeCompare(getDate(a)));
+  return ids;
 }
 
 function existsAnyExt(dir, id, exts) {
@@ -96,19 +181,21 @@ function existsAnyExt(dir, id, exts) {
 }
 
 function buildMeta(id) {
+  const audioFile = findAudioFile(id);
   return {
     id,
-    title:            parseTitle(id),
-    date:             parseDate(id),
-    hasOriginalNotes: existsAnyExt(DIRS.notes,       id, ['.md', '.txt', '.json']),
-    hasTranscript:    existsAnyExt(DIRS.transcripts, id, ['.md', '.txt', '.json']),
-    hasAudio:         existsAnyExt(DIRS.recordings,  id, ['.mp3', '.m4a', '.wav', '.ogg']),
-    hasAiNotes:       existsAnyExt(DIRS.aiNotes,     id, ['.md', '.txt', '.json']),
+    title:            getTitle(id),
+    date:             getDate(id),
+    hasOriginalNotes: existsAnyExt(DIRS.notes,       id, ['.md', '.txt']),
+    hasTranscript:    existsAnyExt(DIRS.transcripts,  id, ['.md', '.txt', '.json']),
+    hasAudio:         !!audioFile,
+    hasAiNotes:       existsAnyExt(DIRS.aiNotes,      id, ['.md', '.txt', '.json']),
+    audioFilename:    audioFile || `${id}.mp3`,
   };
 }
 
 function isValidId(id) {
-  return /^\d{4}-\d{2}-\d{2}_[\w.\-]+$/.test(id);
+  return /^\d{4}-\d{2}-\d{2}_[\w.\-]+$/.test(id) || /^manual_[\w-]+$/.test(id);
 }
 
 function readTranscript(id) {
@@ -123,18 +210,46 @@ function readTranscript(id) {
 }
 
 function buildRecordingResponse(id) {
-  const aiNotes = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
+  const aiNotes   = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
+  const audioFile = findAudioFile(id);
   return {
     id,
-    title:          parseTitle(id),
-    date:           parseDate(id),
-    originalNotes:  readFileSafe(path.join(DIRS.notes,  `${id}.md`)),
+    title:          getTitle(id),
+    date:           getDate(id),
+    originalNotes:  readFileSafe(path.join(DIRS.notes, `${id}.md`)),
     transcript:     readTranscript(id),
     aiNotes,
     visualizations: extractVisualizations(aiNotes),
-    hasAudio:       fs.existsSync(path.join(DIRS.recordings, `${id}.mp3`)),
-    audioFilename:  `${id}.mp3`,
+    hasAudio:       !!audioFile,
+    audioFilename:  audioFile || `${id}.mp3`,
   };
+}
+
+// Move a single file with cross-device fallback
+function moveFile(src, dst) {
+  if (!fs.existsSync(src)) return false;
+  try { fs.renameSync(src, dst); return true; }
+  catch {
+    try { fs.copyFileSync(src, dst); fs.unlinkSync(src); return true; }
+    catch { return false; }
+  }
+}
+
+// Move a directory tree with cross-device fallback
+function moveDirSync(src, dst) {
+  if (!fs.existsSync(src)) return false;
+  try { fs.renameSync(src, dst); return true; }
+  catch {
+    fs.mkdirSync(dst, { recursive: true });
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const s = path.join(src, entry.name);
+      const d = path.join(dst, entry.name);
+      if (entry.isDirectory()) moveDirSync(s, d);
+      else fs.copyFileSync(s, d);
+    }
+    fs.rmSync(src, { recursive: true, force: true });
+    return true;
+  }
 }
 
 // ── AI Notes prompt (mirrors pocket_sync.py) ──────────────────────────────
@@ -229,7 +344,7 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Public auth routes — registered BEFORE the blanket middleware below
+// Public auth routes — registered BEFORE the blanket middleware
 app.post('/api/auth/login', (req, res) => {
   const { password } = req.body;
   if (!verifyPassword(password)) {
@@ -256,10 +371,9 @@ app.get('/api/auth/status', (req, res) => {
   res.json({ authenticated: !!valid });
 });
 
-// Blanket auth guard — protects all /api/* routes registered after this point
+// Blanket auth guard — all /api/* routes after this point require auth
 app.use('/api', requireAuth);
 
-// POST /api/auth/change-password (protected by blanket middleware above)
 app.post('/api/auth/change-password', (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!verifyPassword(currentPassword)) {
@@ -274,6 +388,7 @@ app.post('/api/auth/change-password', (req, res) => {
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 
+// GET /api/recordings — list all (excludes deleted)
 app.get('/api/recordings', (req, res) => {
   try {
     res.json(getAllIds().map(buildMeta));
@@ -283,6 +398,68 @@ app.get('/api/recordings', (req, res) => {
   }
 });
 
+// GET /api/recordings/deleted — list soft-deleted recordings
+// MUST be registered before /api/recordings/:id
+app.get('/api/recordings/deleted', (req, res) => {
+  try {
+    if (!fs.existsSync(DIRS.deleted)) return res.json([]);
+    const result = [];
+    for (const name of fs.readdirSync(DIRS.deleted)) {
+      const metaPath = path.join(DIRS.deleted, name, 'meta.json');
+      if (!fs.existsSync(metaPath)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        result.push({ id: meta.id, title: meta.title, deletedAt: meta.deletedAt });
+      } catch { /* skip corrupt entries */ }
+    }
+    result.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recordings/create — create a manual recording
+// MUST be registered before /api/recordings/:id
+app.post('/api/recordings/create', audioUpload.single('audioFile'), (req, res) => {
+  const { title, recordingDate, originalNotes, aiNotes } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+  if (!recordingDate)  return res.status(400).json({ error: 'recordingDate is required' });
+
+  const id   = `manual_${randomUUID()}`;
+  const date = recordingDate.slice(0, 10);
+
+  // Always write meta.json (source of truth for title/date)
+  writeMeta(id, { title: title.trim(), date, source: 'manual' });
+
+  // Write notes .md if content provided
+  if (originalNotes?.trim()) {
+    fs.mkdirSync(DIRS.notes, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), originalNotes.trim(), 'utf8');
+  }
+
+  // Write AI notes if provided
+  if (aiNotes?.trim()) {
+    fs.mkdirSync(DIRS.aiNotes, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.aiNotes, `${id}.md`), aiNotes.trim(), 'utf8');
+  }
+
+  // Write audio file if uploaded
+  if (req.file) {
+    const ext = path.extname(req.file.originalname).toLowerCase() || '.mp3';
+    fs.mkdirSync(DIRS.recordings, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.recordings, `${id}${ext}`), req.file.buffer);
+  }
+
+  try {
+    res.status(201).json(buildRecordingResponse(id));
+  } catch (err) {
+    console.error('/create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/recordings/:id — single recording detail
 app.get('/api/recordings/:id', (req, res) => {
   const { id } = req.params;
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
@@ -294,7 +471,7 @@ app.get('/api/recordings/:id', (req, res) => {
   }
 });
 
-// POST /api/recordings/:id/regenerate — re-run Claude on existing transcript/notes
+// POST /api/recordings/:id/regenerate — re-run Claude on existing notes
 app.post('/api/recordings/:id/regenerate', async (req, res) => {
   const { id } = req.params;
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
@@ -305,10 +482,10 @@ app.post('/api/recordings/:id/regenerate', async (req, res) => {
 
   try {
     const transcript    = readFileSafe(path.join(DIRS.transcripts, `${id}.md`));
-    const originalNotes = readFileSafe(path.join(DIRS.notes,       `${id}.md`));
+    const originalNotes = readFileSafe(path.join(DIRS.notes, `${id}.md`));
 
     const prompt = AI_NOTES_PROMPT
-      .replace('{transcript}',    transcript    || '(No transcript available)')
+      .replace('{transcript}',     transcript    || '(No transcript available)')
       .replace('{original_notes}', originalNotes || '(No Hey Pocket summary available)');
 
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -329,7 +506,7 @@ app.post('/api/recordings/:id/regenerate', async (req, res) => {
   }
 });
 
-// PUT /api/recordings/:id/ai-notes — save manually edited notes
+// PUT /api/recordings/:id/ai-notes — save manually edited AI notes
 app.put('/api/recordings/:id/ai-notes', (req, res) => {
   const { id } = req.params;
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
@@ -347,9 +524,182 @@ app.put('/api/recordings/:id/ai-notes', (req, res) => {
   }
 });
 
+// PUT /api/recordings/:id/title — update recording title
+app.put('/api/recordings/:id/title', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+
+  const { title } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+
+  try {
+    const meta = readMeta(id);
+    writeMeta(id, { ...meta, title: title.trim() });
+    res.json(buildRecordingResponse(id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/recordings/:id/date — update recording date
+app.put('/api/recordings/:id/date', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+
+  const { recordingDate } = req.body;
+  if (!recordingDate) return res.status(400).json({ error: 'recordingDate is required' });
+
+  try {
+    const meta = readMeta(id);
+    writeMeta(id, { ...meta, date: recordingDate.slice(0, 10) });
+    res.json(buildRecordingResponse(id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/recordings/:id/original-notes — save edited original notes
+app.put('/api/recordings/:id/original-notes', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+
+  const { content } = req.body;
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+
+  try {
+    fs.mkdirSync(DIRS.notes, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), content, 'utf8');
+    res.json(buildRecordingResponse(id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recordings/:id/delete — soft delete (move to 99_Deleted)
+app.post('/api/recordings/:id/delete', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+
+  try {
+    const deletedDir = path.join(DIRS.deleted, id);
+    fs.mkdirSync(deletedDir, { recursive: true });
+
+    const title = getTitle(id);
+
+    // Track which files were moved (for restore)
+    const movedFiles = {};
+
+    // Original notes
+    if (moveFile(path.join(DIRS.notes, `${id}.md`), path.join(deletedDir, 'original_notes.md'))) {
+      movedFiles.hasNotes = true;
+    }
+    // Meta overrides
+    if (moveFile(path.join(DIRS.notes, `${id}.meta.json`), path.join(deletedDir, 'meta_override.json'))) {
+      movedFiles.hasMeta = true;
+    }
+    // AI notes
+    if (moveFile(path.join(DIRS.aiNotes, `${id}.md`), path.join(deletedDir, 'ai_notes.md'))) {
+      movedFiles.hasAiNotes = true;
+    }
+    // Audio (find the actual extension)
+    const audioFile = findAudioFile(id);
+    if (audioFile) {
+      const ext = path.extname(audioFile);
+      if (moveFile(path.join(DIRS.recordings, audioFile), path.join(deletedDir, `recording${ext}`))) {
+        movedFiles.audioExt = ext;
+      }
+    }
+    // Transcript
+    for (const ext of ['.md', '.json', '.txt']) {
+      const src = path.join(DIRS.transcripts, `${id}${ext}`);
+      if (fs.existsSync(src)) {
+        moveFile(src, path.join(deletedDir, `transcript${ext}`));
+        movedFiles.transcriptExt = ext;
+      }
+    }
+    // Attachments folder
+    const attachDir = path.join(DIRS.attachments, id);
+    if (fs.existsSync(attachDir)) {
+      moveDirSync(attachDir, path.join(deletedDir, 'attachments'));
+      movedFiles.hasAttachments = true;
+    }
+
+    // Save deletion metadata
+    fs.writeFileSync(
+      path.join(deletedDir, 'meta.json'),
+      JSON.stringify({ id, title, deletedAt: new Date().toISOString(), files: movedFiles }, null, 2),
+      'utf8',
+    );
+
+    res.json({ success: true, recoverable: true });
+  } catch (err) {
+    console.error('/delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recordings/:id/restore — restore from trash
+app.post('/api/recordings/:id/restore', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+
+  try {
+    const deletedDir = path.join(DIRS.deleted, id);
+    if (!fs.existsSync(deletedDir)) {
+      return res.status(404).json({ error: 'Recording not found in trash' });
+    }
+
+    const metaPath = path.join(deletedDir, 'meta.json');
+    const meta = fs.existsSync(metaPath)
+      ? JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+      : { files: {} };
+    const { files = {} } = meta;
+
+    fs.mkdirSync(DIRS.notes,       { recursive: true });
+    fs.mkdirSync(DIRS.aiNotes,     { recursive: true });
+    fs.mkdirSync(DIRS.recordings,  { recursive: true });
+    fs.mkdirSync(DIRS.transcripts, { recursive: true });
+
+    if (files.hasNotes)    moveFile(path.join(deletedDir, 'original_notes.md'),  path.join(DIRS.notes,      `${id}.md`));
+    if (files.hasMeta)     moveFile(path.join(deletedDir, 'meta_override.json'), path.join(DIRS.notes,      `${id}.meta.json`));
+    if (files.hasAiNotes)  moveFile(path.join(deletedDir, 'ai_notes.md'),         path.join(DIRS.aiNotes,    `${id}.md`));
+    if (files.audioExt)    moveFile(path.join(deletedDir, `recording${files.audioExt}`), path.join(DIRS.recordings, `${id}${files.audioExt}`));
+    if (files.transcriptExt) moveFile(path.join(deletedDir, `transcript${files.transcriptExt}`), path.join(DIRS.transcripts, `${id}${files.transcriptExt}`));
+    if (files.hasAttachments) moveDirSync(path.join(deletedDir, 'attachments'), path.join(DIRS.attachments, id));
+
+    // Remove the deleted directory
+    fs.rmSync(deletedDir, { recursive: true, force: true });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('/restore error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/recordings/:id/permanent-delete — irrecoverably remove from trash
+app.post('/api/recordings/:id/permanent-delete', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+  if (req.query.confirm !== 'true') {
+    return res.status(400).json({ error: 'Add ?confirm=true to permanently delete' });
+  }
+
+  try {
+    const deletedDir = path.join(DIRS.deleted, id);
+    if (!fs.existsSync(deletedDir)) {
+      return res.status(404).json({ error: 'Recording not found in trash' });
+    }
+    fs.rmSync(deletedDir, { recursive: true, force: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('/permanent-delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Attachment endpoints ───────────────────────────────────────────────────
 
-// GET /api/recordings/:id/attachments
 app.get('/api/recordings/:id/attachments', (req, res) => {
   const { id } = req.params;
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
@@ -371,7 +721,6 @@ app.get('/api/recordings/:id/attachments', (req, res) => {
   }
 });
 
-// POST /api/recordings/:id/attachments
 app.post('/api/recordings/:id/attachments', (req, res, next) => {
   if (!isValidId(req.params.id)) return res.status(400).json({ error: 'Invalid recording ID' });
   next();
@@ -384,10 +733,9 @@ app.post('/api/recordings/:id/attachments', (req, res, next) => {
   });
 });
 
-// DELETE /api/recordings/:id/attachments/:filename
 app.delete('/api/recordings/:id/attachments/:filename', (req, res) => {
   const { id } = req.params;
-  const filename = path.basename(req.params.filename); // strip any path components
+  const filename = path.basename(req.params.filename);
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
 
   const filePath = path.join(DIRS.attachments, id, filename);
@@ -401,7 +749,6 @@ app.delete('/api/recordings/:id/attachments/:filename', (req, res) => {
   }
 });
 
-// GET /api/recordings/:id/attachments/:filename — download
 app.get('/api/recordings/:id/attachments/:filename', (req, res) => {
   const { id } = req.params;
   const filename = path.basename(req.params.filename);
@@ -413,7 +760,8 @@ app.get('/api/recordings/:id/attachments/:filename', (req, res) => {
   res.sendFile(path.resolve(filePath));
 });
 
-// GET /api/search
+// ── Search ─────────────────────────────────────────────────────────────────
+
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim().toLowerCase();
   if (q.length < 2) return res.json([]);
@@ -421,7 +769,7 @@ app.get('/api/search', (req, res) => {
   try {
     const results = [];
     for (const id of getAllIds()) {
-      const title = parseTitle(id).toLowerCase();
+      const title = getTitle(id).toLowerCase();
       let matched = title.includes(q);
       let snippet = '';
 
@@ -452,17 +800,18 @@ app.get('/api/search', (req, res) => {
   }
 });
 
-// GET /api/stats
+// ── Stats ──────────────────────────────────────────────────────────────────
+
 app.get('/api/stats', (req, res) => {
   try {
     const ids = getAllIds();
     let withAudio = 0, withAiNotes = 0, withTranscript = 0, withOriginalNotes = 0;
 
     for (const id of ids) {
-      if (fs.existsSync(path.join(DIRS.recordings,  `${id}.mp3`))) withAudio++;
-      if (fs.existsSync(path.join(DIRS.aiNotes,     `${id}.md`)))  withAiNotes++;
-      if (fs.existsSync(path.join(DIRS.transcripts, `${id}.md`)))  withTranscript++;
-      if (fs.existsSync(path.join(DIRS.notes,       `${id}.md`)))  withOriginalNotes++;
+      if (findAudioFile(id))                                               withAudio++;
+      if (fs.existsSync(path.join(DIRS.aiNotes,     `${id}.md`)))         withAiNotes++;
+      if (existsAnyExt(DIRS.transcripts, id, ['.md', '.json', '.txt']))    withTranscript++;
+      if (existsAnyExt(DIRS.notes, id, ['.md', '.txt']))                   withOriginalNotes++;
     }
 
     res.json({
@@ -479,20 +828,18 @@ app.get('/api/stats', (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-app.get('/health',     (_req, res) => res.json({ ok: true })); // Docker healthcheck alias
+app.get('/health',     (_req, res) => res.json({ ok: true }));
 
-// ── Sync job state (in-memory) ─────────────────────────────────────────────
+// ── Sync job state ─────────────────────────────────────────────────────────
 const syncStatus = {
   running:    false,
-  lastSync:   null,   // ISO timestamp when last sync started
-  lastResult: null,   // 'success' | 'error' | null
-  lastError:  null,   // string | null
+  lastSync:   null,
+  lastResult: null,
+  lastError:  null,
 };
 
-// POST /api/sync — start sync in background, return immediately
 app.post('/api/sync', (req, res) => {
   const { spawn } = require('child_process');
-
   const SYNC_SCRIPT = process.env.SYNC_SCRIPT_PATH || null;
 
   if (!SYNC_SCRIPT) {
@@ -500,11 +847,9 @@ app.post('/api/sync', (req, res) => {
       error: 'Sync script not configured. Set SYNC_SCRIPT_PATH in environment.',
     });
   }
-
   if (!fs.existsSync(SYNC_SCRIPT)) {
     return res.status(404).json({ error: `Sync script not found: ${SYNC_SCRIPT}` });
   }
-
   if (syncStatus.running) {
     return res.status(409).json({ error: 'Sync already in progress' });
   }
@@ -515,22 +860,17 @@ app.post('/api/sync', (req, res) => {
   syncStatus.lastResult = null;
   syncStatus.lastError  = null;
 
-  // Respond immediately — client will poll /api/sync/status
   res.json({ success: true, message: 'Sync started' });
 
-  // Pass EXPORT_FOLDER so pocket_sync.py writes to the correct archive path
   const spawnEnv = {
     ...process.env,
     EXPORT_FOLDER: process.env.ARCHIVE_PATH || 'H:\\My Drive\\Hey Pocket Archive',
   };
 
-  // Try python3 first (Linux/Docker), fall back to python (Windows/macOS)
   function runBackground(cmd) {
     const proc = spawn(cmd, [SYNC_SCRIPT], { cwd: SCRIPT_DIR, env: spawnEnv });
     let err = '';
-
     proc.stderr.on('data', d => { err += d.toString(); });
-
     proc.on('error', e => {
       if (e.code === 'ENOENT' && cmd === 'python3') {
         runBackground('python');
@@ -538,33 +878,25 @@ app.post('/api/sync', (req, res) => {
         syncStatus.running    = false;
         syncStatus.lastResult = 'error';
         syncStatus.lastError  = e.code === 'ENOENT'
-          ? `Python not found on this system (tried: ${cmd})`
+          ? `Python not found (tried: ${cmd})`
           : e.message;
-        console.error('[sync] spawn error:', e.message);
       }
     });
-
     proc.on('close', code => {
       syncStatus.running = false;
       if (code === 0) {
         syncStatus.lastResult = 'success';
         syncStatus.lastError  = null;
-        console.log('[sync] completed successfully');
       } else {
         syncStatus.lastResult = 'error';
         syncStatus.lastError  = err.trim() || `pocket_sync.py exited with code ${code}`;
-        console.error('[sync] failed:', syncStatus.lastError);
       }
     });
   }
-
   runBackground('python3');
 });
 
-// GET /api/sync/status — poll for background sync job state
-app.get('/api/sync/status', (req, res) => {
-  res.json(syncStatus);
-});
+app.get('/api/sync/status', (_req, res) => res.json(syncStatus));
 
 // ── Frontend (SPA) ─────────────────────────────────────────────────────────
 const FRONTEND_PATH = path.join(__dirname, 'public');
