@@ -403,6 +403,7 @@ Mermaid syntax rules — a violation causes a render error:
 - Arrow labels:                 -->|Yes| or -->|No|
 - Node labels must be under 35 characters
 - No quotes or nested brackets inside node labels
+- Do NOT add style, classDef, class, or %%{init}%% directives — the frontend applies the color theme automatically
 
 If no process or workflow was discussed, write this plain text (no code block):
 No sequential process or workflow was described in this recording.`;
