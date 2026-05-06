@@ -356,7 +356,7 @@ If no specific dates were mentioned, use: ASAP, TBD, or "Within X days/weeks"
 - Include specific details: exact dates, amounts, phone numbers, addresses, names,
   reference numbers, authorization codes, medication doses, case numbers
 - Medical / pharmacy / financial / legal content: capture every specific detail
-- Do not use JSON visualization blocks — use markdown tables for structured data
+- Do not use JSON visualization blocks in body sections — use markdown tables for structured data (exception: the Metrics section in Step 4 requires a bar_chart JSON block)
 - Do not pad with filler — if a section has nothing meaningful to say, skip it
 - If the recording has no action items, omit the Action Items section entirely
 
@@ -379,6 +379,27 @@ numbers were not given (e.g. "~2 hours", "roughly $500", "high priority = 3/5").
 
 If no quantitative data exists at all, include one row:
 | Overall | Qualitative only | — | No numbers mentioned in this recording |
+
+Then immediately after the table, output a bar_chart JSON block using the same
+numeric data. Use the Metric column as labels and the Value column as values.
+Only include rows that have a real numeric value (skip the "Qualitative only" row).
+
+\`\`\`json
+{
+  "type": "bar_chart",
+  "title": "[short descriptive title for the metrics, e.g. 'Project Costs' or 'Time Breakdown']",
+  "data": [
+    {"label": "[metric name]", "value": [number]},
+    {"label": "[metric name]", "value": [number]}
+  ]
+}
+\`\`\`
+
+Bar chart rules:
+- value must be a bare number (no units, no quotes) — e.g. 500 not "$500" or "500"
+- label must be under 20 characters
+- Include 2–8 items maximum
+- If all metrics are qualitative with no numeric value, omit the JSON block entirely
 
 ### Process & Workflow
 
