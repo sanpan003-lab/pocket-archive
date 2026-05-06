@@ -18,8 +18,9 @@ export const triggerSync        = ()        => http.post('/sync').then(r => r.da
 export const getSyncStatus      = ()        => http.get('/sync/status').then(r => r.data);
 export const audioUrl           = fn        => `/api/audio/${fn}`;
 
-// Regenerate AI Notes via Claude
-export const regenerateAiNotes  = id        => http.post(`/recordings/${id}/regenerate`).then(r => r.data);
+// Regenerate AI Notes — model: 'gemini' (default) | 'claude'
+export const regenerateAiNotes  = (id, model = 'gemini') =>
+  http.post(`/recordings/${id}/regenerate`, { model }).then(r => r.data);
 export const saveAiNotes        = (id, content) => http.put(`/recordings/${id}/ai-notes`, { content }).then(r => r.data);
 
 // Attachments

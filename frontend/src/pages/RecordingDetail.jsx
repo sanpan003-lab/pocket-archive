@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Star, Headphones, Sparkles,
   StickyNote, AlertCircle, Mic2, RefreshCw, Paperclip,
-  Pencil, CheckCircle, X, Trash2,
+  Pencil, CheckCircle, X, Trash2, FileText,
 } from 'lucide-react';
 import {
   getRecording, audioUrl, regenerateAiNotes, saveAiNotes,
@@ -112,6 +112,7 @@ export default function RecordingDetail() {
   const [activeTab, setActiveTab]   = useState('ai');
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError]     = useState(null);
+  const [selectedModel, setSelectedModel] = useState('gemini');
 
   // AI Notes edit
   const [editing, setEditing]     = useState(false);
@@ -156,6 +157,7 @@ export default function RecordingDetail() {
       .then(data => {
         setRec(data);
         if      (data.aiNotes)       setActiveTab('ai');
+        else if (data.transcript)    setActiveTab('transcript');
         else if (data.originalNotes) setActiveTab('original');
         else                         setActiveTab('attachments');
       })
@@ -203,7 +205,7 @@ export default function RecordingDetail() {
     setRegenerating(true);
     setRegenError(null);
     try {
-      const updated = await regenerateAiNotes(id);
+      const updated = await regenerateAiNotes(id, selectedModel);
       setRec(updated);
     } catch (err) {
       setRegenError(err.response?.data?.error || err.message || 'Regeneration failed');
@@ -363,9 +365,10 @@ export default function RecordingDetail() {
   const isFav = favorites.includes(id);
 
   const TABS = [
-    { key: 'ai',          label: 'AI Notes',       mobileLabel: 'AI Notes', icon: Sparkles,   available: !!rec.aiNotes,       content: rec.aiNotes },
-    { key: 'original',    label: 'Original Notes', mobileLabel: 'Original', icon: StickyNote, available: !!rec.originalNotes, content: rec.originalNotes },
-    { key: 'attachments', label: 'Attachments',    mobileLabel: 'Attach',   icon: Paperclip,  available: true,                content: null },
+    { key: 'ai',          label: 'AI Notes',    mobileLabel: 'AI',    icon: Sparkles,   available: !!rec.aiNotes,       content: rec.aiNotes },
+    { key: 'transcript',  label: 'Transcript',  mobileLabel: 'Trans', icon: FileText,   available: !!rec.transcript,    content: rec.transcript },
+    { key: 'original',    label: 'Original',    mobileLabel: 'Orig',  icon: StickyNote, available: !!rec.originalNotes, content: rec.originalNotes },
+    { key: 'attachments', label: 'Attachments', mobileLabel: 'Attach',icon: Paperclip,  available: true,                content: null },
   ];
 
   const visibleTabs   = TABS.filter(t => t.available);
@@ -466,6 +469,7 @@ export default function RecordingDetail() {
                   {vizCount > 0 && ` · ${vizCount} chart${vizCount !== 1 ? 's' : ''}`}
                 </span>
               )}
+              {rec.transcript    && <span className="badge badge-slate"><FileText size={11} /> Transcript</span>}
               {rec.originalNotes && <span className="badge badge-slate"><StickyNote size={11} /> Original Notes</span>}
             </div>
           </div>
@@ -568,6 +572,16 @@ export default function RecordingDetail() {
                     <Pencil size={13} />
                     Edit
                   </button>
+                  <select
+                    className="text-xs rounded-lg px-2 py-1.5 border border-navy-200 dark:border-white/20 bg-white dark:bg-navy-900 text-navy-700 dark:text-white/80 outline-none focus:ring-2 focus:ring-gold-400/50 cursor-pointer disabled:opacity-50"
+                    value={selectedModel}
+                    onChange={e => setSelectedModel(e.target.value)}
+                    disabled={regenerating}
+                    title="Choose AI model"
+                  >
+                    <option value="gemini">Gemini Flash · Fast &amp; Free</option>
+                    <option value="claude">Claude Opus 4 · Premium</option>
+                  </select>
                   <button
                     className="btn-ghost text-xs flex items-center gap-1.5"
                     onClick={handleRegenerate}

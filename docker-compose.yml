@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  pocket-archive:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pocket-archive
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - ARCHIVE_PATH=/data/archive
+      - ATTACHMENTS_PATH=/data/archive/05_Attachments
+      - CONFIG_PATH=/data/config/config.json
+      - SYNC_SCRIPT_PATH=/data/archive/PocketSync_Project/pocket_sync.py
+      - JWT_SECRET=de9d9f94561e09b6f4f9d8b796c8af5aaba24028c0fafd46f6a84b000de230ec
+    volumes:
+      - /volume1/PocketArchive:/data/archive
+      - /volume1/pocket-archive-app/config:/data/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

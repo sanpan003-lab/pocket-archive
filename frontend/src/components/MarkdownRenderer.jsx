@@ -1,24 +1,155 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import VizRenderer from './visualizations/VizRenderer';
 
-// Split markdown into alternating text segments and viz blocks
+// ── Mermaid premium SVG post-processor ───────────────────────────────────────
+
+function applyPremiumStyling(svgEl, uid) {
+  if (!svgEl) return;
+
+  // Ensure <defs> exists
+  let defs = svgEl.querySelector('defs');
+  if (!defs) {
+    defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    svgEl.insertBefore(defs, svgEl.firstChild);
+  }
+
+  // Parse gradient + filter markup inside a temp SVG so they get SVG namespace
+  const tmp = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  tmp.innerHTML = `
+    <linearGradient id="mmg-${uid}" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FFFBEB"/>
+      <stop offset="100%" stop-color="#FDE68A"/>
+    </linearGradient>
+    <linearGradient id="mmd-${uid}" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#FEF3C7"/>
+      <stop offset="100%" stop-color="#FBBF24"/>
+    </linearGradient>
+    <filter id="mmf-${uid}" x="-30%" y="-30%" width="160%" height="190%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#92400E" flood-opacity="0.18"/>
+    </filter>
+  `;
+  while (tmp.firstChild) defs.appendChild(tmp.firstChild);
+
+  // Rect nodes — gradient fill + rounded corners + shadow
+  svgEl.querySelectorAll('.node rect').forEach(el => {
+    el.setAttribute('fill',         `url(#mmg-${uid})`);
+    el.setAttribute('stroke',       '#D97706');
+    el.setAttribute('stroke-width', '1.5');
+    el.setAttribute('rx',           '8');
+    el.setAttribute('ry',           '8');
+    el.setAttribute('filter',       `url(#mmf-${uid})`);
+  });
+
+  // Diamond decision nodes
+  svgEl.querySelectorAll('.node polygon').forEach(el => {
+    el.setAttribute('fill',         `url(#mmd-${uid})`);
+    el.setAttribute('stroke',       '#D97706');
+    el.setAttribute('stroke-width', '1.5');
+    el.setAttribute('filter',       `url(#mmf-${uid})`);
+  });
+
+  // Circle / ellipse terminal nodes
+  svgEl.querySelectorAll('.node circle, .node ellipse').forEach(el => {
+    el.setAttribute('fill',         `url(#mmd-${uid})`);
+    el.setAttribute('stroke',       '#D97706');
+    el.setAttribute('stroke-width', '2');
+    el.setAttribute('filter',       `url(#mmf-${uid})`);
+  });
+
+  // Connector lines
+  svgEl.querySelectorAll('.flowchart-link, .edgePath path').forEach(el => {
+    el.setAttribute('stroke',       '#94A3B8');
+    el.setAttribute('stroke-width', '1.5');
+  });
+
+  // Arrowheads
+  svgEl.querySelectorAll('marker path, marker polygon').forEach(el => {
+    el.setAttribute('fill',   '#94A3B8');
+    el.setAttribute('stroke', 'none');
+  });
+}
+
+// ── Mermaid diagram ───────────────────────────────────────────────────────────
+
+function MermaidBlock({ chart }) {
+  const containerRef = useRef(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function render() {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'loose',
+          theme: 'base',
+          themeVariables: {
+            primaryColor:        '#FEF3C7',
+            primaryTextColor:    '#0F172A',
+            primaryBorderColor:  '#D97706',
+            lineColor:           '#94A3B8',
+            secondaryColor:      '#FFF8EC',
+            tertiaryColor:       '#F8FAFC',
+            background:          '#FFFFFF',
+            mainBkg:             '#FEF9EE',
+            nodeBorder:          '#F59E0B',
+            clusterBkg:          '#FEF3C7',
+            titleColor:          '#0F172A',
+            edgeLabelBackground: '#FFFBEB',
+            fontFamily:          'Inter, system-ui, sans-serif',
+            fontSize:            '13px',
+          },
+        });
+        const id = 'mmd-' + Math.random().toString(36).slice(2, 9);
+        const { svg } = await mermaid.render(id, chart.trim());
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
+          applyPremiumStyling(containerRef.current.querySelector('svg'), id);
+        }
+      } catch (err) {
+        if (!cancelled) setError(String(err.message || err));
+      }
+    }
+    render();
+    return () => { cancelled = true; };
+  }, [chart]);
+
+  return (
+    <div className="glass-card p-5 my-4 animate-slide-up overflow-x-auto">
+      <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider mb-3">Process Flow</p>
+      {error
+        ? <pre className="text-xs text-navy-500 dark:text-white/50 whitespace-pre-wrap font-mono">{chart}</pre>
+        : <div ref={containerRef} className="flex justify-center [&_svg]:max-w-full" />
+      }
+    </div>
+  );
+}
+
+// Split markdown into text segments, JSON viz blocks, and mermaid blocks
 function splitAtVizBlocks(md) {
   const parts = [];
-  const re = /```json\s*(\{[\s\S]*?\})\s*```/g;
+  const re = /```(json|mermaid)\s*([\s\S]*?)\s*```/g;
   let last = 0;
   let m;
 
   while ((m = re.exec(md)) !== null) {
     if (m.index > last) parts.push({ type: 'text', content: md.slice(last, m.index) });
-    try {
-      const obj = JSON.parse(m[1]);
-      if (obj && typeof obj.type === 'string') {
-        parts.push({ type: 'viz', data: obj });
-      } else {
+    const lang = m[1];
+    const body = m[2];
+    if (lang === 'mermaid') {
+      parts.push({ type: 'mermaid', chart: body });
+    } else {
+      try {
+        const obj = JSON.parse(body);
+        if (obj && typeof obj.type === 'string') {
+          parts.push({ type: 'viz', data: obj });
+        } else {
+          parts.push({ type: 'text', content: m[0] });
+        }
+      } catch {
         parts.push({ type: 'text', content: m[0] });
       }
-    } catch {
-      parts.push({ type: 'text', content: m[0] });
     }
     last = re.lastIndex;
   }
@@ -307,6 +438,8 @@ export default function MarkdownRenderer({ content }) {
       {parts.map((part, i) =>
         part.type === 'viz'
           ? <VizRenderer key={i} data={part.data} />
+          : part.type === 'mermaid'
+          ? <MermaidBlock key={i} chart={part.chart} />
           : <Fragment key={i}>{renderSection(part.content)}</Fragment>
       )}
     </div>

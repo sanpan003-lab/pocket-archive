@@ -3,7 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Mic2, LayoutDashboard, Search, Star, Settings,
   ChevronLeft, ChevronRight, Moon, Sun, RefreshCw, Check, AlertCircle,
-  Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2,
+  Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2, MonitorDown, X,
+  Smartphone, Monitor, Share,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -116,6 +117,7 @@ export default function Sidebar() {
 
   const [counts, setCounts] = useState({});
   const sync = useSyncButton(triggerRefresh);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   useEffect(() => {
     getStats()
@@ -139,6 +141,7 @@ export default function Sidebar() {
   } : {};
 
   return (
+    <>
     <aside
       className="glass-sidebar fixed top-0 left-0 h-full flex flex-col overflow-hidden transition-all duration-300"
       style={{
@@ -269,6 +272,16 @@ export default function Sidebar() {
 
         <div className="divider" />
 
+        {/* Install App */}
+        <button
+          className="nav-item w-full"
+          onClick={() => setShowInstallModal(true)}
+          title="Install App"
+        >
+          <MonitorDown size={18} className="shrink-0 text-gold-500" />
+          {showLabels && <span className="animate-fade-in">Install App</span>}
+        </button>
+
         {/* Dark mode toggle */}
         <button
           className="nav-item w-full"
@@ -344,5 +357,98 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+
+    {/* ── Install App Modal ─────────────────────────────────────────────── */}
+    {showInstallModal && (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+        style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+        onClick={() => setShowInstallModal(false)}
+      >
+        <div
+          className="glass-card w-full max-w-sm p-6 animate-slide-up"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <MonitorDown size={20} className="text-gold-500" />
+              <h2 className="text-base font-bold text-navy-900 dark:text-white">Install Pocket Archive</h2>
+            </div>
+            <button
+              className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+              onClick={() => setShowInstallModal(false)}
+            >
+              <X size={16} className="text-navy-500 dark:text-white/60" />
+            </button>
+          </div>
+
+          <p className="text-xs text-navy-500 dark:text-white/60 mb-5 leading-relaxed">
+            Install Pocket Archive as an app for quick access from your home screen or desktop.
+          </p>
+
+          {/* iOS */}
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Smartphone size={14} className="text-gold-500 shrink-0" />
+              <span className="text-xs font-semibold text-navy-800 dark:text-white/90 uppercase tracking-wider">iPhone / iPad (Safari)</span>
+            </div>
+            <ol className="list-decimal list-outside ml-5 space-y-1">
+              {[
+                'Open this site in Safari',
+                <>Tap the <Share size={12} className="inline mb-0.5" /> Share button in the toolbar</>,
+                'Scroll down and tap "Add to Home Screen"',
+                'Tap "Add" to confirm',
+              ].map((step, i) => (
+                <li key={i} className="text-xs text-navy-600 dark:text-white/70 leading-relaxed">{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Android */}
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Smartphone size={14} className="text-gold-500 shrink-0" />
+              <span className="text-xs font-semibold text-navy-800 dark:text-white/90 uppercase tracking-wider">Android (Chrome)</span>
+            </div>
+            <ol className="list-decimal list-outside ml-5 space-y-1">
+              {[
+                'Open this site in Chrome',
+                'Tap the ⋮ menu (top-right)',
+                'Tap "Add to Home screen" or "Install app"',
+                'Tap "Add" to confirm',
+              ].map((step, i) => (
+                <li key={i} className="text-xs text-navy-600 dark:text-white/70 leading-relaxed">{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Desktop */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Monitor size={14} className="text-gold-500 shrink-0" />
+              <span className="text-xs font-semibold text-navy-800 dark:text-white/90 uppercase tracking-wider">Desktop (Chrome / Edge)</span>
+            </div>
+            <ol className="list-decimal list-outside ml-5 space-y-1">
+              {[
+                'Open this site in Chrome or Edge',
+                'Look for the install icon (⊕) in the address bar',
+                'Click "Install" in the prompt',
+              ].map((step, i) => (
+                <li key={i} className="text-xs text-navy-600 dark:text-white/70 leading-relaxed">{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          <button
+            className="btn-gold w-full mt-5 text-sm"
+            onClick={() => setShowInstallModal(false)}
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

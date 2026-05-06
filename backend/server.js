@@ -252,8 +252,10 @@ function moveDirSync(src, dst) {
   }
 }
 
-// ── AI Notes prompt (mirrors pocket_sync.py) ──────────────────────────────
-const AI_NOTES_PROMPT = `You are generating enhanced AI notes for a voice recording transcript/summary. Create structured markdown with visualizations where relevant.
+// ── AI Notes prompt ────────────────────────────────────────────────────────
+const AI_NOTES_PROMPT = `You are analyzing a voice recording transcript and summary.
+Create comprehensive notes with an adaptive structure that best fits the content.
+Do not use a rigid template — choose the sections that make the most sense for this recording.
 
 Transcript:
 {transcript}
@@ -261,78 +263,149 @@ Transcript:
 Hey Pocket Summary:
 {original_notes}
 
-## Output Format
+---
 
-### 1. Executive Summary
-2-3 sentence overview of the recording content and main theme.
+## STEP 1: Silently Analyze the Recording
 
-### 2. Key Points
-Bullet list of 3-5 main takeaways.
+Before writing, internally determine (do not output this):
+- Recording type: meeting, phone call, brainstorm, lecture, interview, personal memo,
+  technical discussion, medical update, financial review, creative session, or other
+- Content domain: business, technical, medical/health, personal, educational, creative,
+  legal, financial, or other
+- Key themes: the 3-5 most important topics covered
 
-### 3. Action Items & Timeline
-ALWAYS include this section. Map every task, follow-up, or event from the recording into the timeline. If no exact dates were mentioned, infer approximate dates or use relative ones (e.g. "2026-05-01"). You MUST output this JSON block:
+Use this analysis only to choose the right sections in Step 2.
 
-\`\`\`json
-{
-  "type": "timeline",
-  "title": "Action Timeline",
-  "events": [
-    {"date": "YYYY-MM-DD", "label": "Task name", "status": "pending"},
-    {"date": "YYYY-MM-DD", "label": "Deadline", "status": "critical"}
-  ]
-}
+---
+
+## STEP 2: Choose 3-7 Sections
+
+Pick the sections below that best capture this specific recording.
+You may also invent a custom heading if none of these fit.
+Always include at least one overview section and end with Action Items if any tasks exist.
+
+**Overview (pick one or both):**
+- Executive Summary — broad overview of everything important
+- Key Insights — main takeaways, implications, and what matters most
+
+**Action & Decisions:**
+- Action Items — use a markdown table (Date | Task | Owner | Status)
+- Decisions Made — what was decided, by whom, and why
+- Open Questions — unresolved questions that still need answers
+- Next Steps — ordered sequence of what happens after this recording
+
+**Technical:**
+- Technical Details — specs, configurations, code notes, system behavior
+- Implementation Approach — how to build, deploy, or integrate something
+- Requirements — functional and non-functional requirements captured
+- Bug Analysis — root cause, reproduction steps, impact, and fix
+- Security Considerations — risks, attack surface, mitigations, access control
+- Architecture & Design — system design, data flow, component relationships
+
+**Meeting & Discussion:**
+- Discussion Points — what was talked about and the key positions taken
+- Decisions Made — agreements, conclusions, and who owns them
+- Stakeholder Notes — who said what, their concerns, their priorities
+- Attendees & Context — who was involved, their roles, meeting purpose
+
+**Research & Learning:**
+- Key Takeaways — what to remember and apply from this
+- Main Arguments — positions argued and the logic behind them
+- Supporting Evidence — data, examples, studies, or references cited
+- Related Concepts — connected topics worth exploring further
+
+**Medical & Health:**
+- Clinical Summary — condition, symptoms, diagnosis, current status
+- Medications & Treatment — names, doses, schedules, instructions, refills
+- Warning Signs — when to seek care immediately, symptoms to monitor
+- Follow-up Care — next appointments, pending tests, who to contact
+
+**Financial & Business:**
+- Financial Details — amounts, costs, billing, insurance, copays, estimates
+- Contact Information — names, phone numbers, addresses, fax, reference numbers
+- Risk Assessment — identified risks, probability, impact, mitigation steps
+- Business Context — background, market situation, strategic implications
+
+**Creative & Personal:**
+- Ideas Generated — brainstorm output, concepts, possibilities explored
+- Personal Reflections — thoughts, feelings, realizations, intentions
+- Goals & Intentions — what the person wants to achieve and why
+- Creative Direction — style decisions, tone, approach, constraints
+
+---
+
+## STEP 3: Write the Notes
+
+Start directly with the first section heading. No preamble, no meta-commentary,
+no explanation of your section choices.
+
+**Formatting rules:**
+- Use ## for every section heading (e.g., ## Executive Summary)
+- Use **bold labels** on every bullet: - **Label:** detail
+- Action Items must always be a markdown table:
+
+| Date / Deadline | Action Item | Owner | Status |
+|----------------|-------------|-------|--------|
+| YYYY-MM-DD | Task description | Person or "—" | Pending |
+
+If no specific dates were mentioned, use: ASAP, TBD, or "Within X days/weeks"
+
+**Content rules:**
+- COMPLETENESS FIRST — if it was mentioned, it must appear in the notes
+- No length limits — write as much as needed to capture everything
+- Include specific details: exact dates, amounts, phone numbers, addresses, names,
+  reference numbers, authorization codes, medication doses, case numbers
+- Medical / pharmacy / financial / legal content: capture every specific detail
+- Do not use JSON visualization blocks — use markdown tables for structured data
+- Do not pad with filler — if a section has nothing meaningful to say, skip it
+- If the recording has no action items, omit the Action Items section entirely
+
+---
+
+## STEP 4: Always Append These Two Sections Last
+
+These are MANDATORY. They must appear at the very end of every note, after all
+sections chosen in Step 2.
+
+### Metrics & Data Analysis
+
+Present every number, quantity, cost, duration, percentage, count, or measurable
+value from the recording as a structured table. Include estimated values if exact
+numbers were not given (e.g. "~2 hours", "roughly $500", "high priority = 3/5").
+
+| Metric | Value | Change / Trend | Notes |
+|--------|-------|---------------|-------|
+| [metric name] | [value + units] | ↑ / ↓ / → / N/A | [context or source] |
+
+If no quantitative data exists at all, include one row:
+| Overall | Qualitative only | — | No numbers mentioned in this recording |
+
+### Process & Workflow
+
+If any process, sequence of steps, workflow, decision path, or procedure was
+discussed, represent it as a Mermaid flowchart. Follow these rules exactly:
+
+\`\`\`mermaid
+graph TD
+    A[Start] --> B[First Step]
+    B --> C{Decision Point?}
+    C -->|Yes| D[Action A]
+    C -->|No| E[Action B]
+    D --> F[End / Outcome]
+    E --> F
 \`\`\`
 
-### 4. Decisions & Options
-ALWAYS include this section. Identify the central decision, trade-off, or open question from the recording. If no explicit decision exists, frame the most likely one. You MUST output this JSON block:
+Mermaid syntax rules — a violation causes a render error:
+- Use graph TD (top-down) or graph LR (left-right)
+- Node IDs: letters or short alphanumeric only — A, B, C1, Step2 (no spaces)
+- Square brackets for steps:    A[Step label]
+- Curly braces for decisions:   B{Question?}
+- Arrow labels:                 -->|Yes| or -->|No|
+- Node labels must be under 35 characters
+- No quotes or nested brackets inside node labels
 
-\`\`\`json
-{
-  "type": "decision_tree",
-  "title": "Decision Options",
-  "root": {
-    "question": "Main decision to make?",
-    "yes": {"action": "If yes: what to do", "outcome": "positive"},
-    "no": {"action": "If no: what to do", "outcome": "neutral"}
-  }
-}
-\`\`\`
-
-### 5. Metrics & Data
-ALWAYS include this section. Extract any numbers, counts, percentages, durations, or quantities mentioned. If the content is qualitative, estimate relative values (e.g. priority levels, effort scores). You MUST output one of these JSON blocks:
-
-\`\`\`json
-{
-  "type": "bar_chart",
-  "title": "Chart title",
-  "data": [
-    {"label": "Category 1", "value": 45},
-    {"label": "Category 2", "value": 62}
-  ]
-}
-\`\`\`
-
-### 6. Process & Workflow
-ALWAYS include this section. Map out the sequence of steps, events, or actions discussed in the recording as a flowchart. You MUST output this JSON block:
-
-\`\`\`json
-{
-  "type": "flowchart",
-  "title": "Process name",
-  "steps": [
-    {"id": 1, "label": "Step 1", "next": 2},
-    {"id": 2, "label": "Step 2", "next": 3},
-    {"id": 3, "label": "Step 3", "next": null}
-  ]
-}
-\`\`\`
-
-## Rules
-- ALWAYS include Executive Summary and Key Points — these are mandatory
-- JSON visualization blocks are REQUIRED, not optional
-- Every AI note MUST contain at least 2-3 JSON visualization blocks
-- All JSON must be valid and properly formatted
-- Dates in timelines must be ISO format (YYYY-MM-DD)`;
+If no process or workflow was discussed, write this plain text (no code block):
+No sequential process or workflow was described in this recording.`;
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 
@@ -471,12 +544,47 @@ app.get('/api/recordings/:id', (req, res) => {
   }
 });
 
-// POST /api/recordings/:id/regenerate — re-run Claude on existing notes
+// ── AI generation helpers ─────────────────────────────────────────────────
+
+async function generateWithGemini(prompt) {
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+    generationConfig: { maxOutputTokens: 8192 },
+  });
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  if (!text) throw new Error('Gemini returned an empty response — content may have been filtered');
+  return text;
+}
+
+async function generateWithClaude(prompt) {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
+  const msg = await client.messages.create({
+    model:      process.env.CLAUDE_MODEL || 'claude-opus-4-5',
+    max_tokens: 8192,
+    messages:   [{ role: 'user', content: prompt }],
+  });
+  return msg.content[0].text;
+}
+
+// POST /api/recordings/:id/regenerate — re-run AI generation on existing notes
+// Body (optional): { "model": "gemini" | "claude" }  — defaults to "gemini"
 app.post('/api/recordings/:id/regenerate', async (req, res) => {
   const { id } = req.params;
   if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
 
-  if (!process.env.CLAUDE_API_KEY) {
+  const model = (req.body?.model || 'gemini').toLowerCase();
+  if (!['gemini', 'claude'].includes(model)) {
+    return res.status(400).json({ error: 'model must be "gemini" or "claude"' });
+  }
+
+  if (model === 'gemini' && !process.env.GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'GEMINI_API_KEY not set in backend .env' });
+  }
+  if (model === 'claude' && !process.env.CLAUDE_API_KEY) {
     return res.status(503).json({ error: 'CLAUDE_API_KEY not set in backend .env' });
   }
 
@@ -488,17 +596,11 @@ app.post('/api/recordings/:id/regenerate', async (req, res) => {
       .replace('{transcript}',     transcript    || '(No transcript available)')
       .replace('{original_notes}', originalNotes || '(No Hey Pocket summary available)');
 
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
-    const msg = await client.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      messages:   [{ role: 'user', content: prompt }],
-    });
+    const aiNotes = model === 'gemini'
+      ? await generateWithGemini(prompt)
+      : await generateWithClaude(prompt);
 
-    const aiNotes = msg.content[0].text;
     fs.writeFileSync(path.join(DIRS.aiNotes, `${id}.md`), aiNotes, 'utf8');
-
     res.json(buildRecordingResponse(id));
   } catch (err) {
     console.error('/regenerate error:', err);
