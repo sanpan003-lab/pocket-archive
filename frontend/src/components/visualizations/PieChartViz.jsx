@@ -1,8 +1,7 @@
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-
-const PALETTE = ['#F59E0B', '#6366F1', '#10B981', '#EC4899', '#3B82F6', '#8B5CF6', '#F97316', '#14B8A6'];
+import { VIZ_COLORS } from './palette';
 
 const TooltipContent = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
@@ -52,7 +51,7 @@ export default function PieChartViz({ data }) {
             strokeWidth={0}
           >
             {chartData.map((_, i) => (
-              <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+              <Cell key={i} fill={VIZ_COLORS[i % VIZ_COLORS.length]} />
             ))}
           </Pie>
           <Tooltip content={<TooltipContent />} />

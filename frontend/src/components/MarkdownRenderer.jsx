@@ -1,123 +1,77 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import VizRenderer from './visualizations/VizRenderer';
+import { MMD_PALETTE } from './visualizations/palette';
 
-// ── Mermaid premium SVG post-processor ───────────────────────────────────────
-//
-// WHY inline styles: Mermaid's generated <style> block uses CSS class rules,
-// which beat SVG presentation attributes (setAttribute). Inline el.style wins.
-// WHY DOMParser: createElementNS('svg').innerHTML doesn't guarantee the correct
-// SVG namespace for child elements in all browsers — DOMParser + importNode does.
+// ── Mermaid theme ─────────────────────────────────────────────────────────────
+// Uses inline el.style (beats Mermaid's generated CSS class rules in the cascade).
+// DOMParser guarantees correct SVG namespace for gradient/filter defs.
 
-function applyPremiumStyling(svgEl, uid) {
+function applyMermaidTheme(svgEl, uid) {
   if (!svgEl) return;
 
-  // Ensure <defs> exists
   let defs = svgEl.querySelector('defs');
   if (!defs) {
     defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     svgEl.insertBefore(defs, svgEl.firstChild);
   }
 
-  // Build gradient + filter XML, parsed via DOMParser for correct SVG namespace
   const defsXML = `<svg xmlns="http://www.w3.org/2000/svg">
-
-    <!-- Node fill: warm cream → amber gradient with slight transparency -->
-    <linearGradient id="mmg-${uid}" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
-      <stop offset="0%"   stop-color="#FFFDF7" stop-opacity="0.97"/>
-      <stop offset="55%"  stop-color="#FEF3C7" stop-opacity="0.94"/>
-      <stop offset="100%" stop-color="#FDE68A" stop-opacity="0.90"/>
-    </linearGradient>
-
-    <!-- Decision/terminal fill: deeper amber gradient -->
-    <linearGradient id="mmd-${uid}" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
-      <stop offset="0%"   stop-color="#FEF9EE" stop-opacity="0.97"/>
-      <stop offset="100%" stop-color="#FCD34D" stop-opacity="0.92"/>
-    </linearGradient>
-
-    <!--
-      3-layer depth filter:
-        1. Amber outer glow  — dilate alpha, fill gold, gaussian blur
-        2. Soft drop shadow  — large offset + heavy blur for elevation
-        3. Contact shadow    — tight offset + warm tint for grounding
-    -->
-    <filter id="mmf-${uid}" x="-35%" y="-35%" width="170%" height="205%"
-            color-interpolation-filters="sRGB">
-
-      <!-- Layer 1: amber outer glow -->
-      <feMorphology   in="SourceAlpha" operator="dilate" radius="2"   result="dilated"/>
-      <feGaussianBlur in="dilated"     stdDeviation="5"               result="glowBlur"/>
-      <feFlood        flood-color="#F59E0B" flood-opacity="0.28"       result="glowFill"/>
-      <feComposite    in="glowFill"  in2="glowBlur"  operator="in"    result="outerGlow"/>
-
-      <!-- Layer 2: primary elevation shadow (large, soft, dark) -->
-      <feOffset       in="SourceAlpha" dx="0"  dy="5"                 result="off1"/>
-      <feGaussianBlur in="off1"        stdDeviation="8"               result="blur1"/>
-      <feFlood        flood-color="#0F172A" flood-opacity="0.10"       result="fill1"/>
-      <feComposite    in="fill1" in2="blur1" operator="in"            result="shadow1"/>
-
-      <!-- Layer 3: contact shadow (tight, warm amber-brown) -->
-      <feOffset       in="SourceAlpha" dx="0"  dy="2"                 result="off2"/>
-      <feGaussianBlur in="off2"        stdDeviation="2.5"             result="blur2"/>
-      <feFlood        flood-color="#78350F" flood-opacity="0.14"       result="fill2"/>
-      <feComposite    in="fill2" in2="blur2" operator="in"            result="shadow2"/>
-
-      <!-- Composite: glow behind, then shadows, then original on top -->
-      <feMerge>
-        <feMergeNode in="outerGlow"/>
-        <feMergeNode in="shadow1"/>
-        <feMergeNode in="shadow2"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
+    ${Object.entries(MMD_PALETTE).map(([type, c]) => `
+      <linearGradient id="mmg-${type}-${uid}" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+        <stop offset="0%"   stop-color="${c.g0}"/>
+        <stop offset="100%" stop-color="${c.g1}"/>
+      </linearGradient>
+      <filter id="mmf-${type}-${uid}" x="-30%" y="-30%" width="160%" height="190%"
+              color-interpolation-filters="sRGB">
+        <feMorphology   in="SourceAlpha" operator="dilate" radius="1.5"  result="dilated"/>
+        <feGaussianBlur in="dilated"     stdDeviation="4"                result="glowBlur"/>
+        <feFlood        flood-color="${c.color}" flood-opacity="0.20"    result="glowFill"/>
+        <feComposite    in="glowFill" in2="glowBlur" operator="in"       result="glow"/>
+        <feOffset       in="SourceAlpha" dx="0" dy="4"                   result="offA"/>
+        <feGaussianBlur in="offA"        stdDeviation="7"                result="shadowBlur"/>
+        <feFlood        flood-color="#0F172A" flood-opacity="0.10"        result="shadowFill"/>
+        <feComposite    in="shadowFill" in2="shadowBlur" operator="in"   result="shadow"/>
+        <feMerge>
+          <feMergeNode in="glow"/>
+          <feMergeNode in="shadow"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    `).join('')}
   </svg>`;
 
   const parsed = new DOMParser().parseFromString(defsXML, 'image/svg+xml');
-  for (const child of parsed.documentElement.childNodes) {
-    defs.appendChild(document.importNode(child, true));
+  for (const node of parsed.documentElement.childNodes) {
+    defs.appendChild(document.importNode(node, true));
   }
 
-  // ── Apply styles via el.style (inline > CSS class > presentation attribute) ──
-
-  // Rect nodes — all variants: .node rect AND .label-container (Mermaid v11)
-  svgEl.querySelectorAll('.node rect, rect.label-container').forEach(el => {
-    el.style.fill        = `url(#mmg-${uid})`;
-    el.style.stroke      = '#D97706';
+  function style(el, type) {
+    const c = MMD_PALETTE[type];
+    if (!c) return;
+    el.style.fill        = `url(#mmg-${type}-${uid})`;
+    el.style.stroke      = c.color;
     el.style.strokeWidth = '1.5px';
-    el.style.filter      = `url(#mmf-${uid})`;
-    el.setAttribute('rx', '12');
-    el.setAttribute('ry', '12');
-  });
+    el.style.filter      = `url(#mmf-${type}-${uid})`;
+    if (el.tagName.toLowerCase() === 'rect') {
+      el.setAttribute('rx', '10');
+      el.setAttribute('ry', '10');
+    }
+  }
 
-  // Diamond decision nodes
-  svgEl.querySelectorAll('.node polygon, polygon.label-container').forEach(el => {
-    el.style.fill        = `url(#mmd-${uid})`;
-    el.style.stroke      = '#D97706';
-    el.style.strokeWidth = '1.5px';
-    el.style.filter      = `url(#mmf-${uid})`;
-  });
+  svgEl.querySelectorAll('.node rect, rect.label-container').forEach(el => style(el, 'rect'));
+  svgEl.querySelectorAll('.node polygon, polygon.label-container').forEach(el => style(el, 'polygon'));
+  svgEl.querySelectorAll('.node circle').forEach(el => style(el, 'circle'));
+  svgEl.querySelectorAll('.node ellipse').forEach(el => style(el, 'ellipse'));
+  svgEl.querySelectorAll('.node path.label-container, path.basic.label-container').forEach(el => style(el, 'path'));
 
-  // Circle / ellipse terminal nodes
-  svgEl.querySelectorAll('.node circle, .node ellipse').forEach(el => {
-    el.style.fill        = `url(#mmd-${uid})`;
-    el.style.stroke      = '#D97706';
-    el.style.strokeWidth = '2px';
-    el.style.filter      = `url(#mmf-${uid})`;
-  });
-
-  // Connectors — slate gray, slightly thicker than default
   svgEl.querySelectorAll('.flowchart-link, .edgePath path, path.path').forEach(el => {
     el.style.stroke      = '#94A3B8';
     el.style.strokeWidth = '1.5px';
+    el.style.fill        = 'none';
   });
-
-  // Arrowheads
   svgEl.querySelectorAll('marker path, marker polygon').forEach(el => {
-    el.style.fill   = '#94A3B8';
-    el.style.stroke = 'none';
+    el.style.fill = '#94A3B8'; el.style.stroke = 'none';
   });
-
-  // Transparent SVG background so glass-card shows through (enables depth layering)
   svgEl.style.background = 'transparent';
   svgEl.querySelectorAll('[class*="background"], rect#background').forEach(el => {
     el.style.fill = 'transparent';
@@ -140,18 +94,18 @@ function MermaidBlock({ chart }) {
           securityLevel: 'loose',
           theme: 'base',
           themeVariables: {
-            primaryColor:        '#FEF3C7',
-            primaryTextColor:    '#0F172A',
-            primaryBorderColor:  '#D97706',
-            lineColor:           '#94A3B8',
-            secondaryColor:      '#FFF8EC',
-            tertiaryColor:       '#F8FAFC',
+            primaryColor:        '#EFF6FF',   // blue tint — overridden per shape by post-processor
+            primaryTextColor:    '#0F172A',   // dark text readable on all light tint fills
+            primaryBorderColor:  '#3B82F6',
+            lineColor:           '#94A3B8',   // slate connectors
+            secondaryColor:      '#F0FDF4',
+            tertiaryColor:       '#F5F3FF',
             background:          '#FFFFFF',
-            mainBkg:             '#FEF9EE',
-            nodeBorder:          '#F59E0B',
-            clusterBkg:          '#FEF3C7',
+            mainBkg:             '#EFF6FF',
+            nodeBorder:          '#3B82F6',
+            clusterBkg:          '#F8FAFC',
             titleColor:          '#0F172A',
-            edgeLabelBackground: '#FFFBEB',
+            edgeLabelBackground: '#F8FAFC',
             fontFamily:          'Inter, system-ui, sans-serif',
             fontSize:            '13px',
           },
@@ -160,7 +114,7 @@ function MermaidBlock({ chart }) {
         const { svg } = await mermaid.render(id, chart.trim());
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
-          applyPremiumStyling(containerRef.current.querySelector('svg'), id);
+          applyMermaidTheme(containerRef.current.querySelector('svg'), id);
         }
       } catch (err) {
         if (!cancelled) setError(String(err.message || err));
