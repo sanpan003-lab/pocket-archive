@@ -11,11 +11,11 @@ export const VIZ_COLORS = [
 ];
 
 // Per-shape config for Mermaid post-processor
-// color = stroke + glow source; g0/g1 = gradient top/bottom (light tint → mid tint)
+// color = stroke + glow source; g0/g1 = gradient top/bottom (medium → saturated tint)
 export const MMD_PALETTE = {
-  rect:    { color: '#3B82F6', g0: '#EFF6FF', g1: '#BFDBFE' }, // blue
-  polygon: { color: '#22C55E', g0: '#F0FDF4', g1: '#BBF7D0' }, // green
-  circle:  { color: '#F97316', g0: '#FFF7ED', g1: '#FED7AA' }, // orange
-  path:    { color: '#06B6D4', g0: '#ECFEFF', g1: '#A5F3FC' }, // cyan
-  ellipse: { color: '#8B5CF6', g0: '#F5F3FF', g1: '#DDD6FE' }, // violet
+  rect:    { color: '#3B82F6', g0: '#DBEAFE', g1: '#93C5FD' }, // blue
+  polygon: { color: '#22C55E', g0: '#DCFCE7', g1: '#86EFAC' }, // green
+  circle:  { color: '#F97316', g0: '#FFEDD5', g1: '#FDBA74' }, // orange
+  path:    { color: '#06B6D4', g0: '#CFFAFE', g1: '#67E8F9' }, // cyan
+  ellipse: { color: '#8B5CF6', g0: '#EDE9FE', g1: '#C4B5FD' }, // violet
 };
