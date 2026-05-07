@@ -1,11 +1,12 @@
 import TimelineViz from './TimelineViz';
 import PieChartViz from './PieChartViz';
+import BarChartViz from './BarChartViz';
 import DecisionTreeViz from './DecisionTreeViz';
 import FlowchartViz from './FlowchartViz';
 
 const MAP = {
   timeline:      TimelineViz,
-  bar_chart:     PieChartViz,  // bar_chart data rendered as pie for richer visuals
+  bar_chart:     BarChartViz,
   pie_chart:     PieChartViz,
   decision_tree: DecisionTreeViz,
   flowchart:     FlowchartViz,

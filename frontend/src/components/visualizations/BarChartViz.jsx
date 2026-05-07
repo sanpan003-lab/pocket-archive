@@ -2,8 +2,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-
-const GOLD_SHADES = ['#F59E0B', '#FBBF24', '#D97706', '#FCD34D', '#B45309', '#FDE68A'];
+import { VIZ_COLORS } from './palette';
 
 const TooltipContent = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -27,30 +26,38 @@ export default function BarChartViz({ data }) {
   if (!raw.length) return null;
 
   const chartData = raw.map(d => ({ name: d.label, value: Number(d.value) || 0 }));
+  const height = Math.max(180, chartData.length * 44 + 40);
 
   return (
     <div className="glass-card p-5 my-4 animate-slide-up">
-      <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider mb-1">Chart</p>
-      <h4 className="font-bold text-navy-900 text-base mb-5">{title}</h4>
+      <p className="text-xs font-semibold text-navy-400 uppercase tracking-wider mb-1">Metrics</p>
+      <h4 className="font-bold text-navy-900 text-base mb-4">{title}</h4>
 
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={chartData} margin={{ top: 4, right: 16, left: -8, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(15,23,42,0.06)" vertical={false} />
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart
+          data={chartData}
+          layout="vertical"
+          margin={{ top: 0, right: 48, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="rgba(15,23,42,0.06)" />
           <XAxis
-            dataKey="name"
-            tick={{ fontSize: 12, fill: '#94A3B8' }}
+            type="number"
+            tick={{ fontSize: 11, fill: '#94A3B8' }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 12, fill: '#94A3B8' }}
+            type="category"
+            dataKey="name"
+            width={120}
+            tick={{ fontSize: 12, fill: '#475569' }}
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(245,158,11,0.06)' }} />
-          <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={64}>
+          <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(15,23,42,0.04)' }} />
+          <Bar dataKey="value" radius={[0, 6, 6, 0]} label={{ position: 'right', fontSize: 11, fill: '#64748B' }}>
             {chartData.map((_, i) => (
-              <Cell key={i} fill={GOLD_SHADES[i % GOLD_SHADES.length]} />
+              <Cell key={i} fill={VIZ_COLORS[i % VIZ_COLORS.length]} />
             ))}
           </Bar>
         </BarChart>
