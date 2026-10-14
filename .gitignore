@@ -41,3 +41,17 @@ Thumbs.db
 
 # Google service account keys — NEVER commit
 *service-account*.json
+
+# Android app (Capacitor) - signing keys, local SDK paths, server URL, build outputs
+*.jks
+*.keystore
+**/keystore.properties
+**/local.properties
+**/.env.android
+*.apk
+*.aab
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/.gradle/
+frontend/android/app/src/main/assets/public/
+frontend/android/capacitor-cordova-android-plugins/

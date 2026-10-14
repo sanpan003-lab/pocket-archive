@@ -14,6 +14,8 @@ import TrashPage from './pages/TrashPage';
 import CreateRecordingPage from './pages/CreateRecordingPage';
 import QuickCapturePage from './pages/QuickCapturePage';
 import QuickInboxPage from './pages/QuickInboxPage';
+import NativeBridge from './native/NativeBridge';
+import PermissionGate from './native/PermissionGate';
 
 // ── Full-screen spinner (shown while checking session cookie) ─────────────────
 
@@ -49,6 +51,9 @@ export default function App() {
   return (
     <AppProvider>
       <BrowserRouter>
+        {/* Android app only: back button + shortcut routes, first-launch permissions */}
+        <NativeBridge />
+        <PermissionGate>
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
 
@@ -99,6 +104,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
+        </PermissionGate>
       </BrowserRouter>
     </AppProvider>
   );

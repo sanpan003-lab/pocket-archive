@@ -10,6 +10,8 @@ const { randomUUID } = require('crypto');
 const {
   verifyPassword, generateToken, verifyToken,
   hashPassword, savePassword, mustChangePassword,
+  createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken,
+  generateMediaToken, verifyMediaToken,
 } = require('./auth');
 const { createQuickCapture } = require('./quickCapture');
 
@@ -33,7 +35,11 @@ fs.mkdirSync(DIRS.deleted, { recursive: true });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  origin: [
+    'http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173',
+    // Android app (Capacitor WebView origins)
+    'https://localhost', 'capacitor://localhost',
+  ],
   credentials: true,
 }));
 app.use(express.json());
@@ -487,7 +493,29 @@ function renewAppSession(payload, res) {
   }
 }
 
+function bearerToken(req) {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : null;
+}
+
+// Media URLs the Android app loads in <audio>/links (no Authorization header possible)
+const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/audio|recordings\/[^/]+\/attachments\/[^/]+)$/;
+
 function requireAuth(req, res, next) {
+  // Android app: "Authorization: Bearer <device token>"
+  const bearer = bearerToken(req);
+  if (bearer) {
+    const device = verifyDeviceToken(bearer);
+    if (!device) return res.status(401).json({ error: 'Unauthorized' });
+    req.device = device;
+    return next();
+  }
+  // Android app media: short-lived read-only token in ?mt=, GET on media paths only
+  if (req.method === 'GET' && typeof req.query.mt === 'string' && MEDIA_PATH_RE.test(req.path)) {
+    if (verifyMediaToken(req.query.mt)) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  // Web: session cookie (unchanged)
   const token = req.cookies?.token;
   const payload = token && verifyToken(token);
   if (!payload) {
@@ -513,10 +541,22 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/status', (req, res) => {
+  const bearer = bearerToken(req);
+  if (bearer) return res.json({ authenticated: !!verifyDeviceToken(bearer) }); // Android app
   const token = req.cookies?.token;
   const valid = token && verifyToken(token);
   if (valid) renewAppSession(valid, res); // app launch keeps the 30-day session fresh
   res.json({ authenticated: !!valid });
+});
+
+// POST /api/auth/device-token — Android app sign-in: password → 90-day device token
+app.post('/api/auth/device-token', (req, res) => {
+  const { password, deviceName } = req.body || {};
+  if (!verifyPassword(password)) {
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+  const { token, device } = createDeviceToken(deviceName);
+  res.json({ token, device, mustChangePassword: mustChangePassword() });
 });
 
 // Blanket auth guard — all /api/* routes after this point require auth
@@ -532,6 +572,31 @@ app.post('/api/auth/change-password', (req, res) => {
   }
   savePassword(hashPassword(newPassword));
   res.json({ success: true });
+});
+
+// ── Devices (Android app tokens) ───────────────────────────────────────────
+
+// GET /api/auth/devices — signed-in devices (current one marked when called from it)
+app.get('/api/auth/devices', (req, res) => {
+  res.json(listDeviceTokens().map(d => ({ ...d, current: req.device?.id === d.id })));
+});
+
+// DELETE /api/auth/devices/current — sign this device out (Android app logout)
+app.delete('/api/auth/devices/current', (req, res) => {
+  if (!req.device) return res.status(400).json({ error: 'Not signed in with a device token' });
+  revokeDeviceToken(req.device.id);
+  res.json({ success: true });
+});
+
+// DELETE /api/auth/devices/:id — revoke a device token
+app.delete('/api/auth/devices/:id', (req, res) => {
+  if (!revokeDeviceToken(req.params.id)) return res.status(404).json({ error: 'Device not found' });
+  res.json({ success: true });
+});
+
+// GET /api/auth/media-token — short-lived token for <audio>/attachment URLs in the app
+app.get('/api/auth/media-token', (_req, res) => {
+  res.json({ token: generateMediaToken(), expiresInSec: 12 * 60 * 60 });
 });
 
 // ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────

@@ -7,6 +7,10 @@ import {
   enqueue, buildCaptureForm, isRetryable, queueCount, onQueueChange, flushQueue,
 } from '../lib/quickQueue';
 import { useVoiceRecorder, isRecordingSupported } from '../hooks/useVoiceRecorder';
+import { useNativeRecorder } from '../hooks/useNativeRecorder';
+import { isNative } from '../lib/platform';
+import { QuickRecorder } from '../native/quickRecorder';
+import { syncFeedbackPref } from '../native/nativeSession';
 import { primeAudio, feedbackSuccess, feedbackWarning } from '../lib/feedback';
 import { useQuickSetting } from '../lib/quickSettings';
 import QuickTabs from '../components/quick/QuickTabs';
@@ -29,6 +33,9 @@ function vibrate(ms) {
 // Auto-start only when the mic is already allowed — never trigger a
 // permission prompt without a tap
 async function micAlreadyGranted() {
+  if (isNative) {
+    try { return (await QuickRecorder.checkPermissions()).microphone === 'granted'; } catch { return false; }
+  }
   try {
     const status = await navigator.permissions.query({ name: 'microphone' });
     return status.state === 'granted';
@@ -108,7 +115,8 @@ export default function QuickCapturePage() {
   }, [say]);
 
   const secure    = window.isSecureContext;
-  const supported = secure && isRecordingSupported();
+  // Android app records natively; browsers need HTTPS + MediaRecorder
+  const supported = isNative || (secure && isRecordingSupported());
 
   useWakeLock(phase === 'recording' || phase === 'processing');
 
@@ -197,10 +205,53 @@ export default function QuickCapturePage() {
     }
   }
 
-  const recorder = useVoiceRecorder({ onStop: handleStop });
+  const webRecorder = useVoiceRecorder({ onStop: handleStop });
+
+  // Android app: native foreground-service recorder. It records (also from the
+  // widget / Quick Settings tile), uploads and retries by itself; this page
+  // just mirrors its state and shows the result.
+  const nativeRecorder = useNativeRecorder({
+    enabled: isNative,
+    onStart: () => {
+      setResult(null); setUndoUntil(0); setMessage(null); setToast(null);
+      setPhase('recording');
+    },
+    onStop: () => setPhase(p => (p === 'recording' ? 'processing' : p)),
+    onResult: r => {
+      const busy = phaseRef.current === 'recording';
+      if (r.fromQueue && busy) return; // don't interrupt a new recording
+      showResult(r.note, r.spokenConfirmation, { fromQueue: !!r.fromQueue });
+    },
+    onQueued: () => {
+      setPhase('queued');
+      setMessage('Queued — will send when online');
+      notify({ icon: '🕓', text: 'Queued — will send when online', tone: 'queued' },
+        "No signal. I'll send it when you're back online.");
+    },
+    onEmpty: () => {
+      setPhase('idle');
+      setMessage("Didn't hear anything — tap to try again");
+      warn("I didn't hear anything.");
+    },
+    onError: ({ message: m } = {}) => {
+      setPhase('error');
+      setMessage(m || 'Could not save the recording');
+      warn("Sorry, that didn't work.");
+    },
+    onPending: count => setQueued(count),
+  });
+
+  const recorder = isNative ? nativeRecorder : webRecorder;
 
   // auto: started without a tap (launch / ?autostart=1) — must not prompt or error
   async function startRecording({ auto = false } = {}) {
+    if (isNative) {
+      // Native service plays its own start cue; phase follows its state events
+      stopSpeaking();
+      setToast(null);
+      await recorder.start();
+      return;
+    }
     if (!auto && prefs.current.readAloud) unlockSpeech();
     primeAudio(); // unlock the confirmation chime while we have a tap / mic capture
     stopSpeaking();
@@ -221,8 +272,9 @@ export default function QuickCapturePage() {
       await startRecording();
     } catch (err) {
       setPhase('error');
-      const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
-      setMessage(denied ? 'Microphone access is blocked — allow it in your browser settings' : (err?.message || 'Could not start recording'));
+      const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError' || err?.code === 'MIC_DENIED';
+      const where = isNative ? 'Android settings' : 'your browser settings';
+      setMessage(denied ? `Microphone access is blocked — allow it in ${where}` : (err?.message || 'Could not start recording'));
       warn(denied ? 'Microphone access is blocked.' : "Sorry, I couldn't start recording.");
     }
   }
@@ -297,6 +349,7 @@ export default function QuickCapturePage() {
             feedback={feedback}
             onFeedback={on => {
               setFeedback(on);
+              syncFeedbackPref(on); // native recorder cues + notifications
               if (on) { primeAudio(); feedbackSuccess(); } // preview the chime
             }}
           />

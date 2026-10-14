@@ -1,6 +1,33 @@
 import axios from 'axios';
+import { API_BASE, isNative } from './platform';
+import { getDeviceToken, getMediaToken } from '../native/nativeSession';
 
-const http = axios.create({ baseURL: '/api', withCredentials: true });
+// Web: same-origin "/api" + session cookie (unchanged).
+// Android app: server URL from .env.android + "Authorization: Bearer <device token>".
+const http = axios.create({ baseURL: API_BASE, withCredentials: true });
+
+if (isNative) {
+  http.interceptors.request.use(config => {
+    const token = getDeviceToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    return config;
+  });
+  // Token revoked or expired → back to sign-in
+  http.interceptors.response.use(undefined, error => {
+    const url = error.config?.url || '';
+    if (error.response?.status === 401 && !url.startsWith('/auth/')) {
+      window.dispatchEvent(new CustomEvent('pa:unauthorized'));
+    }
+    return Promise.reject(error);
+  });
+}
+
+// Protected media (<audio>, attachment links) can't send headers — in the app,
+// add the short-lived read-only media token
+function withMediaToken(url) {
+  const token = isNative ? getMediaToken() : null;
+  return token ? `${url}?mt=${encodeURIComponent(token)}` : url;
+}
 
 // Auth
 export const authStatus     = () => http.get('/auth/status').then(r => r.data);
@@ -8,6 +35,14 @@ export const authStatus     = () => http.get('/auth/status').then(r => r.data);
 export const authLogin      = (password, installed = false) =>
   http.post('/auth/login', { password, installed }).then(r => r.data);
 export const authLogout     = () => http.post('/auth/logout').then(r => r.data);
+
+// Android app sign-in: password → 90-day device token
+export const deviceLogin         = (password, deviceName) =>
+  http.post('/auth/device-token', { password, deviceName }).then(r => r.data);
+export const revokeCurrentDevice = () => http.delete('/auth/devices/current').then(r => r.data);
+export const getDevices          = () => http.get('/auth/devices').then(r => r.data);
+export const revokeDevice        = id => http.delete(`/auth/devices/${id}`).then(r => r.data);
+export const fetchMediaToken     = () => http.get('/auth/media-token').then(r => r.data);
 export const changePassword = (currentPassword, newPassword) =>
   http.post('/auth/change-password', { currentPassword, newPassword }).then(r => r.data);
 
@@ -18,7 +53,7 @@ export const getStats           = ()        => http.get('/stats').then(r => r.da
 export const getHealth          = ()        => http.get('/health').then(r => r.data);
 export const triggerSync        = ()        => http.post('/sync').then(r => r.data);
 export const getSyncStatus      = ()        => http.get('/sync/status').then(r => r.data);
-export const audioUrl           = fn        => `/api/audio/${fn}`;
+export const audioUrl           = fn        => `${API_BASE}/audio/${fn}`;
 
 // Regenerate AI Notes — model: 'gemini' (default) | 'claude'
 export const regenerateAiNotes  = (id, model = 'gemini') =>
@@ -28,7 +63,7 @@ export const saveAiNotes        = (id, content) => http.put(`/recordings/${id}/a
 // Attachments
 export const getAttachments     = id        => http.get(`/recordings/${id}/attachments`).then(r => r.data);
 export const deleteAttachment   = (id, fn)  => http.delete(`/recordings/${id}/attachments/${fn}`).then(r => r.data);
-export const attachmentUrl      = (id, fn)  => `/api/recordings/${id}/attachments/${fn}`;
+export const attachmentUrl      = (id, fn)  => withMediaToken(`${API_BASE}/recordings/${id}/attachments/${fn}`);
 export const uploadAttachment   = (id, file, onProgress) => {
   const form = new FormData();
   form.append('file', file);
@@ -62,7 +97,7 @@ export const undoQuickNote      = id => http.post(`/quick/${id}/undo`).then(r =>
 export const retryQuickNote     = id => http.post(`/quick/${id}/retry`).then(r => r.data);
 export const getQuickNote       = id => http.get(`/quick/${id}`).then(r => r.data);
 export const summarizeQuickNote = id => http.post(`/quick/${id}/summarize`).then(r => r.data);
-export const quickAudioUrl      = id => `/api/quick/${id}/audio`;
+export const quickAudioUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/audio`);
 
 // Trash / delete
 export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);

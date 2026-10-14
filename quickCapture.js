@@ -481,6 +481,46 @@ async function syncGoogle(note) {
   return note;
 }
 
+// ── Short confirmation (Android notification; mirrors the web toast) ──────
+
+// "Today 3 PM", "Tomorrow", "Fri", "Oct 27, 9:30 AM" — relative to now in New York
+function shortWhen(value) {
+  if (!value) return '';
+  const today = (() => { const p = zonedParts(new Date()); return Date.UTC(p.y, p.mo - 1, p.d); })();
+  const [y, mo, d] = value.slice(0, 10).split('-').map(Number);
+  const day = Date.UTC(y, mo - 1, d);
+  const diff = Math.round((day - today) / 86400000);
+  const asDate = new Date(day);
+  const dayLabel = diff === 0 ? 'Today'
+    : diff === 1 ? 'Tomorrow'
+      : diff > 1 && diff < 7 ? asDate.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
+        : asDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  if (DATE_ONLY_RE.test(value)) return dayLabel;
+  const [h, m] = value.slice(11, 16).split(':').map(Number);
+  const time = `${h % 12 || 12}${m ? `:${pad(m)}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+  return `${dayLabel}${diff >= 0 && diff < 7 ? ' ' : ', '}${time}`;
+}
+
+// { icon, text, tone: 'success'|'review', detail? }
+function confirmationFor(note, recordingTitle) {
+  if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
+  const calendarFailed = note.googleSync === 'failed';
+  const tone = calendarFailed ? 'review' : 'success';
+  const detail = calendarFailed ? "Google Calendar didn't update" : null;
+  if (note.type === 'event') {
+    const when = shortWhen(note.start);
+    return { icon: '📅', text: `Added: ${note.title}${when ? ` · ${when}` : ''}`, tone, detail };
+  }
+  if (note.type === 'reminder') {
+    const when = shortWhen(note.dueDate);
+    return { icon: '⏰', text: `Reminder: ${note.title}${when ? ` · ${when}` : ''}`, tone, detail };
+  }
+  if (note.type === 'note_link') {
+    return { icon: '📝', text: recordingTitle ? `Saved to ${recordingTitle}` : 'Saved to recording', tone, detail };
+  }
+  return { icon: '📝', text: 'Quick note saved', tone, detail };
+}
+
 function describeActions(note, recordingTitle) {
   const actions = [];
   if (note.status === 'needs_review') actions.push('Saved for review');
@@ -517,6 +557,12 @@ function createQuickCapture(deps) {
       else cb(new Error(`Unsupported audio type: ${file.mimetype}`));
     },
   });
+
+  // Capture/retry response: note + spoken text + short confirmation (for notifications)
+  function captureResponse(note) {
+    const title = note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null;
+    return { note, spokenConfirmation: note.spokenConfirmation, confirmation: confirmationFor(note, title) };
+  }
 
   function finalize(note) {
     note.actions = describeActions(note, note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null);
@@ -707,7 +753,7 @@ function createQuickCapture(deps) {
       if (clientId) {
         // Retried upload from the offline queue — return what we already did
         const existing = store.list().find(n => n.clientId === clientId);
-        if (existing) return res.json({ note: existing, spokenConfirmation: existing.spokenConfirmation });
+        if (existing) return res.json(captureResponse(existing));
       }
 
       const id   = newId();
@@ -747,7 +793,7 @@ function createQuickCapture(deps) {
       }
 
       await runPipeline(note, now);
-      res.json({ note, spokenConfirmation: note.spokenConfirmation });
+      res.json(captureResponse(note));
       if (note.summaryStatus === 'pending') queueSummary(note.id);
     });
 
@@ -789,7 +835,7 @@ function createQuickCapture(deps) {
         Object.assign(note, { transcript: null, classification: null, error: null, status: 'ok' });
         const captured = new Date(note.capturedAt || note.createdAt);
         await runPipeline(note, isNaN(captured) ? new Date() : captured);
-        res.json({ note, spokenConfirmation: note.spokenConfirmation });
+        res.json(captureResponse(note));
         if (note.summaryStatus === 'pending') queueSummary(note.id);
       } catch (err) {
         console.error('/quick retry error:', err);
@@ -917,5 +963,5 @@ function createQuickCapture(deps) {
 module.exports = {
   createQuickCapture,
   // exported for tests
-  _internal: { applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle },
+  _internal: { applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor },
 };

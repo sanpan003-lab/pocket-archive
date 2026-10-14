@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authStatus, authLogin, authLogout } from '../lib/api';
+import {
+  authStatus, authLogin, authLogout, deviceLogin, revokeCurrentDevice, fetchMediaToken,
+} from '../lib/api';
 import { isInstalledApp } from '../lib/pwa';
+import { isNative } from '../lib/platform';
+import {
+  saveDeviceToken, clearDeviceToken, startMediaTokens, deviceName,
+} from '../native/nativeSession';
 
 // Remembers the last known sign-in so the app still opens (and Quick Capture
 // can queue recordings) when it launches with no signal
@@ -53,10 +59,27 @@ export function AppProvider({ children }) {
   // Check session on mount
   useEffect(() => {
     authStatus()
-      .then(data => { setIsAuthenticated(data.authenticated); rememberAuth(data.authenticated); })
+      .then(async data => {
+        // App: media URLs need a token before any page renders audio
+        if (isNative && data.authenticated) await startMediaTokens(fetchMediaToken);
+        setIsAuthenticated(data.authenticated);
+        rememberAuth(data.authenticated);
+      })
       // No response at all (offline): trust the last known sign-in
       .catch(err => setIsAuthenticated(!err.response && lastKnownAuth()))
       .finally(() => setIsCheckingAuth(false));
+  }, []);
+
+  // App: device token revoked or expired → sign in again
+  useEffect(() => {
+    if (!isNative) return;
+    const onUnauthorized = () => {
+      clearDeviceToken();
+      setIsAuthenticated(false);
+      rememberAuth(false);
+    };
+    window.addEventListener('pa:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('pa:unauthorized', onUnauthorized);
   }, []);
 
   function toggleFavorite(id) {
@@ -66,6 +89,15 @@ export function AppProvider({ children }) {
   }
 
   async function login(password) {
+    if (isNative) {
+      // App: 90-day device token, stored in Keystore-backed native storage
+      const data = await deviceLogin(password, deviceName());
+      await saveDeviceToken(data.token);
+      await startMediaTokens(fetchMediaToken);
+      setIsAuthenticated(true);
+      rememberAuth(true);
+      return data; // includes mustChangePassword
+    }
     const data = await authLogin(password, isInstalledApp());
     setIsAuthenticated(true);
     rememberAuth(true);
@@ -73,6 +105,13 @@ export function AppProvider({ children }) {
   }
 
   async function logout() {
+    if (isNative) {
+      try { await revokeCurrentDevice(); } catch { /* offline: still sign out locally */ }
+      await clearDeviceToken();
+      setIsAuthenticated(false);
+      rememberAuth(false);
+      return;
+    }
     await authLogout();
     setIsAuthenticated(false);
     rememberAuth(false);

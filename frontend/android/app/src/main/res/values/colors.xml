@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pa_navy">#0F172A</color>
+    <color name="pa_gold">#F59E0B</color>
+    <color name="colorPrimary">#0F172A</color>
+    <color name="colorPrimaryDark">#0F172A</color>
+    <color name="colorAccent">#F59E0B</color>
+</resources>

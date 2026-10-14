@@ -1,9 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   HardDrive, RefreshCw, Headphones, Sparkles,
-  FileText, Info, Folder, CheckCircle2, XCircle, Lock,
+  FileText, Info, Folder, CheckCircle2, XCircle, Lock, Smartphone,
 } from 'lucide-react';
-import { getStats, getHealth, changePassword } from '../lib/api';
+import { getStats, getHealth, changePassword, getDevices, revokeDevice } from '../lib/api';
+import { useApp } from '../context/AppContext';
+
+function shortDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+}
+
+function DevicesSection() {
+  const { logout } = useApp();
+  const [devices, setDevices] = useState(null);
+  const [error, setError]     = useState('');
+  const [busyId, setBusyId]   = useState(null);
+
+  const load = useCallback(() => {
+    getDevices()
+      .then(list => { setDevices(list); setError(''); })
+      .catch(err => setError(err.response?.data?.error || 'Could not load devices'));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function revoke(device) {
+    const what = device.current ? 'This signs this phone out.' : `"${device.name}" will be signed out.`;
+    if (!window.confirm(`Revoke access? ${what}`)) return;
+    setBusyId(device.id);
+    try {
+      await revokeDevice(device.id);
+      if (device.current) { await logout(); return; }
+      setDevices(list => list.filter(d => d.id !== device.id));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not revoke device');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="glass-panel p-6 mb-4">
+      <div className="flex items-center gap-2 mb-1">
+        <Smartphone size={18} className="text-gold-500" />
+        <h2 className="font-bold text-navy-900 dark:text-white">Devices</h2>
+      </div>
+      <p className="text-sm text-navy-600 dark:text-white/60 mb-4">
+        Phones signed in with the Android app. Sign-ins last 90 days; revoke one to sign that phone out.
+      </p>
+      {error && <p className="text-sm text-red-500 dark:text-red-400 mb-3">{error}</p>}
+      {devices === null && !error ? (
+        <div className="h-14 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />
+      ) : devices?.length === 0 ? (
+        <p className="text-sm text-navy-400 dark:text-white/40">No phones are signed in with the Android app.</p>
+      ) : (
+        <ul className="space-y-2">
+          {devices?.map(d => (
+            <li key={d.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-navy-900 dark:text-white flex items-center gap-2 flex-wrap">
+                  <span className="break-words">{d.name}</span>
+                  {d.current && <span className="badge badge-green">This device</span>}
+                </p>
+                <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">
+                  Signed in {shortDate(d.createdAt)}
+                  {d.lastUsedAt && ` · last used ${shortDate(d.lastUsedAt)}`}
+                  {` · expires ${shortDate(d.expiresAt)}`}
+                </p>
+              </div>
+              <button
+                className="btn-ghost text-xs text-red-500 dark:text-red-400 shrink-0"
+                onClick={() => revoke(d)}
+                disabled={busyId === d.id}
+              >
+                {busyId === d.id ? 'Revoking…' : 'Revoke'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function StatRow({ label, value, icon, accent }) {
   return (
@@ -153,6 +231,8 @@ export default function SettingsPage() {
       </div>
 
       <ChangePasswordSection />
+
+      <DevicesSection />
 
       {/* ── Sync ────────────────────────────────────────────────────────────── */}
       <div className="glass-panel p-6">
