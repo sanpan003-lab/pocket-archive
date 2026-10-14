@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
+import { returnPath } from './lib/returnPath';
 import AppLayout from './components/AppLayout';
 import Dashboard from './pages/Dashboard';
 import RecordingDetail from './pages/RecordingDetail';
@@ -28,15 +29,17 @@ function FullScreenSpinner() {
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, isCheckingAuth } = useApp();
+  const location = useLocation();
   if (isCheckingAuth)    return <FullScreenSpinner />;
-  if (!isAuthenticated)  return <Navigate to="/login" replace />;
+  if (!isAuthenticated)  return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
 
 function LoginRoute() {
   const { isAuthenticated, isCheckingAuth } = useApp();
+  const location = useLocation();
   if (isCheckingAuth)   return <FullScreenSpinner />;
-  if (isAuthenticated)  return <Navigate to="/" replace />;
+  if (isAuthenticated)  return <Navigate to={returnPath(location)} replace />;
   return <LoginPage />;
 }
 

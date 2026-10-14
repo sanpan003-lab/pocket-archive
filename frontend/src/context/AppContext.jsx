@@ -1,5 +1,16 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authStatus, authLogin, authLogout } from '../lib/api';
+import { isInstalledApp } from '../lib/pwa';
+
+// Remembers the last known sign-in so the app still opens (and Quick Capture
+// can queue recordings) when it launches with no signal
+const WAS_AUTHED_KEY = 'pa_wasAuthed';
+function rememberAuth(value) {
+  try { localStorage.setItem(WAS_AUTHED_KEY, value ? '1' : '0'); } catch { /* ignore */ }
+}
+function lastKnownAuth() {
+  try { return localStorage.getItem(WAS_AUTHED_KEY) === '1'; } catch { return false; }
+}
 
 const AppContext = createContext(null);
 
@@ -42,8 +53,9 @@ export function AppProvider({ children }) {
   // Check session on mount
   useEffect(() => {
     authStatus()
-      .then(data => setIsAuthenticated(data.authenticated))
-      .catch(() => setIsAuthenticated(false))
+      .then(data => { setIsAuthenticated(data.authenticated); rememberAuth(data.authenticated); })
+      // No response at all (offline): trust the last known sign-in
+      .catch(err => setIsAuthenticated(!err.response && lastKnownAuth()))
       .finally(() => setIsCheckingAuth(false));
   }, []);
 
@@ -54,14 +66,16 @@ export function AppProvider({ children }) {
   }
 
   async function login(password) {
-    const data = await authLogin(password);
+    const data = await authLogin(password, isInstalledApp());
     setIsAuthenticated(true);
+    rememberAuth(true);
     return data; // includes mustChangePassword
   }
 
   async function logout() {
     await authLogout();
     setIsAuthenticated(false);
+    rememberAuth(false);
   }
 
   return (

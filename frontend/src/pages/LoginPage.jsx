@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Mic2, Eye, EyeOff, Lock } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { changePassword } from '../lib/api';
+import { returnPath } from '../lib/returnPath';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useApp();
+  // e.g. back to /quick?autostart=1 when the installed app sent you here
+  const nextPath = returnPath(location);
 
   const [password, setPassword]         = useState('');
   const [showPw, setShowPw]             = useState(false);
@@ -29,7 +33,7 @@ export default function LoginPage() {
       if (result.mustChangePassword) {
         setMustChange(true);
       } else {
-        navigate('/', { replace: true });
+        navigate(nextPath, { replace: true });
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Invalid password');
@@ -52,7 +56,7 @@ export default function LoginPage() {
     setChangingPw(true);
     try {
       await changePassword(password, newPw);
-      navigate('/', { replace: true });
+      navigate(nextPath, { replace: true });
     } catch (err) {
       setChangeError(err.response?.data?.error || 'Failed to change password');
     } finally {

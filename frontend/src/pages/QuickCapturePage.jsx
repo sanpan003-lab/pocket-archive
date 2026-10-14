@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Mic, Square, Loader2, Undo2, CloudOff, AlertCircle, Lock } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Mic, Square, Loader2, Undo2, CloudOff, AlertCircle, Lock, Check } from 'lucide-react';
 import { captureQuick, undoQuickNote, getQuickNotes } from '../lib/api';
 import { speak, unlockSpeech, stopSpeaking } from '../lib/speech';
 import {
@@ -11,28 +11,25 @@ import QuickTabs from '../components/quick/QuickTabs';
 import { QUICK_TYPES, describeWhen } from '../components/quick/quickMeta';
 
 const UNDO_WINDOW_MS = 30000;
+const TAP_TO_RECORD  = 'Tap to record';
 
 function newClientId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
   return `c_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Short tone so you know recording started/stopped without looking
-function beep(freq) {
+function vibrate(ms) {
+  try { navigator.vibrate?.(ms); } catch { /* not supported */ }
+}
+
+// Auto-start only when the mic is already allowed — never trigger a
+// permission prompt without a tap
+async function micAlreadyGranted() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.16);
-    osc.onended = () => ctx.close().catch(() => {});
+    const status = await navigator.permissions.query({ name: 'microphone' });
+    return status.state === 'granted';
   } catch {
-    // ignore — audio cue is optional
+    return false; // Permissions API unavailable — wait for a tap
   }
 }
 
@@ -41,16 +38,18 @@ function formatElapsed(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// Keep the screen on while this page is open (driving)
-function useWakeLock() {
+// Keep the screen on while `active` (recording/processing); release after
+function useWakeLock(active) {
   useEffect(() => {
+    if (!active) return;
     let lock = null;
     let cancelled = false;
     async function acquire() {
       try {
-        if (document.visibilityState === 'visible' && navigator.wakeLock) {
-          lock = await navigator.wakeLock.request('screen');
-          if (cancelled) lock.release().catch(() => {});
+        if (document.visibilityState === 'visible' && navigator.wakeLock && !lock) {
+          const l = await navigator.wakeLock.request('screen');
+          if (cancelled) l.release().catch(() => {});
+          else { lock = l; l.addEventListener?.('release', () => { lock = null; }); }
         }
       } catch {
         // not supported or denied — fine
@@ -63,10 +62,12 @@ function useWakeLock() {
       document.removeEventListener('visibilitychange', acquire);
       lock?.release().catch(() => {});
     };
-  }, []);
+  }, [active]);
 }
 
 export default function QuickCapturePage() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [phase, setPhase]       = useState('idle'); // idle | recording | processing | done | queued | error
   const [message, setMessage]   = useState(null);
   const [result, setResult]     = useState(null);
@@ -77,11 +78,12 @@ export default function QuickCapturePage() {
   const [reviewCount, setReviewCount] = useState(0);
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const autostartTried = useRef(false);
 
   const secure    = window.isSecureContext;
   const supported = secure && isRecordingSupported();
 
-  useWakeLock();
+  useWakeLock(phase === 'recording' || phase === 'processing');
 
   const refreshReviewCount = useCallback(() => {
     getQuickNotes({ status: 'needs_review' })
@@ -124,7 +126,6 @@ export default function QuickCapturePage() {
   }, [undoUntil]);
 
   async function handleStop({ blob, mimeType, heardVoice }) {
-    beep(440);
     if (!heardVoice || blob.size < 1000) {
       setPhase('idle');
       setMessage("Didn't hear anything — tap to try again");
@@ -167,19 +168,23 @@ export default function QuickCapturePage() {
 
   const recorder = useVoiceRecorder({ onStop: handleStop });
 
-  async function handleTap() {
-    if (phase === 'processing') return;
-    if (recorder.recording) { recorder.stop('tap'); return; }
-
-    unlockSpeech();
+  // auto: started without a tap (launch / ?autostart=1) — must not prompt or error
+  async function startRecording({ auto = false } = {}) {
+    if (!auto) unlockSpeech();
     stopSpeaking();
     setResult(null);
     setUndoUntil(0);
     setMessage(null);
+    await recorder.start({ requireRunningAudio: auto });
+    vibrate(150);
+    setPhase('recording');
+  }
+
+  async function handleTap() {
+    if (phase === 'processing') return;
+    if (recorder.recording) { recorder.stop('tap'); return; }
     try {
-      await recorder.start();
-      beep(880);
-      setPhase('recording');
+      await startRecording();
     } catch (err) {
       setPhase('error');
       const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
@@ -187,6 +192,27 @@ export default function QuickCapturePage() {
       speak(denied ? 'Microphone access is blocked.' : "Sorry, I couldn't start recording.");
     }
   }
+
+  // /quick?autostart=1 (home-screen launch or shortcut): start recording right away
+  useEffect(() => {
+    if (searchParams.get('autostart') !== '1' || autostartTried.current) return;
+    autostartTried.current = true;
+    // Drop the flags so a refresh or "back" doesn't start another recording
+    setSearchParams({}, { replace: true });
+    if (!supported) return;
+
+    (async () => {
+      if (!(await micAlreadyGranted())) { setMessage(TAP_TO_RECORD); return; }
+      try {
+        await startRecording({ auto: true });
+      } catch {
+        // Blocked without a gesture (or mic unavailable) — quietly wait for a tap
+        setPhase('idle');
+        setMessage(TAP_TO_RECORD);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per launch
+  }, [searchParams]);
 
   async function handleUndo() {
     if (!result) return;
@@ -209,6 +235,7 @@ export default function QuickCapturePage() {
 
   const recording  = recorder.recording;
   const processing = phase === 'processing';
+  const finished   = phase === 'done' || phase === 'queued';
   const meta = result ? (QUICK_TYPES[result.type] || QUICK_TYPES.note) : null;
 
   const statusText = recording
@@ -248,36 +275,38 @@ export default function QuickCapturePage() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-6 py-4">
-          {/* Big mic button */}
-          <div className="relative flex items-center justify-center" style={{ width: 'min(78vw, 52vh, 420px)', height: 'min(78vw, 52vh, 420px)' }}>
-            {recording && (
-              <>
-                <span className="absolute inset-0 rounded-full animate-ping" style={{ background: 'rgba(245,158,11,0.25)' }} />
-                <span
-                  className="absolute inset-0 rounded-full transition-transform duration-100"
-                  style={{ background: 'rgba(245,158,11,0.22)', transform: `scale(${1.04 + recorder.level * 0.22})` }}
-                />
-              </>
-            )}
-            <button
-              className="relative w-full h-full rounded-full flex items-center justify-center text-white transition-all active:scale-95 disabled:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-gold-400/60"
-              style={{
-                background: recording
-                  ? 'linear-gradient(135deg,#F59E0B 0%,#EA580C 100%)'
-                  : 'linear-gradient(135deg,#F59E0B 0%,#D97706 100%)',
-                boxShadow: '0 12px 40px rgba(245,158,11,0.40), inset 0 2px 0 rgba(255,255,255,0.25)',
-              }}
-              onClick={handleTap}
-              disabled={processing}
-              aria-label={recording ? 'Stop recording' : 'Start recording'}
-            >
-              {processing
-                ? <Loader2 className="w-[30%] h-[30%] animate-spin" />
-                : recording
-                  ? <Square className="w-[26%] h-[26%]" fill="currentColor" />
-                  : <Mic className="w-[34%] h-[34%]" />}
-            </button>
-          </div>
+          {/* Big mic button (replaced by "Record another" once a capture is finished) */}
+          {!finished && (
+            <div className="relative flex items-center justify-center" style={{ width: 'min(78vw, 52vh, 420px)', height: 'min(78vw, 52vh, 420px)' }}>
+              {recording && (
+                <>
+                  <span className="absolute inset-0 rounded-full animate-ping" style={{ background: 'rgba(245,158,11,0.25)' }} />
+                  <span
+                    className="absolute inset-0 rounded-full transition-transform duration-100"
+                    style={{ background: 'rgba(245,158,11,0.22)', transform: `scale(${1.04 + recorder.level * 0.22})` }}
+                  />
+                </>
+              )}
+              <button
+                className="relative w-full h-full rounded-full flex items-center justify-center text-white transition-all active:scale-95 disabled:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-gold-400/60"
+                style={{
+                  background: recording
+                    ? 'linear-gradient(135deg,#F59E0B 0%,#EA580C 100%)'
+                    : 'linear-gradient(135deg,#F59E0B 0%,#D97706 100%)',
+                  boxShadow: '0 12px 40px rgba(245,158,11,0.40), inset 0 2px 0 rgba(255,255,255,0.25)',
+                }}
+                onClick={handleTap}
+                disabled={processing}
+                aria-label={recording ? 'Stop recording' : 'Start recording'}
+              >
+                {processing
+                  ? <Loader2 className="w-[30%] h-[30%] animate-spin" />
+                  : recording
+                    ? <Square className="w-[26%] h-[26%]" fill="currentColor" />
+                    : <Mic className="w-[34%] h-[34%]" />}
+              </button>
+            </div>
+          )}
 
           {/* Status */}
           <p
@@ -317,6 +346,27 @@ export default function QuickCapturePage() {
               <Undo2 size={22} />
               {undoing ? 'Undoing…' : `Undo (${undoLeft}s)`}
             </button>
+          )}
+
+          {/* Next: record another, or done → Inbox */}
+          {finished && (
+            <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+              <button
+                className="h-20 rounded-2xl text-lg font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                style={{ background: 'linear-gradient(135deg,#F59E0B 0%,#D97706 100%)', boxShadow: '0 8px 24px rgba(245,158,11,0.35)' }}
+                onClick={handleTap}
+              >
+                <Mic size={24} className="shrink-0" />
+                <span className="leading-tight">Record another</span>
+              </button>
+              <button
+                className="h-20 rounded-2xl text-lg font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] bg-white dark:bg-white/10 text-navy-900 dark:text-white border-2 border-navy-200 dark:border-white/20 shadow-glass"
+                onClick={() => navigate('/quick/inbox')}
+              >
+                <Check size={24} className="shrink-0" />
+                Done
+              </button>
+            </div>
           )}
         </div>
       )}

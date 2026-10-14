@@ -27,8 +27,10 @@ function verifyPassword(password) {
   return bcrypt.compareSync(password, config.passwordHash);
 }
 
-function generateToken() {
-  return jwt.sign({ user: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
+// kind: 'browser' (7-day session) or 'app' (installed app, 30 days)
+function generateToken(kind = 'browser') {
+  const expiresIn = kind === 'app' ? '30d' : '7d';
+  return jwt.sign({ user: 'admin', kind }, JWT_SECRET, { expiresIn });
 }
 
 function verifyToken(token) {

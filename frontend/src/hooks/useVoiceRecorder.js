@@ -18,6 +18,30 @@ export function isRecordingSupported() {
   return typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 }
 
+// Short tone so you know recording started/stopped without looking. Uses the
+// recorder's own (already running) AudioContext, so it also works when
+// recording was started automatically rather than by a tap.
+function playTone(ctx, freq) {
+  if (!ctx || ctx.state !== 'running') return;
+  try {
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
+  } catch {
+    // audio cue is optional
+  }
+}
+
+const START_TONE = 880;
+const STOP_TONE  = 440;
+// Ignore the first moments so the start tone itself never counts as speech
+const VOICE_GRACE_MS = 350;
+
 /**
  * One-tap voice recorder with silence detection.
  * onStop({ blob, mimeType, durationMs, heardVoice, reason }) fires once per recording.
@@ -28,6 +52,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
   const [elapsedMs, setElapsedMs] = useState(0);
 
   const ref      = useRef({});
+  const unmounted = useRef(false);
   const onStopRef = useRef(onStop);
   useEffect(() => { onStopRef.current = onStop; }, [onStop]);
 
@@ -35,7 +60,8 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     const r = ref.current;
     clearInterval(r.timer);
     r.stream?.getTracks().forEach(t => t.stop());
-    r.audioCtx?.close().catch(() => {});
+    const ctx = r.audioCtx;
+    if (ctx) setTimeout(() => ctx.close().catch(() => {}), 300); // let the stop tone finish
     ref.current = {};
     setLevel(0);
   }, []);
@@ -49,8 +75,14 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     try { r.recorder.stop(); } catch { cleanup(); setRecording(false); }
   }, [cleanup]);
 
-  const start = useCallback(async () => {
-    if (ref.current.recorder) return;
+  /**
+   * Start recording. With requireRunningAudio (auto-start, no tap), throws an
+   * error named "AutostartBlocked" — after releasing the mic — if the browser
+   * won't run audio without a gesture, so the caller can fall back to a tap.
+   */
+  const start = useCallback(async ({ requireRunningAudio = false } = {}) => {
+    if (ref.current.recorder || ref.current.starting) return;
+    ref.current.starting = true;
     // Create the AudioContext inside the tap so iOS allows it
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const audioCtx = AudioCtx ? new AudioCtx() : null;
@@ -62,11 +94,35 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
       });
     } catch (err) {
       audioCtx?.close().catch(() => {});
+      ref.current = {};
+      throw err;
+    }
+
+    // resume() can stay pending forever when a gesture is required — don't wait on it
+    if (audioCtx) {
+      await Promise.race([audioCtx.resume().catch(() => {}), new Promise(r => setTimeout(r, 400))]);
+    }
+    const release = () => {
+      stream.getTracks().forEach(t => t.stop());
+      audioCtx?.close().catch(() => {});
+      ref.current = {};
+    };
+    if (unmounted.current) { release(); return; } // page closed while starting
+    if (requireRunningAudio && audioCtx?.state !== 'running') {
+      release();
+      const err = new Error('Recording needs a tap to start');
+      err.name = 'AutostartBlocked';
       throw err;
     }
 
     const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    } catch (err) {
+      release();
+      throw err;
+    }
     const chunks   = [];
     const startedAt = Date.now();
 
@@ -83,6 +139,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
         heardVoice: r.heardVoice,
         reason:     r.reason || 'tap',
       };
+      playTone(r.audioCtx, STOP_TONE);
       cleanup();
       setRecording(false);
       onStopRef.current?.(result);
@@ -91,7 +148,6 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     // Silence detection from the mic level (RMS), with an adaptive noise floor
     let analyser, samples;
     if (audioCtx) {
-      await audioCtx.resume().catch(() => {});
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       samples = new Uint8Array(analyser.fftSize);
@@ -107,7 +163,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
         for (const v of samples) { const x = (v - 128) / 128; sum += x * x; }
         const rms = Math.sqrt(sum / samples.length);
         const threshold = Math.max(0.02, r.noiseFloor * 2.5);
-        if (rms > threshold) {
+        if (rms > threshold && now - startedAt > VOICE_GRACE_MS) {
           r.lastVoiceAt = now;
           r.heardVoice  = true;
         } else {
@@ -122,18 +178,23 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     }, 100);
 
     recorder.start(1000);
+    playTone(audioCtx, START_TONE);
     setElapsedMs(0);
     setRecording(true);
   }, [cleanup, maxMs, silenceMs, stop]);
 
   // Release the mic if the page unmounts mid-recording
-  useEffect(() => () => {
-    const r = ref.current;
-    if (r.recorder) {
-      r.recorder.onstop = null;
-      try { r.recorder.stop(); } catch { /* ignore */ }
-    }
-    cleanup();
+  useEffect(() => {
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+      const r = ref.current;
+      if (r.recorder) {
+        r.recorder.onstop = null;
+        try { r.recorder.stop(); } catch { /* ignore */ }
+      }
+      cleanup();
+    };
   }, [cleanup]);
 
   return { recording, level, elapsedMs, start, stop };

@@ -466,27 +466,44 @@ No sequential process or workflow was described in this recording.`;
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 
+// Browser sessions last 7 days; the installed app gets 30 days
+const SESSION_DAYS = { browser: 7, app: 30 };
+
+function issueSession(res, kind) {
+  const k = SESSION_DAYS[kind] ? kind : 'browser';
+  res.cookie('token', generateToken(k), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: SESSION_DAYS[k] * 24 * 60 * 60 * 1000,
+  });
+}
+
+// Installed-app sessions slide: renewed at most once a day while in use,
+// so the app never signs out mid-drive
+function renewAppSession(payload, res) {
+  if (payload?.kind === 'app' && Date.now() / 1000 - payload.iat > 24 * 60 * 60) {
+    issueSession(res, 'app');
+  }
+}
+
 function requireAuth(req, res, next) {
   const token = req.cookies?.token;
-  if (!token || !verifyToken(token)) {
+  const payload = token && verifyToken(token);
+  if (!payload) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  renewAppSession(payload, res);
   next();
 }
 
 // Public auth routes — registered BEFORE the blanket middleware
 app.post('/api/auth/login', (req, res) => {
-  const { password } = req.body;
+  const { password, installed } = req.body;
   if (!verifyPassword(password)) {
     return res.status(401).json({ error: 'Invalid password' });
   }
-  const token = generateToken();
-  res.cookie('token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  issueSession(res, installed === true ? 'app' : 'browser');
   res.json({ success: true, mustChangePassword: mustChangePassword() });
 });
 
@@ -498,6 +515,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/status', (req, res) => {
   const token = req.cookies?.token;
   const valid = token && verifyToken(token);
+  if (valid) renewAppSession(valid, res); // app launch keeps the 30-day session fresh
   res.json({ authenticated: !!valid });
 });
 

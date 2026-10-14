@@ -4,7 +4,9 @@ const http = axios.create({ baseURL: '/api', withCredentials: true });
 
 // Auth
 export const authStatus     = () => http.get('/auth/status').then(r => r.data);
-export const authLogin      = password => http.post('/auth/login', { password }).then(r => r.data);
+// installed: true for the home-screen app → 30-day session (browser: 7 days)
+export const authLogin      = (password, installed = false) =>
+  http.post('/auth/login', { password, installed }).then(r => r.data);
 export const authLogout     = () => http.post('/auth/logout').then(r => r.data);
 export const changePassword = (currentPassword, newPassword) =>
   http.post('/auth/change-password', { currentPassword, newPassword }).then(r => r.data);
