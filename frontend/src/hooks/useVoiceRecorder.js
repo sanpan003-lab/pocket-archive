@@ -79,8 +79,9 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
    * Start recording. With requireRunningAudio (auto-start, no tap), throws an
    * error named "AutostartBlocked" — after releasing the mic — if the browser
    * won't run audio without a gesture, so the caller can fall back to a tap.
+   * tones: play the start/stop beeps (off when "Sound & vibration" is off).
    */
-  const start = useCallback(async ({ requireRunningAudio = false } = {}) => {
+  const start = useCallback(async ({ requireRunningAudio = false, tones = true } = {}) => {
     if (ref.current.recorder || ref.current.starting) return;
     ref.current.starting = true;
     // Create the AudioContext inside the tap so iOS allows it
@@ -126,7 +127,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     const chunks   = [];
     const startedAt = Date.now();
 
-    const r = { recorder, stream, audioCtx, chunks, startedAt, lastVoiceAt: startedAt, heardVoice: false, noiseFloor: 0.01 };
+    const r = { recorder, stream, audioCtx, chunks, startedAt, lastVoiceAt: startedAt, heardVoice: false, noiseFloor: 0.01, tones };
     ref.current = r;
 
     recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
@@ -139,7 +140,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
         heardVoice: r.heardVoice,
         reason:     r.reason || 'tap',
       };
-      playTone(r.audioCtx, STOP_TONE);
+      if (r.tones) playTone(r.audioCtx, STOP_TONE);
       cleanup();
       setRecording(false);
       onStopRef.current?.(result);
@@ -178,7 +179,7 @@ export function useVoiceRecorder({ onStop, silenceMs = 4000, maxMs = 120000 }) {
     }, 100);
 
     recorder.start(1000);
-    playTone(audioCtx, START_TONE);
+    if (tones) playTone(audioCtx, START_TONE);
     setElapsedMs(0);
     setRecording(true);
   }, [cleanup, maxMs, silenceMs, stop]);

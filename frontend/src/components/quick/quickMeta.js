@@ -56,6 +56,50 @@ export function timeAgo(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Compact "when" for confirmations: "Today 3 PM", "Tomorrow", "Fri", "Oct 27, 9:30 AM"
+export function shortWhen(value) {
+  if (!value) return '';
+  const [y, mo, d] = value.slice(0, 10).split('-').map(Number);
+  const day = new Date(y, mo - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((day - today) / 86400000);
+  const dayLabel = diff === 0 ? 'Today'
+    : diff === 1 ? 'Tomorrow'
+      : diff > 1 && diff < 7 ? day.toLocaleDateString('en-US', { weekday: 'short' })
+        : day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (DATE_ONLY_RE.test(value)) return dayLabel;
+  const sep = diff >= 0 && diff < 7 ? ' ' : ', ';
+  return `${dayLabel}${sep}${formatTimePart(value)}`;
+}
+
+/**
+ * Short on-screen confirmation for a saved capture.
+ * tone: 'success' | 'review' | 'queued'
+ */
+export function confirmationFor(note) {
+  if (!note) return null;
+  if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
+
+  const calendarFailed = note.googleSync === 'failed';
+  const detail = calendarFailed ? "Google Calendar didn't update" : null;
+  const tone = calendarFailed ? 'review' : 'success';
+
+  if (note.type === 'event') {
+    const when = shortWhen(note.start);
+    return { icon: '📅', text: `Added: ${note.title}${when ? ` · ${when}` : ''}`, tone, detail };
+  }
+  if (note.type === 'reminder') {
+    const when = shortWhen(note.dueDate);
+    return { icon: '⏰', text: `Reminder: ${note.title}${when ? ` · ${when}` : ''}`, tone, detail };
+  }
+  if (note.type === 'note_link') {
+    const linked = (note.actions || []).map(a => a.match(/^Linked to “(.+)”$/)?.[1]).find(Boolean);
+    return { icon: '📝', text: linked ? `Saved to ${linked}` : 'Saved to recording', tone, detail };
+  }
+  return { icon: '📝', text: 'Quick note saved', tone, detail };
+}
+
 // Values for <input type="date"> / <input type="datetime-local">
 export function toInputValue(value, allDay) {
   if (!value) return '';

@@ -7,8 +7,12 @@ import {
   enqueue, buildCaptureForm, isRetryable, queueCount, onQueueChange, flushQueue,
 } from '../lib/quickQueue';
 import { useVoiceRecorder, isRecordingSupported } from '../hooks/useVoiceRecorder';
+import { primeAudio, feedbackSuccess, feedbackWarning } from '../lib/feedback';
+import { useQuickSetting } from '../lib/quickSettings';
 import QuickTabs from '../components/quick/QuickTabs';
-import { QUICK_TYPES, describeWhen } from '../components/quick/quickMeta';
+import QuickToast from '../components/quick/QuickToast';
+import QuickSettings from '../components/quick/QuickSettings';
+import { QUICK_TYPES, describeWhen, confirmationFor } from '../components/quick/quickMeta';
 
 const UNDO_WINDOW_MS = 30000;
 const TAP_TO_RECORD  = 'Tap to record';
@@ -76,9 +80,32 @@ export default function QuickCapturePage() {
   const [undoing, setUndoing]   = useState(false);
   const [queued, setQueued]     = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
+  const [toast, setToast]       = useState(null);
+  const [readAloud, setReadAloud] = useQuickSetting('readAloud');
+  const [feedback, setFeedback]   = useQuickSetting('feedback');
   const phaseRef = useRef(phase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   const autostartTried = useRef(false);
+  const prefs = useRef({ readAloud, feedback });
+  useEffect(() => { prefs.current = { readAloud, feedback }; }, [readAloud, feedback]);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  // Speak only when "Read confirmation aloud" is on
+  const say = useCallback(text => { if (prefs.current.readAloud) speak(text); }, []);
+
+  // Toast + (optional) chime/vibration + (optional) voice
+  const notify = useCallback((conf, spoken) => {
+    setToast({ ...conf, id: Date.now() });
+    const cue = conf.cue || (conf.tone === 'success' ? 'success' : 'warning');
+    if (prefs.current.feedback) (cue === 'success' ? feedbackSuccess : feedbackWarning)();
+    say(spoken || conf.text);
+  }, [say]);
+
+  // Something went wrong: status text on screen, long buzz + low tone
+  const warn = useCallback(text => {
+    if (prefs.current.feedback) feedbackWarning();
+    say(text);
+  }, [say]);
 
   const secure    = window.isSecureContext;
   const supported = secure && isRecordingSupported();
@@ -91,14 +118,16 @@ export default function QuickCapturePage() {
       .catch(() => {});
   }, []);
 
-  const showResult = useCallback((note, spoken) => {
+  const showResult = useCallback((note, spoken, { fromQueue = false } = {}) => {
     setResult(note);
-    setMessage(spoken);
+    setMessage(null);
     setPhase('done');
     setUndoUntil(Date.now() + UNDO_WINDOW_MS);
-    speak(spoken);
+    const conf = confirmationFor(note);
+    notify(fromQueue ? { ...conf, detail: conf.detail || 'Sent from queue' } : conf,
+      fromQueue ? `Sent from queue. ${spoken}` : spoken);
     refreshReviewCount();
-  }, [refreshReviewCount]);
+  }, [refreshReviewCount, notify]);
 
   // Offline queue status + announce captures sent from the queue
   useEffect(() => {
@@ -107,7 +136,7 @@ export default function QuickCapturePage() {
     return onQueueChange(detail => {
       setQueued(detail.count ?? 0);
       if (detail.sent && phaseRef.current !== 'recording' && phaseRef.current !== 'processing') {
-        showResult(detail.sent.note, `Sent from queue. ${detail.sent.spokenConfirmation}`);
+        showResult(detail.sent.note, detail.sent.spokenConfirmation, { fromQueue: true });
       }
     });
   }, [refreshReviewCount, showResult]);
@@ -129,7 +158,7 @@ export default function QuickCapturePage() {
     if (!heardVoice || blob.size < 1000) {
       setPhase('idle');
       setMessage("Didn't hear anything — tap to try again");
-      speak("I didn't hear anything.");
+      warn("I didn't hear anything.");
       return;
     }
 
@@ -139,14 +168,16 @@ export default function QuickCapturePage() {
       try {
         await enqueue(item);
         setPhase('queued');
-        setMessage(reason === 'signed_out'
-          ? 'Signed out — queued until you sign in again'
-          : 'Queued — will send when online');
-        speak("No signal. I'll send it when you're back online.");
+        const signedOut = reason === 'signed_out';
+        setMessage(signedOut ? 'Signed out — queued until you sign in again' : 'Queued — will send when online');
+        notify(
+          { icon: '🕓', text: 'Queued — will send when online', detail: signedOut ? 'Sign in again to send it' : null, tone: 'queued' },
+          "No signal. I'll send it when you're back online.",
+        );
       } catch {
         setPhase('error');
         setMessage('Could not save the recording on this device');
-        speak("Sorry, I couldn't save that.");
+        warn("Sorry, I couldn't save that.");
       }
     }
 
@@ -162,7 +193,7 @@ export default function QuickCapturePage() {
       if (isRetryable(err)) return queueIt(err.response?.status === 401 ? 'signed_out' : 'offline');
       setPhase('error');
       setMessage(err.response?.data?.error || err.message || 'Upload failed');
-      speak("Sorry, that didn't work.");
+      warn("Sorry, that didn't work.");
     }
   }
 
@@ -170,13 +201,16 @@ export default function QuickCapturePage() {
 
   // auto: started without a tap (launch / ?autostart=1) — must not prompt or error
   async function startRecording({ auto = false } = {}) {
-    if (!auto) unlockSpeech();
+    if (!auto && prefs.current.readAloud) unlockSpeech();
+    primeAudio(); // unlock the confirmation chime while we have a tap / mic capture
     stopSpeaking();
     setResult(null);
     setUndoUntil(0);
     setMessage(null);
-    await recorder.start({ requireRunningAudio: auto });
-    vibrate(150);
+    setToast(null);
+    const cues = prefs.current.feedback; // "Sound & vibration" setting
+    await recorder.start({ requireRunningAudio: auto, tones: cues });
+    if (cues) vibrate(150);
     setPhase('recording');
   }
 
@@ -189,7 +223,7 @@ export default function QuickCapturePage() {
       setPhase('error');
       const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
       setMessage(denied ? 'Microphone access is blocked — allow it in your browser settings' : (err?.message || 'Could not start recording'));
-      speak(denied ? 'Microphone access is blocked.' : "Sorry, I couldn't start recording.");
+      warn(denied ? 'Microphone access is blocked.' : "Sorry, I couldn't start recording.");
     }
   }
 
@@ -223,11 +257,11 @@ export default function QuickCapturePage() {
       setResult(null);
       setPhase('idle');
       setMessage('Undone');
-      speak('Undone.');
+      notify({ icon: '↩️', text: 'Undone', tone: 'queued', cue: 'success' }, 'Undone.');
     } catch (err) {
       const msg = err.response?.data?.error || 'Could not undo — check your connection';
       setMessage(msg);
-      speak("Sorry, I couldn't undo that.");
+      warn("Sorry, I couldn't undo that.");
     } finally {
       setUndoing(false);
     }
@@ -246,10 +280,27 @@ export default function QuickCapturePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl mx-auto flex flex-col min-h-[calc(100dvh-3.5rem)] md:min-h-screen">
+      <QuickToast toast={toast} onDismiss={dismissToast} />
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Quick Capture</h1>
-        <QuickTabs reviewCount={reviewCount} />
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+          <QuickTabs reviewCount={reviewCount} />
+          <QuickSettings
+            readAloud={readAloud}
+            onReadAloud={on => {
+              setReadAloud(on);
+              if (on) speak('Confirmations will be read aloud.'); // also unlocks speech on iOS
+              else stopSpeaking();
+            }}
+            feedback={feedback}
+            onFeedback={on => {
+              setFeedback(on);
+              if (on) { primeAudio(); feedbackSuccess(); } // preview the chime
+            }}
+          />
+        </div>
       </div>
 
       {queued > 0 && (
@@ -308,15 +359,17 @@ export default function QuickCapturePage() {
             </div>
           )}
 
-          {/* Status */}
-          <p
-            className={`text-center text-lg sm:text-xl font-semibold px-2 break-words max-w-md ${
-              phase === 'error' ? 'text-red-500 dark:text-red-400' : 'text-navy-900 dark:text-white'
-            }`}
-            aria-live="polite"
-          >
-            {statusText}
-          </p>
+          {/* Status (a saved capture is confirmed by the toast + result card instead) */}
+          {phase !== 'done' && (
+            <p
+              className={`text-center text-lg sm:text-xl font-semibold px-2 break-words max-w-md ${
+                phase === 'error' ? 'text-red-500 dark:text-red-400' : 'text-navy-900 dark:text-white'
+              }`}
+              aria-live="polite"
+            >
+              {statusText}
+            </p>
+          )}
           {recording && (
             <p className="-mt-4 text-sm text-navy-400 dark:text-white/40">Stops after 4 seconds of silence</p>
           )}
