@@ -112,7 +112,7 @@ Automatically download ALL Hey Pocket recordings every night at a scheduled time
 ```
 
 ### Claude API (for AI Notes generation)
-- Model: `claude-3-5-sonnet-20241022` (latest, best balance of quality/cost)
+- Model: `claude-sonnet-5-5` by default (override with `CLAUDE_MODEL`)
 - Endpoint: Will use official Python SDK
 - Cost: ~$0.01-0.02 per recording
 

@@ -210,6 +210,20 @@ def make_filename(recording_at: str, title: str, ext: str) -> str:
     return f"{date_prefix}_{safe_filename(title)}{ext}"
 
 
+def summary_duration(rec_summary: dict) -> float:
+    """Duration in seconds from a bulk-list entry — tries every field name the API might use."""
+    raw = (
+        rec_summary.get("durationSeconds")
+        or rec_summary.get("audioDuration")
+        or rec_summary.get("duration")
+        or 0
+    )
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def format_timestamp(seconds: float) -> str:
     """Convert 94.3 seconds → '1:34'."""
     m, s = divmod(int(seconds), 60)
@@ -435,10 +449,23 @@ class ClaudeAPI:
         time.sleep(self.delay)
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
+            max_tokens=16000,
             messages=[{"role": "user", "content": prompt}],
+            # Retry on a fallback model if the primary model declines the request
+            extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},
+            extra_body={"fallbacks": "default"},
         )
-        return message.content[0].text
+        if message.stop_reason == "refusal":
+            raise RuntimeError("Claude declined to generate notes for this recording")
+        # Thinking blocks may precede the answer — keep only the text blocks
+        text = "".join(
+            (b.get("text", "") if isinstance(b, dict) else getattr(b, "text", ""))
+            for b in message.content
+            if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "text"
+        )
+        if not text.strip():
+            raise RuntimeError("Claude returned an empty response")
+        return text
 
 
 # ---------------------------------------------------------------------------
@@ -1002,17 +1029,7 @@ def process_recording(
     title = rec_summary.get("title", "Untitled")
     # List endpoint uses snake_case; fall back to camelCase just in case
     recording_at = rec_summary.get("recording_at") or rec_summary.get("recordingAt", "")
-    # Duration from bulk list — try every field name the API might use
-    _dur_raw = (
-        rec_summary.get("durationSeconds")
-        or rec_summary.get("audioDuration")
-        or rec_summary.get("duration")
-        or 0
-    )
-    try:
-        summary_duration_sec = float(_dur_raw)
-    except (TypeError, ValueError):
-        summary_duration_sec = 0.0
+    summary_duration_sec = summary_duration(rec_summary)
 
     log(f"--- Processing: {title}")
 
@@ -1047,7 +1064,8 @@ def process_recording(
         mp3_name   = base_name + ".mp3"
 
         # ----------------------------------------------------------------
-        # 01_Original_Notes
+        # 01_Original_Notes — the Hey Pocket summary. Saved BEFORE calling
+        # Claude so every recording has a summary even if AI notes fail.
         # ----------------------------------------------------------------
         write_original_notes(folders["01"], md_name, recording, summary_md, dry_run,
                              rec_id=rec_id, recording_at=recording_at,
@@ -1087,6 +1105,8 @@ def process_recording(
                 log(f"WARNING: Claude rate limit hit for '{title}' — will retry next run")
             except anthropic.APIError as exc:
                 log(f"WARNING: Claude API error for '{title}': {exc} — will retry next run")
+            except RuntimeError as exc:
+                log(f"WARNING: {exc} ('{title}') — Hey Pocket summary is still available")
 
         generate_pdf(folders["04"], pdf_name, recording, recording_at, ai_content, dry_run)
 
@@ -1104,6 +1124,78 @@ def process_recording(
     except Exception as exc:
         log(f"ERROR: Failed to process '{title}' ({rec_id}): {exc}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Hey Pocket summary backfill
+# ---------------------------------------------------------------------------
+
+_RECORDING_ID_RE = re.compile(r"\*\*Recording ID:\*\*\s*(\S+)")
+
+
+def existing_summary_ids(notes_folder: Path) -> set:
+    """Recording IDs already present in 01_Original_Notes headers (catches renamed titles)."""
+    ids = set()
+    for p in notes_folder.glob("*.md"):
+        try:
+            with open(p, encoding="utf-8", errors="ignore") as fh:
+                m = _RECORDING_ID_RE.search(fh.read(1000))
+        except OSError:
+            continue
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
+def backfill_pocket_summaries(
+    recordings: list,
+    skip_ids: set,
+    deleted_names: set,
+    pocket: PocketAPI,
+    notes_folder: Path,
+    dry_run: bool,
+) -> None:
+    """
+    Write the Hey Pocket summary to 01_Original_Notes for any completed
+    recording that doesn't have one yet. Never overwrites existing files and
+    never recreates recordings that were soft-deleted in the web UI.
+    """
+    known_ids = existing_summary_ids(notes_folder)
+    missing = []
+    for r in recordings:
+        rec_id = r["id"]
+        rec_at = r.get("recording_at") or r.get("recordingAt", "")
+        if (
+            r.get("state") != "completed"
+            or rec_id.startswith("manual_")
+            or rec_id in skip_ids
+            or rec_id in known_ids
+            or not rec_at
+        ):
+            continue
+        base_name = make_filename(rec_at, r.get("title", "Untitled"), "")
+        if base_name in deleted_names or rec_id in deleted_names:
+            continue
+        if (notes_folder / (base_name + ".md")).exists():
+            continue
+        missing.append((r, base_name, rec_at))
+
+    if not missing:
+        return
+
+    log(f"Backfilling Hey Pocket summary for {len(missing)} recording(s)")
+    for r, base_name, rec_at in missing:
+        title = r.get("title", "Untitled")
+        try:
+            full = pocket.get_recording(r["id"])
+            summary_md, _ = extract_summarization(full.get("summarizations", {}))
+            write_original_notes(
+                notes_folder, base_name + ".md", full.get("recording", {}), summary_md,
+                dry_run, rec_id=r["id"], recording_at=rec_at,
+                duration_sec=summary_duration(r), title=title,
+            )
+        except Exception as exc:
+            log(f"WARNING: Could not backfill summary for '{title}': {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -1178,7 +1270,7 @@ def sync(args: argparse.Namespace) -> None:
     )
     claude = ClaudeAPI(
         api_key=claude_key,
-        model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
+        model=os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5"),
         delay=float(os.getenv("CLAUDE_API_DELAY", "1.0")),
     )
 
@@ -1206,6 +1298,17 @@ def sync(args: argparse.Namespace) -> None:
             or r.get("recording_at", r.get("recordingAt", "")) > last_run
         )
     ]
+
+    # Every recording should have its Hey Pocket summary, even if it was
+    # processed earlier and AI notes failed. New recordings get theirs below.
+    backfill_pocket_summaries(
+        all_recordings,
+        skip_ids={r["id"] for r in new_recordings},
+        deleted_names=deleted_ids,
+        pocket=pocket,
+        notes_folder=folder_map["01"],
+        dry_run=args.dry_run,
+    )
 
     if not new_recordings:
         log("No new recordings to process. All done.")

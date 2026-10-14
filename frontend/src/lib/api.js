@@ -40,6 +40,7 @@ export const uploadAttachment   = (id, file, onProgress) => {
 export const updateTitle        = (id, title)   => http.put(`/recordings/${id}/title`, { title }).then(r => r.data);
 export const updateDate         = (id, date)    => http.put(`/recordings/${id}/date`, { date }).then(r => r.data);
 export const updateOriginalNotes = (id, content) => http.put(`/recordings/${id}/original-notes`, { content }).then(r => r.data);
+export const updatePocketSummary = (id, content) => http.put(`/recordings/${id}/pocket-summary`, { content }).then(r => r.data);
 
 // Create
 export const createRecording = (formData, onProgress) =>

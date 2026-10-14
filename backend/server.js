@@ -180,6 +180,32 @@ function existsAnyExt(dir, id, exts) {
   return exts.some(ext => fs.existsSync(path.join(dir, `${id}${ext}`)));
 }
 
+// For Hey Pocket recordings, 01_Original_Notes/{id}.md IS the Hey Pocket summary
+// (written by pocket_sync.py). Manual recordings have no Hey Pocket summary.
+const NO_SUMMARY_PLACEHOLDER = '_No summary available._';
+
+function isRealPocketSummary(text) {
+  return !!text && !text.includes(NO_SUMMARY_PLACEHOLDER);
+}
+
+function hasPocketSummaryFile(id) {
+  if (isManualId(id)) return false;
+  const p = path.join(DIRS.notes, `${id}.md`);
+  if (!fs.existsSync(p)) return false;
+  // The placeholder sits right after the short header, so the first 1 KB is enough
+  let fd;
+  try {
+    fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(1024);
+    const n = fs.readSync(fd, buf, 0, 1024, 0);
+    return isRealPocketSummary(buf.toString('utf8', 0, n));
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 function buildMeta(id) {
   const audioFile = findAudioFile(id);
   return {
@@ -187,6 +213,7 @@ function buildMeta(id) {
     title:            getTitle(id),
     date:             getDate(id),
     hasOriginalNotes: existsAnyExt(DIRS.notes,       id, ['.md', '.txt']),
+    hasPocketSummary: hasPocketSummaryFile(id),
     hasTranscript:    existsAnyExt(DIRS.transcripts,  id, ['.md', '.txt', '.json']),
     hasAudio:         !!audioFile,
     hasAiNotes:       existsAnyExt(DIRS.aiNotes,      id, ['.md', '.txt', '.json']),
@@ -210,13 +237,20 @@ function readTranscript(id) {
 }
 
 function buildRecordingResponse(id) {
-  const aiNotes   = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
-  const audioFile = findAudioFile(id);
+  const aiNotes       = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
+  const originalNotes = readFileSafe(path.join(DIRS.notes, `${id}.md`));
+  const audioFile     = findAudioFile(id);
+  const isManual      = isManualId(id);
   return {
     id,
     title:          getTitle(id),
     date:           getDate(id),
-    originalNotes:  readFileSafe(path.join(DIRS.notes, `${id}.md`)),
+    isManual,
+    originalNotes,
+    // Same file as originalNotes for Hey Pocket recordings — the UI shows one tab
+    pocketSummary:       isManual ? null : originalNotes,
+    hasPocketSummary:    !isManual && isRealPocketSummary(originalNotes),
+    pocketSummarySource: isManual ? null : 'original_notes',
     transcript:     readTranscript(id),
     aiNotes,
     visualizations: extractVisualizations(aiNotes),
@@ -585,11 +619,19 @@ async function generateWithClaude(prompt) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
   const msg = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-opus-4-5',
-    max_tokens: 8192,
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+    max_tokens: 16000,
     messages:   [{ role: 'user', content: prompt }],
-  });
-  return msg.content[0].text;
+    // Retry on a fallback model if the primary model declines the request
+    fallbacks:  'default',
+  }, { headers: { 'anthropic-beta': 'server-side-fallback-2026-07-01' } });
+  if (msg.stop_reason === 'refusal') {
+    throw new Error('Claude declined to generate notes for this recording');
+  }
+  // Thinking blocks may precede the answer — keep only the text blocks
+  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  if (!text.trim()) throw new Error('Claude returned an empty response');
+  return text;
 }
 
 // POST /api/recordings/:id/regenerate — re-run AI generation on existing notes
@@ -695,6 +737,28 @@ app.put('/api/recordings/:id/original-notes', (req, res) => {
     fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), content, 'utf8');
     res.json(buildRecordingResponse(id));
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/recordings/:id/pocket-summary — save edited Hey Pocket summary
+// Stored in 01_Original_Notes (pocket_sync.py never overwrites existing files)
+app.put('/api/recordings/:id/pocket-summary', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+  if (isManualId(id)) {
+    return res.status(400).json({ error: 'Manual recordings have no Hey Pocket summary' });
+  }
+
+  const { content } = req.body;
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+
+  try {
+    fs.mkdirSync(DIRS.notes, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), content, 'utf8');
+    res.json(buildRecordingResponse(id));
+  } catch (err) {
+    console.error('/pocket-summary PUT error:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -180,6 +180,32 @@ function existsAnyExt(dir, id, exts) {
   return exts.some(ext => fs.existsSync(path.join(dir, `${id}${ext}`)));
 }
 
+// For Hey Pocket recordings, 01_Original_Notes/{id}.md IS the Hey Pocket summary
+// (written by pocket_sync.py). Manual recordings have no Hey Pocket summary.
+const NO_SUMMARY_PLACEHOLDER = '_No summary available._';
+
+function isRealPocketSummary(text) {
+  return !!text && !text.includes(NO_SUMMARY_PLACEHOLDER);
+}
+
+function hasPocketSummaryFile(id) {
+  if (isManualId(id)) return false;
+  const p = path.join(DIRS.notes, `${id}.md`);
+  if (!fs.existsSync(p)) return false;
+  // The placeholder sits right after the short header, so the first 1 KB is enough
+  let fd;
+  try {
+    fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(1024);
+    const n = fs.readSync(fd, buf, 0, 1024, 0);
+    return isRealPocketSummary(buf.toString('utf8', 0, n));
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 function buildMeta(id) {
   const audioFile = findAudioFile(id);
   return {
@@ -187,6 +213,7 @@ function buildMeta(id) {
     title:            getTitle(id),
     date:             getDate(id),
     hasOriginalNotes: existsAnyExt(DIRS.notes,       id, ['.md', '.txt']),
+    hasPocketSummary: hasPocketSummaryFile(id),
     hasTranscript:    existsAnyExt(DIRS.transcripts,  id, ['.md', '.txt', '.json']),
     hasAudio:         !!audioFile,
     hasAiNotes:       existsAnyExt(DIRS.aiNotes,      id, ['.md', '.txt', '.json']),
@@ -210,13 +237,20 @@ function readTranscript(id) {
 }
 
 function buildRecordingResponse(id) {
-  const aiNotes   = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
-  const audioFile = findAudioFile(id);
+  const aiNotes       = readFileSafe(path.join(DIRS.aiNotes, `${id}.md`));
+  const originalNotes = readFileSafe(path.join(DIRS.notes, `${id}.md`));
+  const audioFile     = findAudioFile(id);
+  const isManual      = isManualId(id);
   return {
     id,
     title:          getTitle(id),
     date:           getDate(id),
-    originalNotes:  readFileSafe(path.join(DIRS.notes, `${id}.md`)),
+    isManual,
+    originalNotes,
+    // Same file as originalNotes for Hey Pocket recordings — the UI shows one tab
+    pocketSummary:       isManual ? null : originalNotes,
+    hasPocketSummary:    !isManual && isRealPocketSummary(originalNotes),
+    pocketSummarySource: isManual ? null : 'original_notes',
     transcript:     readTranscript(id),
     aiNotes,
     visualizations: extractVisualizations(aiNotes),
@@ -356,7 +390,7 @@ If no specific dates were mentioned, use: ASAP, TBD, or "Within X days/weeks"
 - Include specific details: exact dates, amounts, phone numbers, addresses, names,
   reference numbers, authorization codes, medication doses, case numbers
 - Medical / pharmacy / financial / legal content: capture every specific detail
-- Do not use JSON visualization blocks — use markdown tables for structured data
+- Do not use JSON visualization blocks in body sections — use markdown tables for structured data (exception: the Metrics section in Step 4 requires a bar_chart JSON block)
 - Do not pad with filler — if a section has nothing meaningful to say, skip it
 - If the recording has no action items, omit the Action Items section entirely
 
@@ -379,6 +413,27 @@ numbers were not given (e.g. "~2 hours", "roughly $500", "high priority = 3/5").
 
 If no quantitative data exists at all, include one row:
 | Overall | Qualitative only | — | No numbers mentioned in this recording |
+
+Then immediately after the table, output a bar_chart JSON block using the same
+numeric data. Use the Metric column as labels and the Value column as values.
+Only include rows that have a real numeric value (skip the "Qualitative only" row).
+
+\`\`\`json
+{
+  "type": "bar_chart",
+  "title": "[short descriptive title for the metrics, e.g. 'Project Costs' or 'Time Breakdown']",
+  "data": [
+    {"label": "[metric name]", "value": [number]},
+    {"label": "[metric name]", "value": [number]}
+  ]
+}
+\`\`\`
+
+Bar chart rules:
+- value must be a bare number (no units, no quotes) — e.g. 500 not "$500" or "500"
+- label must be under 20 characters
+- Include 2–8 items maximum
+- If all metrics are qualitative with no numeric value, omit the JSON block entirely
 
 ### Process & Workflow
 
@@ -564,11 +619,19 @@ async function generateWithClaude(prompt) {
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
   const msg = await client.messages.create({
-    model:      process.env.CLAUDE_MODEL || 'claude-opus-4-5',
-    max_tokens: 8192,
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+    max_tokens: 16000,
     messages:   [{ role: 'user', content: prompt }],
-  });
-  return msg.content[0].text;
+    // Retry on a fallback model if the primary model declines the request
+    fallbacks:  'default',
+  }, { headers: { 'anthropic-beta': 'server-side-fallback-2026-07-01' } });
+  if (msg.stop_reason === 'refusal') {
+    throw new Error('Claude declined to generate notes for this recording');
+  }
+  // Thinking blocks may precede the answer — keep only the text blocks
+  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  if (!text.trim()) throw new Error('Claude returned an empty response');
+  return text;
 }
 
 // POST /api/recordings/:id/regenerate — re-run AI generation on existing notes
@@ -674,6 +737,28 @@ app.put('/api/recordings/:id/original-notes', (req, res) => {
     fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), content, 'utf8');
     res.json(buildRecordingResponse(id));
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/recordings/:id/pocket-summary — save edited Hey Pocket summary
+// Stored in 01_Original_Notes (pocket_sync.py never overwrites existing files)
+app.put('/api/recordings/:id/pocket-summary', (req, res) => {
+  const { id } = req.params;
+  if (!isValidId(id)) return res.status(400).json({ error: 'Invalid recording ID' });
+  if (isManualId(id)) {
+    return res.status(400).json({ error: 'Manual recordings have no Hey Pocket summary' });
+  }
+
+  const { content } = req.body;
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+
+  try {
+    fs.mkdirSync(DIRS.notes, { recursive: true });
+    fs.writeFileSync(path.join(DIRS.notes, `${id}.md`), content, 'utf8');
+    res.json(buildRecordingResponse(id));
+  } catch (err) {
+    console.error('/pocket-summary PUT error:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import VizRenderer from './visualizations/VizRenderer';
+import PocketCard from './visualizations/PocketCard';
 import { MMD_PALETTE } from './visualizations/palette';
+import { splitPocketTags, pocketTagToPart } from '../lib/pocketTags';
 
 // ── Mermaid theme ─────────────────────────────────────────────────────────────
 // Uses inline el.style (beats Mermaid's generated CSS class rules in the cascade).
@@ -440,7 +442,10 @@ function renderSection(text) {
 export default function MarkdownRenderer({ content }) {
   if (!content) return null;
 
-  const parts = splitAtVizBlocks(content);
+  // Hey Pocket <pocket:*> chart tags first, then ```json / ```mermaid blocks
+  const parts = splitPocketTags(content)
+    .flatMap(p => (p.type === 'pocket' ? [pocketTagToPart(p)] : splitAtVizBlocks(p.content)))
+    .filter(Boolean);
 
   return (
     <div>
@@ -449,6 +454,8 @@ export default function MarkdownRenderer({ content }) {
           ? <VizRenderer key={i} data={part.data} />
           : part.type === 'mermaid'
           ? <MermaidBlock key={i} chart={part.chart} />
+          : part.type === 'pocketCard'
+          ? <PocketCard key={i} title={part.title} kind={part.kind} items={part.items} />
           : <Fragment key={i}>{renderSection(part.content)}</Fragment>
       )}
     </div>

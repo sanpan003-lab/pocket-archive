@@ -57,6 +57,7 @@ function RecordingCard({ rec, isFav, onToggleFav, onClick }) {
       <div className="flex flex-wrap gap-1.5">
         {rec.hasAudio   && <span className="badge badge-green">Audio</span>}
         {rec.hasAiNotes && <span className="badge badge-blue">AI Notes</span>}
+        {rec.hasPocketSummary && <span className="badge badge-gold">Pocket Summary</span>}
       </div>
     </div>
   );

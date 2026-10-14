@@ -3,7 +3,7 @@ requests==2.31.0
 python-dotenv==1.0.0
 
 # Claude AI integration
-# Upgraded from 0.28.0 in CONTEXT.md — 0.40+ required for stable claude-3-5-sonnet-20241022 support
+# Upgraded from 0.28.0 in CONTEXT.md. Default model: claude-sonnet-5-5 (override with CLAUDE_MODEL)
 anthropic==0.40.0
 
 # Progress bar for resumable audio downloads

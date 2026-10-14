@@ -16,6 +16,7 @@ services:
       - ATTACHMENTS_PATH=/data/archive/05_Attachments
       - CONFIG_PATH=/data/config/config.json
       - SYNC_SCRIPT_PATH=/data/archive/PocketSync_Project/pocket_sync.py
+      - CLAUDE_MODEL=claude-sonnet-5-5
       - JWT_SECRET=de9d9f94561e09b6f4f9d8b796c8af5aaba24028c0fafd46f6a84b000de230ec
     volumes:
       - /volume1/PocketArchive:/data/archive

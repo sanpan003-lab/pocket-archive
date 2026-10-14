@@ -171,10 +171,11 @@ export default function CalendarPage() {
                   style={{ borderRadius: 12 }}
                   onClick={() => navigate(`/recordings/${rec.id}`)}
                 >
-                  <p className="font-medium text-navy-900 dark:text-white text-sm flex-1">{rec.title}</p>
-                  <div className="flex gap-1.5 shrink-0">
+                  <p className="font-medium text-navy-900 dark:text-white text-sm flex-1 min-w-0">{rec.title}</p>
+                  <div className="flex flex-wrap justify-end gap-1.5 max-w-[60%]">
                     {rec.hasAudio      && <span className="badge badge-green text-xs">Audio</span>}
                     {rec.hasAiNotes    && <span className="badge badge-blue text-xs">AI</span>}
+                    {rec.hasPocketSummary && <span className="badge badge-gold text-xs">Pocket Summary</span>}
                     {rec.hasTranscript && <span className="badge badge-slate text-xs">Txt</span>}
                   </div>
                 </div>

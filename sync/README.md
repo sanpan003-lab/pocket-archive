@@ -77,7 +77,7 @@ Open `.env` and set these values:
 |---|---|---|
 | `EXPORT_FOLDER` | Script directory | Root folder for all output subfolders |
 | `LOG_FOLDER` | `_logs` | Log folder, relative to `EXPORT_FOLDER` |
-| `CLAUDE_MODEL` | `claude-3-5-sonnet-20241022` | Swap to `haiku` for cheaper/faster, `opus` for smarter |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Swap to `claude-haiku-5-5` for cheaper/faster, `claude-opus-5-5` for smarter |
 | `POCKET_API_DELAY` | `0.5` | Seconds between Hey Pocket API calls |
 | `CLAUDE_API_DELAY` | `1.0` | Seconds between Claude API calls |
 | `MAX_RETRIES` | `3` | Retries on network errors (exponential backoff) |
@@ -243,13 +243,13 @@ State is only updated in `state.json` when all recordings succeed. If the script
 
 ## Cost estimate
 
-Claude API pricing for `claude-3-5-sonnet-20241022`:
+Claude API pricing for `claude-sonnet-5-5` ($2 / $10 per million input / output tokens):
 
 | Usage | Approx. cost |
 |---|---|
-| Per recording (AI Notes) | ~$0.01–$0.02 |
-| 30 recordings/month | ~$0.30–$0.60 |
-| 100 recordings/month | ~$1.00–$2.00 |
+| Per recording (AI Notes) | ~$0.02–$0.06 |
+| 30 recordings/month | ~$0.60–$1.80 |
+| 100 recordings/month | ~$2.00–$6.00 |
 
 Hey Pocket API: free with your subscription.
 

@@ -126,7 +126,9 @@ function TimelineRow({ rec, isFav, onToggleFav, onClick }) {
       <div className="hidden sm:flex gap-1 shrink-0">
         {rec.hasAudio        && <span className="badge badge-green" style={{ fontSize: 10, padding: '2px 7px' }}>Audio</span>}
         {rec.hasAiNotes      && <span className="badge badge-blue"  style={{ fontSize: 10, padding: '2px 7px' }}>AI</span>}
-        {rec.hasOriginalNotes && <span className="badge badge-gold" style={{ fontSize: 10, padding: '2px 7px' }}>Orig</span>}
+        {rec.hasPocketSummary
+          ? <span className="badge badge-gold" style={{ fontSize: 10, padding: '2px 7px' }}>Pocket Summary</span>
+          : rec.hasOriginalNotes && <span className="badge badge-gold" style={{ fontSize: 10, padding: '2px 7px' }}>Orig</span>}
       </div>
 
       {/* Duration */}

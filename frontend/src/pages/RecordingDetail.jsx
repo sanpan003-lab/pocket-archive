@@ -4,11 +4,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Star, Headphones, Sparkles,
   StickyNote, AlertCircle, Mic2, RefreshCw, Paperclip,
-  Pencil, CheckCircle, X, Trash2, FileText,
+  Pencil, CheckCircle, X, Trash2, FileText, ScrollText, Info,
 } from 'lucide-react';
 import {
   getRecording, audioUrl, regenerateAiNotes, saveAiNotes,
-  updateTitle, updateDate, updateOriginalNotes, deleteRecording,
+  updateTitle, updateDate, updateOriginalNotes, updatePocketSummary, deleteRecording,
 } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import AudioPlayer from '../components/AudioPlayer';
@@ -46,16 +46,25 @@ function Skeleton() {
 
 // ── Empty content placeholder ─────────────────────────────────────────────────
 
-function NoContent({ label }) {
+function NoContent({ label, title, message }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <Mic2 size={36} className="text-navy-200 dark:text-white/20 mb-3" />
-      <p className="font-semibold text-navy-700 dark:text-white/70">{label} not available</p>
+      <p className="font-semibold text-navy-700 dark:text-white/70">{title ?? `${label} not available`}</p>
       <p className="text-sm text-navy-400 dark:text-white/40 mt-1 max-w-xs">
-        This file was not found in the archive. Run pocket_sync.py to populate it.
+        {message ?? 'This file was not found in the archive. Run pocket_sync.py to populate it.'}
       </p>
     </div>
   );
+}
+
+// Pick the tab to open: AI Notes, else the Hey Pocket summary, else whatever exists
+function defaultTab(data) {
+  if (data.aiNotes)                         return 'ai';
+  if (!data.isManual)                       return 'pocket';
+  if (data.originalNotes)                   return 'original';
+  if (data.transcript)                      return 'transcript';
+  return 'pocket';
 }
 
 // ── Delete confirmation modal ─────────────────────────────────────────────────
@@ -156,10 +165,7 @@ export default function RecordingDetail() {
     getRecording(id)
       .then(data => {
         setRec(data);
-        if      (data.aiNotes)       setActiveTab('ai');
-        else if (data.transcript)    setActiveTab('transcript');
-        else if (data.originalNotes) setActiveTab('original');
-        else                         setActiveTab('attachments');
+        setActiveTab(defaultTab(data));
       })
       .catch(err => setError(err.message || 'Failed to load recording'))
       .finally(() => setLoading(false));
@@ -201,12 +207,13 @@ export default function RecordingDetail() {
 
   // ── AI Notes handlers ──
 
-  async function handleRegenerate() {
+  async function handleRegenerate({ openAiTab = false } = {}) {
     setRegenerating(true);
     setRegenError(null);
     try {
       const updated = await regenerateAiNotes(id, selectedModel);
       setRec(updated);
+      if (openAiTab && updated.aiNotes) handleTabChange('ai');
     } catch (err) {
       setRegenError(err.response?.data?.error || err.message || 'Regeneration failed');
     } finally {
@@ -244,10 +251,10 @@ export default function RecordingDetail() {
     }
   }
 
-  // ── Original Notes handlers ──
+  // ── Original Notes / Hey Pocket Summary handlers (same editor, different endpoint) ──
 
   function handleOrigEdit() {
-    setOrigDraft(rec.originalNotes || '');
+    setOrigDraft((activeTab === 'pocket' ? rec.pocketSummary : rec.originalNotes) || '');
     setOrigSaveError(null);
     setOrigEditing(true);
   }
@@ -262,8 +269,14 @@ export default function RecordingDetail() {
     setOrigSaving(true);
     setOrigSaveError(null);
     try {
-      const updated = await updateOriginalNotes(id, origDraft);
-      setRec(r => ({ ...r, originalNotes: updated.originalNotes }));
+      const save = activeTab === 'pocket' ? updatePocketSummary : updateOriginalNotes;
+      const updated = await save(id, origDraft);
+      setRec(r => ({
+        ...r,
+        originalNotes:    updated.originalNotes,
+        pocketSummary:    updated.pocketSummary,
+        hasPocketSummary: updated.hasPocketSummary,
+      }));
       setOrigEditing(false);
       setOrigDraft('');
       setOrigSaveToast(true);
@@ -364,16 +377,23 @@ export default function RecordingDetail() {
 
   const isFav = favorites.includes(id);
 
+  // For Hey Pocket recordings, Original Notes IS the Hey Pocket summary — show it once
+  const originalIsPocket = rec.pocketSummarySource === 'original_notes';
+
   const TABS = [
-    { key: 'ai',          label: 'AI Notes',    mobileLabel: 'AI',    icon: Sparkles,   available: !!rec.aiNotes,       content: rec.aiNotes },
-    { key: 'transcript',  label: 'Transcript',  mobileLabel: 'Trans', icon: FileText,   available: !!rec.transcript,    content: rec.transcript },
-    { key: 'original',    label: 'Original',    mobileLabel: 'Orig',  icon: StickyNote, available: !!rec.originalNotes, content: rec.originalNotes },
-    { key: 'attachments', label: 'Attachments', mobileLabel: 'Attach',icon: Paperclip,  available: true,                content: null },
+    { key: 'ai',          label: 'AI Notes',           mobileLabel: 'AI',     icon: Sparkles,   available: !!rec.aiNotes,       content: rec.aiNotes },
+    { key: 'pocket',      label: 'Hey Pocket Summary', mobileLabel: 'Pocket', icon: ScrollText, available: true,                content: rec.pocketSummary },
+    { key: 'original',    label: 'Original Notes',     mobileLabel: 'Orig',   icon: StickyNote, available: !!rec.originalNotes && !originalIsPocket, content: rec.originalNotes },
+    { key: 'transcript',  label: 'Transcript',         mobileLabel: 'Trans',  icon: FileText,   available: !!rec.transcript,    content: rec.transcript },
+    { key: 'attachments', label: 'Attachments',        mobileLabel: 'Attach', icon: Paperclip,  available: true,                content: null },
   ];
 
   const visibleTabs   = TABS.filter(t => t.available);
   const activeContent = TABS.find(t => t.key === activeTab)?.content ?? null;
   const vizCount      = rec.visualizations?.length ?? 0;
+  const isNotesTab    = activeTab === 'pocket' || activeTab === 'original';
+  const canEditNotes  = activeTab === 'original' || (activeTab === 'pocket' && !rec.isManual);
+  const showAiFallbackNotice = !rec.aiNotes && !rec.isManual && activeTab === 'pocket';
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto animate-slide-up">
@@ -469,8 +489,9 @@ export default function RecordingDetail() {
                   {vizCount > 0 && ` · ${vizCount} chart${vizCount !== 1 ? 's' : ''}`}
                 </span>
               )}
+              {rec.hasPocketSummary && <span className="badge badge-gold"><ScrollText size={11} /> Pocket Summary</span>}
               {rec.transcript    && <span className="badge badge-slate"><FileText size={11} /> Transcript</span>}
-              {rec.originalNotes && <span className="badge badge-slate"><StickyNote size={11} /> Original Notes</span>}
+              {rec.originalNotes && !originalIsPocket && <span className="badge badge-slate"><StickyNote size={11} /> Original Notes</span>}
             </div>
           </div>
 
@@ -580,11 +601,11 @@ export default function RecordingDetail() {
                     title="Choose AI model"
                   >
                     <option value="gemini">Gemini Flash · Fast &amp; Free</option>
-                    <option value="claude">Claude Opus 4 · Premium</option>
+                    <option value="claude">Claude Sonnet 5.5 · Premium</option>
                   </select>
                   <button
                     className="btn-ghost text-xs flex items-center gap-1.5"
-                    onClick={handleRegenerate}
+                    onClick={() => handleRegenerate()}
                     disabled={regenerating}
                   >
                     <RefreshCw size={13} className={regenerating ? 'animate-spin' : ''} />
@@ -595,8 +616,8 @@ export default function RecordingDetail() {
             </div>
           )}
 
-          {/* Original Notes tab actions */}
-          {activeTab === 'original' && (
+          {/* Hey Pocket Summary / Original Notes tab actions */}
+          {isNotesTab && canEditNotes && (
             <div className="flex items-center gap-2 flex-wrap shrink-0">
               {origSaveToast && (
                 <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -631,7 +652,7 @@ export default function RecordingDetail() {
                 <button
                   className="btn-ghost text-xs flex items-center gap-1.5"
                   onClick={handleOrigEdit}
-                  title="Edit Original Notes"
+                  title={activeTab === 'pocket' ? 'Edit Hey Pocket Summary' : 'Edit Original Notes'}
                 >
                   <Pencil size={13} />
                   Edit
@@ -640,6 +661,43 @@ export default function RecordingDetail() {
             </div>
           )}
         </div>
+
+        {/* AI notes missing — the Hey Pocket summary is the fallback */}
+        {showAiFallbackNotice && !origEditing && (
+          <div
+            className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5 p-3.5 rounded-xl border border-gold-400/40 bg-gold-50 dark:bg-yellow-900/20 dark:border-yellow-500/30"
+          >
+            <div className="flex items-start gap-2 flex-1 min-w-0">
+              <Info size={15} className="shrink-0 mt-0.5 text-gold-600 dark:text-yellow-300" />
+              <p className="text-sm text-navy-700 dark:text-white/80">
+                AI notes not available yet — showing Hey Pocket summary
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <select
+                className="text-xs rounded-lg px-2 py-1.5 border border-navy-200 dark:border-white/20 bg-white dark:bg-navy-900 text-navy-700 dark:text-white/80 outline-none focus:ring-2 focus:ring-gold-400/50 cursor-pointer disabled:opacity-50"
+                value={selectedModel}
+                onChange={e => setSelectedModel(e.target.value)}
+                disabled={regenerating}
+                title="Choose AI model"
+              >
+                <option value="gemini">Gemini Flash</option>
+                <option value="claude">Claude Sonnet 5.5</option>
+              </select>
+              <button
+                className="btn-ghost text-xs flex items-center gap-1.5 text-gold-600 dark:text-yellow-300"
+                onClick={() => handleRegenerate({ openAiTab: true })}
+                disabled={regenerating}
+              >
+                <Sparkles size={13} className={regenerating ? 'animate-pulse' : ''} />
+                {regenerating ? 'Generating…' : 'Generate AI Notes'}
+              </button>
+            </div>
+            {regenError && (
+              <p className="text-xs text-red-500 dark:text-red-400 sm:basis-full">{regenError}</p>
+            )}
+          </div>
+        )}
 
         {/* Content */}
         {activeTab === 'attachments' ? (
@@ -654,7 +712,7 @@ export default function RecordingDetail() {
               spellCheck={false}
             />
           </div>
-        ) : origEditing && activeTab === 'original' ? (
+        ) : origEditing && isNotesTab ? (
           <div className="min-h-40">
             <textarea
               ref={origTextareaRef}
@@ -677,6 +735,11 @@ export default function RecordingDetail() {
               </button>
             )}
           </div>
+        ) : activeTab === 'pocket' && rec.isManual ? (
+          <NoContent
+            title="No Hey Pocket summary (manual recording)"
+            message="This recording was added manually, so Hey Pocket did not create a summary."
+          />
         ) : (
           <NoContent label={TABS.find(t => t.key === activeTab)?.label ?? 'Content'} />
         )}
