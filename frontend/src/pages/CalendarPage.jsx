@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { getRecordings } from '../lib/api';
+import { getRecordings, getQuickNotes } from '../lib/api';
+import QuickNoteEditor from '../components/quick/QuickNoteEditor';
+import { QUICK_TYPES, quickDay, describeWhen } from '../components/quick/quickMeta';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -25,12 +27,16 @@ export default function CalendarPage() {
   const [month, setMonth]         = useState(today.getMonth());
   const [selectedDay, setSelectedDay] = useState(null);
   const [recordings, setRecordings]   = useState([]);
+  const [quickNotes, setQuickNotes]   = useState([]);
   const [loading, setLoading]         = useState(true);
+  const [editing, setEditing]         = useState(null);
 
   useEffect(() => {
     getRecordings()
       .then(setRecordings)
       .finally(() => setLoading(false));
+    // Quick Capture events + reminders; the calendar still works without them
+    getQuickNotes().then(setQuickNotes).catch(() => {});
   }, []);
 
   const byDate = useMemo(() => {
@@ -41,6 +47,24 @@ export default function CalendarPage() {
     }
     return map;
   }, [recordings]);
+
+  const quickByDate = useMemo(() => {
+    const map = {};
+    for (const note of quickNotes) {
+      if (note.undone) continue;
+      const day = quickDay(note);
+      if (!day) continue;
+      (map[day] ??= []).push(note);
+    }
+    for (const list of Object.values(map)) {
+      list.sort((a, b) => (a.start || a.dueDate || '').localeCompare(b.start || b.dueDate || ''));
+    }
+    return map;
+  }, [quickNotes]);
+
+  function replaceQuick(updated) {
+    setQuickNotes(list => list.map(n => (n.id === updated.id ? updated : n)));
+  }
 
   function dateStr(day) {
     return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -70,13 +94,14 @@ export default function CalendarPage() {
   const isToday = day =>
     year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
 
-  const selectedRecs = selectedDay ? (byDate[dateStr(selectedDay)] ?? []) : [];
+  const selectedRecs  = selectedDay ? (byDate[dateStr(selectedDay)] ?? []) : [];
+  const selectedQuick = selectedDay ? (quickByDate[dateStr(selectedDay)] ?? []) : [];
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Calendar</h1>
-        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Browse recordings by date</p>
+        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Browse recordings and quick captures by date</p>
       </div>
 
       <div className="glass-panel p-6 mb-4">
@@ -115,6 +140,7 @@ export default function CalendarPage() {
               if (!day) return <div key={i} />;
               const ds    = dateStr(day);
               const count = byDate[ds]?.length ?? 0;
+              const quickCount = quickByDate[ds]?.length ?? 0;
               const sel   = selectedDay === day;
               const tod   = isToday(day);
 
@@ -134,6 +160,13 @@ export default function CalendarPage() {
                   onClick={() => setSelectedDay(day === selectedDay ? null : day)}
                 >
                   {day}
+                  {quickCount > 0 && (
+                    <span
+                      className="absolute top-1 right-1 w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full"
+                      style={{ background: sel ? '#fff' : QUICK_TYPES.event.color }}
+                      title={`${quickCount} quick capture${quickCount !== 1 ? 's' : ''}`}
+                    />
+                  )}
                   {count > 0 && (
                     <span className={`absolute bottom-1 text-[9px] font-bold leading-none ${sel ? 'text-white/80' : 'text-gold-500'}`}>
                       {count}
@@ -154,14 +187,43 @@ export default function CalendarPage() {
             {' — '}
             <span className="text-navy-500 dark:text-white/50 font-normal">
               {selectedRecs.length} recording{selectedRecs.length !== 1 ? 's' : ''}
+              {selectedQuick.length > 0 && `, ${selectedQuick.length} quick capture${selectedQuick.length !== 1 ? 's' : ''}`}
             </span>
           </p>
 
-          {selectedRecs.length === 0 ? (
-            <div className="glass-card p-8 text-center">
-              <Calendar size={28} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
-              <p className="text-sm text-navy-500 dark:text-white/40">No recordings on this day</p>
+          {/* Quick Capture events + reminders */}
+          {selectedQuick.length > 0 && (
+            <div className="flex flex-col gap-2 mb-2">
+              {selectedQuick.map(note => {
+                const meta = QUICK_TYPES[note.type] || QUICK_TYPES.note;
+                return (
+                  <button
+                    key={note.id}
+                    className="glass-card px-5 py-4 text-left flex items-center gap-3 animate-fade-in border-l-4"
+                    style={{ borderRadius: 12, borderLeftColor: meta.color }}
+                    onClick={() => setEditing(note)}
+                  >
+                    <meta.icon size={16} className="shrink-0" style={{ color: meta.color }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-navy-900 dark:text-white text-sm break-words">
+                        {note.type === 'reminder' ? '⏰ ' : ''}{note.title}
+                      </p>
+                      <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">{describeWhen(note)}</p>
+                    </div>
+                    <span className={`badge ${meta.badge} text-xs shrink-0`}>{meta.label}</span>
+                  </button>
+                );
+              })}
             </div>
+          )}
+
+          {selectedRecs.length === 0 ? (
+            selectedQuick.length === 0 && (
+              <div className="glass-card p-8 text-center">
+                <Calendar size={28} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
+                <p className="text-sm text-navy-500 dark:text-white/40">No recordings on this day</p>
+              </div>
+            )
           ) : (
             <div className="flex flex-col gap-2">
               {selectedRecs.map(rec => (
@@ -183,6 +245,14 @@ export default function CalendarPage() {
             </div>
           )}
         </div>
+      )}
+
+      {editing && (
+        <QuickNoteEditor
+          note={editing}
+          onClose={() => setEditing(null)}
+          onChanged={replaceQuick}
+        />
       )}
     </div>
   );

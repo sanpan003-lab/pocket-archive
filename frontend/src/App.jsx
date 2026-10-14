@@ -11,6 +11,8 @@ import CalendarPage from './pages/CalendarPage';
 import LoginPage from './pages/LoginPage';
 import TrashPage from './pages/TrashPage';
 import CreateRecordingPage from './pages/CreateRecordingPage';
+import QuickCapturePage from './pages/QuickCapturePage';
+import QuickInboxPage from './pages/QuickInboxPage';
 
 // ── Full-screen spinner (shown while checking session cookie) ─────────────────
 
@@ -56,6 +58,8 @@ export default function App() {
             }
           >
             <Route index element={<Dashboard />} />
+            <Route path="quick"       element={<QuickCapturePage />} />
+            <Route path="quick/inbox" element={<QuickInboxPage />} />
             <Route path="recordings/:id" element={<RecordingDetail />} />
             <Route path="search"    element={<SearchPage />} />
             <Route path="favorites" element={<FavoritesPage />} />

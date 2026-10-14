@@ -8,3 +8,11 @@ createRoot(document.getElementById('root')).render(
     <App />
   </StrictMode>,
 )
+
+// Service worker (installable PWA + offline app shell). Browsers only allow
+// it on HTTPS or localhost; skipped in dev so Vite's HMR isn't cached.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

@@ -49,6 +49,17 @@ export const createRecording = (formData, onProgress) =>
     onUploadProgress: e => onProgress?.(Math.round((e.loaded * 100) / e.total)),
   }).then(r => r.data);
 
+// Quick Capture
+export const getQuickNotes      = (params = {}) => http.get('/quick', { params }).then(r => r.data);
+export const captureQuick       = formData => http.post('/quick/capture', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 120000,
+}).then(r => r.data);
+export const updateQuickNote    = (id, data) => http.put(`/quick/${id}`, data).then(r => r.data);
+export const undoQuickNote      = id => http.post(`/quick/${id}/undo`).then(r => r.data);
+export const retryQuickNote     = id => http.post(`/quick/${id}/retry`).then(r => r.data);
+export const quickAudioUrl      = id => `/api/quick/${id}/audio`;
+
 // Trash / delete
 export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);
 export const deleteRecording        = id   => http.post(`/recordings/${id}/delete`).then(r => r.data);

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Layers, Headphones, Sparkles,
-  Star, LayoutGrid, List, AlertCircle, Mic2, Plus,
+  Star, LayoutGrid, List, AlertCircle, Mic2, Plus, Zap,
 } from 'lucide-react';
 import { getRecordings, getStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -10,9 +10,12 @@ import TimelineView, { TimelineSkeletonRows } from '../components/TimelineView';
 
 // ── Stat Card ────────────────────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, color, loading }) {
+function StatCard({ icon: Icon, label, value, color, loading, onClick }) {
   return (
-    <div className="glass-card p-5 flex items-center gap-4">
+    <div
+      className={`glass-card p-5 flex items-center gap-4 ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
       <div
         className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
         style={{ background: color.bg }}
@@ -95,6 +98,7 @@ const STAT_COLORS = {
   total:      { bg: 'rgba(99,102,241,0.12)',  icon: '#6366F1' },
   withAudio:  { bg: 'rgba(245,158,11,0.12)',  icon: '#F59E0B' },
   withAiNote: { bg: 'rgba(168,85,247,0.12)',  icon: '#A855F7' },
+  quickNotes: { bg: 'rgba(244,63,94,0.12)',   icon: '#F43F5E' },
 };
 
 export default function Dashboard() {
@@ -166,10 +170,12 @@ export default function Dashboard() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard icon={Layers}     label="Total"      value={stats?.total}       color={STAT_COLORS.total}      loading={loading} />
         <StatCard icon={Headphones} label="With Audio" value={stats?.withAudio}   color={STAT_COLORS.withAudio}  loading={loading} />
         <StatCard icon={Sparkles}   label="AI Notes"   value={stats?.withAiNotes} color={STAT_COLORS.withAiNote} loading={loading} />
+        <StatCard icon={Zap}        label="Quick notes" value={stats?.quickNotes ?? 0} color={STAT_COLORS.quickNotes} loading={loading}
+          onClick={() => navigate('/quick/inbox')} />
       </div>
 
       {/* Toast */}

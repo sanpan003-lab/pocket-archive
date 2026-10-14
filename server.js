@@ -11,6 +11,7 @@ const {
   verifyPassword, generateToken, verifyToken,
   hashPassword, savePassword, mustChangePassword,
 } = require('./auth');
+const { createQuickCapture } = require('./quickCapture');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -515,6 +516,15 @@ app.post('/api/auth/change-password', (req, res) => {
   res.json({ success: true });
 });
 
+// ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
+const quick = createQuickCapture({
+  archivePath:         ARCHIVE_PATH,
+  getRecentRecordings: limit => getAllIds().slice(0, limit).map(id => ({ id, title: getTitle(id), date: getDate(id) })),
+  recordingExists:     id => isValidId(id) && getAllIds().includes(id),
+  getRecordingTitle:   id => getTitle(id),
+});
+quick.register(app);
+
 // ── Routes ─────────────────────────────────────────────────────────────────
 
 // GET /api/recordings — list all (excludes deleted)
@@ -819,6 +829,10 @@ app.post('/api/recordings/:id/delete', (req, res) => {
       'utf8',
     );
 
+    // Quick notes linked to this recording are kept, just unlinked
+    try { quick.unlinkRecording(id); }
+    catch (err) { console.warn(`[quick] Could not unlink notes from ${id}: ${err.message}`); }
+
     res.json({ success: true, recoverable: true });
   } catch (err) {
     console.error('/delete error:', err);
@@ -857,6 +871,10 @@ app.post('/api/recordings/:id/restore', (req, res) => {
 
     // Remove the deleted directory
     fs.rmSync(deletedDir, { recursive: true, force: true });
+
+    // Re-link quick notes that were unlinked when this recording was deleted
+    try { quick.relinkRecording(id); }
+    catch (err) { console.warn(`[quick] Could not re-link notes to ${id}: ${err.message}`); }
 
     res.json({ success: true });
   } catch (err) {
@@ -1008,6 +1026,7 @@ app.get('/api/stats', (req, res) => {
       withAiNotes,
       withTranscript,
       withOriginalNotes,
+      quickNotes: quick.countActive(),
       archivePath: ARCHIVE_PATH,
     });
   } catch (err) {

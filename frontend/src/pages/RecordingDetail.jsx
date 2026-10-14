@@ -14,6 +14,7 @@ import { useApp } from '../context/AppContext';
 import AudioPlayer from '../components/AudioPlayer';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import AttachmentsTab from '../components/AttachmentsTab';
+import LinkedQuickNotes from '../components/quick/LinkedQuickNotes';
 
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 
@@ -744,6 +745,9 @@ export default function RecordingDetail() {
           <NoContent label={TABS.find(t => t.key === activeTab)?.label ?? 'Content'} />
         )}
       </div>
+
+      {/* ── Quick Capture notes linked to this recording ─────────────────────── */}
+      <LinkedQuickNotes recordingId={id} />
     </div>
   );
 }

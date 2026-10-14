@@ -224,6 +224,10 @@
   .dark .badge-blue  { background: rgba(99,102,241,0.22);  color: #A5B4FC; }
   .dark .badge-green { background: rgba(16,185,129,0.22);  color: #6EE7B7; }
   .dark .badge-slate { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.60); }
+  .badge-violet { background: rgba(139,92,246,0.12); color: #7C3AED; }
+  .badge-rose   { background: rgba(244,63,94,0.12);  color: #E11D48; }
+  .dark .badge-violet { background: rgba(139,92,246,0.24); color: #C4B5FD; }
+  .dark .badge-rose   { background: rgba(244,63,94,0.22);  color: #FDA4AF; }
 
   /* ── Audio scrubber ───────────────────────────────────────────────────── */
   .audio-track {

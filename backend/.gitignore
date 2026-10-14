@@ -3,3 +3,6 @@ node_modules/
 config.json
 public
 *.log
+
+# Google service account keys — NEVER commit
+*service-account*.json

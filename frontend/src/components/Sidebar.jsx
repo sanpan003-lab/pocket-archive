@@ -13,6 +13,7 @@ import { getStats, triggerSync, getSyncStatus } from '../lib/api';
 // ── Top nav (always visible) ──────────────────────────────────────────────
 const TOP_NAV = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/quick',     icon: Mic,              label: 'Quick Capture'       },
   { to: '/search',    icon: Search,           label: 'Search'              },
   { to: '/favorites', icon: Star,             label: 'Favorites'           },
 ];

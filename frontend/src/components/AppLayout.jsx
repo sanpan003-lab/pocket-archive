@@ -4,6 +4,7 @@ import { Menu, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useApp } from '../context/AppContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { startQueueFlusher } from '../lib/quickQueue';
 
 export default function AppLayout() {
   const {
@@ -11,6 +12,9 @@ export default function AppLayout() {
     mobileMenuOpen, setMobileMenuOpen,
   } = useApp();
   const isMobile = useIsMobile();
+
+  // Send Quick Capture recordings that were queued while offline
+  useEffect(() => startQueueFlusher(), []);
 
   // Close mobile menu when viewport becomes desktop-size
   useEffect(() => {
