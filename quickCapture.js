@@ -8,6 +8,7 @@ const fs     = require('fs');
 const path   = require('path');
 const multer = require('multer');
 const gcal   = require('./googleCalendar');
+const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 
 const TIMEZONE = gcal.TIMEZONE;
 const QUICK_TYPES = ['event', 'reminder', 'note_link', 'note'];
@@ -100,6 +101,12 @@ function describeNow(date) {
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
+// Field groups written by background jobs; the newer timestamp wins on write
+const FIELD_GROUPS = [
+  { stamp: 'summaryUpdatedAt', fields: ['summary', 'summaryStatus', 'summaryError', 'summaryUpdatedAt'] },
+  { stamp: 'audioUpdatedAt',   fields: ['audioFile', 'durationSec', 'audioConverted', 'audioMigration', 'audioUpdatedAt'] },
+];
+
 function createStore(archivePath) {
   const dir      = path.join(archivePath, '07_Quick_Notes');
   const audioDir = path.join(dir, 'audio');
@@ -117,6 +124,16 @@ function createStore(archivePath) {
 
   function write(note) {
     ensureDirs();
+    // Background jobs (summaries, audio conversion) update their own field
+    // groups on disk. Never let a stale in-memory copy overwrite a newer group.
+    const onDisk = read(note.id);
+    if (onDisk) {
+      for (const { stamp, fields } of FIELD_GROUPS) {
+        if ((onDisk[stamp] || '') > (note[stamp] || '')) {
+          for (const f of fields) note[f] = onDisk[f];
+        }
+      }
+    }
     note.updatedAt = new Date().toISOString();
     const tmp = fileFor(note.id) + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(note, null, 2), 'utf8');
@@ -288,6 +305,60 @@ async function classify({ transcript, now, recordings }) {
   }
 }
 
+// ── Claude summary ─────────────────────────────────────────────────────────
+
+const SUMMARY_SYSTEM = `You write clean, structured summaries of voice memos for a personal archive, in the style of meeting-recorder summaries.
+
+Scale the summary to the memo:
+- A memo of one or two sentences gets one bold title line followed by 1–3 bullets. Nothing else — no headings, no overview, no padding.
+- A longer memo gets a one- or two-sentence overview, then only the sections that apply, each with a "### " heading: Key Points, Action Items, People & Places, Details. Skip any section with nothing real to say. Never use "#" or "##" headings.
+
+Formatting:
+- Bullets with bold labels where they help: "- **Label:** detail".
+- Action Items include their dates or deadlines when the memo gives them.
+- Use a Markdown table only when it makes things clearer, e.g. several items that each have a date, amount, or owner.
+
+Content:
+- Remove filler words ("uh", "um", "like", "you know"), false starts, and repetition.
+- Never add facts, names, numbers, or dates that are not in the memo. If something is unclear, leave it out rather than guess.
+- Resolve relative dates ("tomorrow", "next Tuesday") against the capture time in America/New_York and write them like "Tue, Oct 20".
+- Output only the summary — no preamble, no closing remarks, no code fences.`;
+
+async function summarize(note) {
+  if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
+
+  const captured = new Date(note.capturedAt || note.createdAt);
+  const ctx = describeNow(isNaN(captured) ? new Date() : captured);
+  const edited = note.contentEdited && note.content && note.content !== note.transcript
+    ? `\n\n<edited_note>\n${note.content}\n</edited_note>\n(The user corrected the note above — trust it over the transcript where they differ.)`
+    : '';
+
+  const msg = await client.messages.create({
+    model:      process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+    max_tokens: 4000,
+    system:     SUMMARY_SYSTEM,
+    messages: [{
+      role: 'user',
+      content:
+        `Captured: ${ctx.human} (${TIMEZONE})\n\n` +
+        `<transcript>\n${note.transcript}\n</transcript>${edited}`,
+    }],
+    output_config: { effort: 'medium' },
+    // Retry on a fallback model if the primary model declines the request
+    fallbacks: 'default',
+  }, { headers: { 'anthropic-beta': 'server-side-fallback-2026-07-01' } });
+
+  if (msg.stop_reason === 'refusal') throw new Error('Claude declined to summarize this memo');
+  // Thinking blocks may precede the answer — keep only the text blocks
+  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
+    .replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i, '$1')
+    .trim();
+  if (!text) throw new Error('Claude returned an empty summary');
+  return text;
+}
+
 // ── Classification → note fields ───────────────────────────────────────────
 
 function applyFields(note, fields, { recordingExists }) {
@@ -452,6 +523,112 @@ function createQuickCapture(deps) {
     return store.write(note);
   }
 
+  // Update one field group on the latest copy on disk (safe for background jobs)
+  function updateGroup(id, fields, stamp) {
+    const fresh = store.read(id);
+    if (!fresh) return null;
+    Object.assign(fresh, fields, { [stamp]: new Date().toISOString() });
+    return store.write(fresh);
+  }
+
+  // ── Audio: convert to .m4a so players get a real duration ──
+  async function processAudio(note) {
+    const result = await convertToM4a(path.join(store.audioDir, note.audioFile));
+    if (!result.converted && result.error !== 'ffmpeg not available') {
+      console.warn(`[quick] Audio conversion failed for ${note.id}: ${result.error}`);
+    }
+    Object.assign(note, {
+      audioFile:      result.file,
+      durationSec:    result.durationSec,
+      audioConverted: result.converted,
+      audioUpdatedAt: new Date().toISOString(),
+    });
+    return note;
+  }
+
+  // One-time migration of audio saved before conversion existed
+  async function migrateAudio() {
+    if (!(await ffmpegAvailable())) return;
+    const todo = store.list().filter(n =>
+      n.audioFile && n.audioMigration !== 'failed' &&
+      (!n.audioFile.endsWith('.m4a') || !n.durationSec));
+    if (!todo.length) return;
+    console.log(`[quick] Converting audio for ${todo.length} quick note(s)…`);
+    for (const n of todo) {
+      const result = await convertToM4a(path.join(store.audioDir, n.audioFile));
+      updateGroup(n.id, {
+        audioFile:      result.file,
+        durationSec:    result.durationSec,
+        audioConverted: result.converted,
+        audioMigration: result.converted || result.durationSec ? 'done' : 'failed',
+      }, 'audioUpdatedAt');
+      if (!result.converted) console.warn(`[quick] Audio conversion failed for ${n.id}: ${result.error}`);
+    }
+  }
+
+  // ── Summaries: generated in the background, one at a time ──
+  const summaryQueue = [];
+  let summaryRunning = false;
+
+  function markSummaryPending(note) {
+    if (note.transcript) {
+      Object.assign(note, { summaryStatus: 'pending', summaryError: null });
+    } else {
+      Object.assign(note, { summaryStatus: 'failed', summaryError: 'No transcript to summarize' });
+    }
+    note.summaryUpdatedAt = new Date().toISOString();
+    return note.summaryStatus === 'pending';
+  }
+
+  function queueSummary(id) {
+    if (!summaryQueue.includes(id)) summaryQueue.push(id);
+    drainSummaries();
+  }
+
+  async function drainSummaries() {
+    if (summaryRunning) return;
+    summaryRunning = true;
+    try {
+      while (summaryQueue.length) {
+        const id = summaryQueue.shift();
+        const note = store.read(id);
+        if (!note || note.undone || !note.transcript) continue;
+        try {
+          const summary = await summarize(note);
+          updateGroup(id, { summary, summaryStatus: 'done', summaryError: null }, 'summaryUpdatedAt');
+        } catch (err) {
+          // Keep the note and transcript — only the summary is missing
+          console.warn(`[quick] Summary failed for ${id}: ${err.message}`);
+          updateGroup(id, { summaryStatus: 'failed', summaryError: err.message }, 'summaryUpdatedAt');
+        }
+      }
+    } finally {
+      summaryRunning = false;
+    }
+  }
+
+  // Notes with no summary yet (or left "pending" by a restart)
+  function backfillSummaries() {
+    const todo = store.list().filter(n =>
+      !n.undone && n.transcript && (!n.summaryStatus || n.summaryStatus === 'pending'));
+    if (!todo.length) return;
+    console.log(`[quick] Queueing summaries for ${todo.length} quick note(s)`);
+    for (const n of todo.reverse()) { // oldest first
+      if (n.summaryStatus !== 'pending') updateGroup(n.id, { summaryStatus: 'pending', summaryError: null }, 'summaryUpdatedAt');
+      queueSummary(n.id);
+    }
+  }
+
+  // Background startup work — never blocks the server from starting
+  function start() {
+    setTimeout(() => {
+      migrateAudio()
+        .catch(err => console.warn(`[quick] Audio migration stopped: ${err.message}`))
+        .then(() => backfillSummaries())
+        .catch(err => console.warn(`[quick] Summary backfill stopped: ${err.message}`));
+    }, 3000);
+  }
+
   // Transcribe → classify → act → save. Never throws for AI failures:
   // the capture is kept as a "needs_review" note instead.
   async function runPipeline(note, now) {
@@ -489,6 +666,7 @@ function createQuickCapture(deps) {
     if (note.googleSync === 'failed') {
       note.spokenConfirmation = `${note.spokenConfirmation.replace(/[.!]?$/, '.')} Google Calendar didn't update.`;
     }
+    markSummaryPending(note); // generated after the response is sent
     return finalize(note);
   }
 
@@ -561,8 +739,40 @@ function createQuickCapture(deps) {
         return res.status(500).json({ error: err.message });
       }
 
+      try {
+        await processAudio(note);
+        store.write(note);
+      } catch (err) {
+        console.warn(`[quick] Audio processing error for ${id}: ${err.message}`);
+      }
+
       await runPipeline(note, now);
       res.json({ note, spokenConfirmation: note.spokenConfirmation });
+      if (note.summaryStatus === 'pending') queueSummary(note.id);
+    });
+
+    // GET /api/quick/:id — one quick note (used to poll summary progress)
+    app.get('/api/quick/:id', (req, res) => {
+      const { id } = req.params;
+      if (!isQuickId(id)) return res.status(400).json({ error: 'Invalid quick note ID' });
+      const note = store.read(id);
+      if (!note) return res.status(404).json({ error: 'Quick note not found' });
+      res.json(note);
+    });
+
+    // POST /api/quick/:id/summarize — (re)generate the AI summary in the background
+    app.post('/api/quick/:id/summarize', (req, res) => {
+      const { id } = req.params;
+      if (!isQuickId(id)) return res.status(400).json({ error: 'Invalid quick note ID' });
+      const note = store.read(id);
+      if (!note) return res.status(404).json({ error: 'Quick note not found' });
+      if (note.undone) return res.status(409).json({ error: 'This capture was undone' });
+      if (!note.transcript) return res.status(409).json({ error: 'There is no transcript to summarize' });
+
+      markSummaryPending(note);
+      const saved = store.write(note);
+      queueSummary(id);
+      res.json(saved);
     });
 
     // POST /api/quick/:id/retry — re-run transcription + classification on a
@@ -580,6 +790,7 @@ function createQuickCapture(deps) {
         const captured = new Date(note.capturedAt || note.createdAt);
         await runPipeline(note, isNaN(captured) ? new Date() : captured);
         res.json({ note, spokenConfirmation: note.spokenConfirmation });
+        if (note.summaryStatus === 'pending') queueSummary(note.id);
       } catch (err) {
         console.error('/quick retry error:', err);
         res.status(500).json({ error: err.message });
@@ -618,6 +829,9 @@ function createQuickCapture(deps) {
       }
 
       try {
+        if (typeof body.content === 'string' && body.content.trim() !== (note.content || '').trim()) {
+          note.contentEdited = true; // the summarizer trusts the user's corrections
+        }
         const pick = key => (body[key] !== undefined ? body[key] : note[key]);
         applyFields(note, {
           type,
@@ -634,7 +848,9 @@ function createQuickCapture(deps) {
         if (note.status === 'needs_review') note.status = 'ok';
         note.unlinkedFrom = null;
         await syncGoogle(note);
+        const resummarize = body.regenerateSummary === true && markSummaryPending(note);
         res.json(finalize(note));
+        if (resummarize) queueSummary(note.id);
       } catch (err) {
         console.error('/quick PUT error:', err);
         res.status(500).json({ error: err.message });
@@ -695,7 +911,7 @@ function createQuickCapture(deps) {
     return store.list().filter(n => !n.undone).length;
   }
 
-  return { register, unlinkRecording, relinkRecording, countActive };
+  return { register, start, unlinkRecording, relinkRecording, countActive };
 }
 
 module.exports = {

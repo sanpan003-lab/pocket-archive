@@ -5,6 +5,8 @@ import {
   updateQuickNote, undoQuickNote, retryQuickNote, quickAudioUrl, getRecordings,
 } from '../../lib/api';
 import { QUICK_TYPES, TYPE_OPTIONS, toInputValue, describeWhen, timeAgo } from './quickMeta';
+import QuickSummary, { TranscriptToggle } from './QuickSummary';
+import QuickAudio from './QuickAudio';
 
 const INPUT = 'w-full text-sm text-navy-900 dark:text-white bg-black/5 dark:bg-white/5 border border-navy-200 dark:border-white/20 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-gold-400/50';
 const LABEL = 'block text-xs font-semibold text-navy-600 dark:text-white/60 mb-1';
@@ -31,6 +33,8 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
   const [recordings, setRecordings] = useState([]);
   const [busy, setBusy]   = useState(null);   // 'save' | 'undo' | 'retry'
   const [error, setError] = useState(null);
+  const [regenSummary, setRegenSummary] = useState(true);
+  const contentChanged = draft.content.trim() !== (note.content || '').trim();
 
   useEffect(() => {
     getRecordings().then(setRecordings).catch(() => {});
@@ -81,6 +85,7 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
       dueDate:  draft.type === 'reminder' ? fromInput(draft.dueDate, draft.allDay) : null,
       location: draft.location || null,
       linkedRecordingId: draft.type === 'note_link' ? draft.linkedRecordingId : null,
+      regenerateSummary: contentChanged && regenSummary && !!note.transcript,
     }));
   }
 
@@ -120,16 +125,15 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
           </button>
         </div>
 
-        {/* Audio + transcript */}
-        {note.audioFile && (
-          <audio controls preload="none" src={quickAudioUrl(note.id)} className="w-full mb-3" />
-        )}
-        {note.transcript && (
-          <p className="text-sm italic text-navy-600 dark:text-white/60 mb-4 break-words">“{note.transcript}”</p>
-        )}
+        {/* Title → AI summary → transcript → audio */}
+        <p className="font-semibold text-navy-900 dark:text-white break-words">{note.title}</p>
+        <QuickSummary note={note} onChanged={onChanged} />
+        <TranscriptToggle transcript={note.transcript} />
+        {note.audioFile && <QuickAudio src={quickAudioUrl(note.id)} durationSec={note.durationSec} />}
         {note.error && note.status === 'needs_review' && (
-          <p className="text-xs text-amber-700 dark:text-amber-300 mb-4 break-words">{note.error}</p>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-3 break-words">{note.error}</p>
         )}
+        <div className="divider my-4" />
 
         {/* Fields */}
         <fieldset disabled={readOnly || !!busy} className="flex flex-col gap-3">
@@ -191,6 +195,12 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
           <div>
             <label className={LABEL}>Note</label>
             <textarea className={`${INPUT} min-h-[96px] resize-y`} value={draft.content} onChange={e => set('content', e.target.value)} />
+            {contentChanged && note.transcript && (
+              <label className="flex items-center gap-2 mt-2 text-sm text-navy-700 dark:text-white/80">
+                <input type="checkbox" checked={regenSummary} onChange={e => setRegenSummary(e.target.checked)} />
+                Regenerate AI summary with these changes
+              </label>
+            )}
           </div>
         </fieldset>
 

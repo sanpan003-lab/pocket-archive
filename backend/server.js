@@ -524,6 +524,7 @@ const quick = createQuickCapture({
   getRecordingTitle:   id => getTitle(id),
 });
 quick.register(app);
+quick.start(); // background: audio conversion migration + summary backfill
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 

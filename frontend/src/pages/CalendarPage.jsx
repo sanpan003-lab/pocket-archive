@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { getRecordings, getQuickNotes } from '../lib/api';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
 import { QUICK_TYPES, quickDay, describeWhen } from '../components/quick/quickMeta';
+import { useSummaryPolling } from '../hooks/useSummaryPolling';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -29,15 +30,19 @@ export default function CalendarPage() {
   const [recordings, setRecordings]   = useState([]);
   const [quickNotes, setQuickNotes]   = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [editing, setEditing]         = useState(null);
+  const [editingId, setEditingId]     = useState(null);
 
   useEffect(() => {
     getRecordings()
       .then(setRecordings)
       .finally(() => setLoading(false));
-    // Quick Capture events + reminders; the calendar still works without them
-    getQuickNotes().then(setQuickNotes).catch(() => {});
   }, []);
+
+  // Quick Capture events + reminders; the calendar still works without them
+  const loadQuick = useCallback(() => getQuickNotes().then(setQuickNotes).catch(() => {}), []);
+  useEffect(() => { loadQuick(); }, [loadQuick]);
+  useSummaryPolling(quickNotes, loadQuick);
+  const editing = editingId ? quickNotes.find(n => n.id === editingId) : null;
 
   const byDate = useMemo(() => {
     const map = {};
@@ -201,7 +206,7 @@ export default function CalendarPage() {
                     key={note.id}
                     className="glass-card px-5 py-4 text-left flex items-center gap-3 animate-fade-in border-l-4"
                     style={{ borderRadius: 12, borderLeftColor: meta.color }}
-                    onClick={() => setEditing(note)}
+                    onClick={() => setEditingId(note.id)}
                   >
                     <meta.icon size={16} className="shrink-0" style={{ color: meta.color }} />
                     <div className="flex-1 min-w-0">
@@ -250,7 +255,7 @@ export default function CalendarPage() {
       {editing && (
         <QuickNoteEditor
           note={editing}
-          onClose={() => setEditing(null)}
+          onClose={() => setEditingId(null)}
           onChanged={replaceQuick}
         />
       )}

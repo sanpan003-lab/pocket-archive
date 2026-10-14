@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Inbox, Pencil, Undo2, AlertCircle, Link2 } from 'lucide-react';
-import { getQuickNotes, undoQuickNote, quickAudioUrl } from '../lib/api';
+import { Inbox, Pencil, Undo2, AlertCircle, Link2, Sparkles } from 'lucide-react';
+import { getQuickNotes, undoQuickNote, summarizeQuickNote, quickAudioUrl } from '../lib/api';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
+import QuickSummary, { TranscriptToggle } from '../components/quick/QuickSummary';
+import QuickAudio from '../components/quick/QuickAudio';
 import { QUICK_TYPES, describeWhen, timeAgo } from '../components/quick/quickMeta';
+import { useSummaryPolling } from '../hooks/useSummaryPolling';
 
 const FILTERS = [
   { key: 'all',      label: 'All',          test: n => !n.undone },
@@ -15,11 +18,20 @@ const FILTERS = [
   { key: 'undone',   label: 'Undone',       test: n => n.undone },
 ];
 
-function QuickNoteCard({ note, onEdit, onUndo, undoing }) {
+function QuickNoteCard({ note, onEdit, onUndo, undoing, onChanged }) {
   const meta = QUICK_TYPES[note.type] || QUICK_TYPES.note;
   const when = describeWhen(note);
+  const [regenerating, setRegenerating] = useState(false);
+
+  async function regenerate() {
+    setRegenerating(true);
+    try { onChanged(await summarizeQuickNote(note.id)); }
+    catch { /* QuickSummary shows the failed state on the next refresh */ }
+    finally { setRegenerating(false); }
+  }
+
   return (
-    <div className={`glass-card p-4 sm:p-5 animate-fade-in ${note.undone ? 'opacity-60' : ''}`}>
+    <div className={`glass-card p-4 sm:p-5 animate-fade-in min-w-0 ${note.undone ? 'opacity-60' : ''}`}>
       <div className="flex flex-wrap items-center gap-1.5 mb-2">
         <span className={`badge ${meta.badge}`}><meta.icon size={11} /> {meta.label}</span>
         {note.status === 'needs_review' && !note.undone && <span className="badge badge-gold">Needs review</span>}
@@ -27,12 +39,13 @@ function QuickNoteCard({ note, onEdit, onUndo, undoing }) {
         <span className="ml-auto text-xs text-navy-400 dark:text-white/40">{timeAgo(note.capturedAt || note.createdAt)}</span>
       </div>
 
+      {/* Title */}
       <p className="font-semibold text-navy-900 dark:text-white break-words">{note.title}</p>
       {when && <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{when}{note.location ? ` · ${note.location}` : ''}</p>}
 
-      {note.transcript && (
-        <p className="text-sm italic text-navy-600 dark:text-white/60 mt-2 line-clamp-3 break-words">“{note.transcript}”</p>
-      )}
+      {/* AI summary → transcript */}
+      <QuickSummary note={note} clamp onChanged={onChanged} />
+      <TranscriptToggle transcript={note.transcript} />
       {!note.transcript && note.error && (
         <p className="text-xs text-amber-700 dark:text-amber-300 mt-2 break-words">{note.error}</p>
       )}
@@ -46,18 +59,27 @@ function QuickNoteCard({ note, onEdit, onUndo, undoing }) {
         </Link>
       )}
 
+      {/* Audio */}
+      {note.audioFile && <QuickAudio src={quickAudioUrl(note.id)} durationSec={note.durationSec} />}
+
+      {/* Actions */}
       {note.actions?.length > 0 && (
-        <p className="text-xs text-navy-400 dark:text-white/40 mt-2">{note.actions.join(' · ')}</p>
+        <p className="text-xs text-navy-400 dark:text-white/40 mt-3">{note.actions.join(' · ')}</p>
       )}
-
-      {note.audioFile && (
-        <audio controls preload="none" src={quickAudioUrl(note.id)} className="w-full mt-3 h-10" />
-      )}
-
-      <div className="flex flex-wrap items-center gap-2 mt-3">
+      <div className="flex flex-wrap items-center gap-1 sm:gap-2 mt-2">
         <button className="btn-ghost text-xs" onClick={() => onEdit(note)}>
           <Pencil size={13} /> {note.undone ? 'View' : 'Edit'}
         </button>
+        {!note.undone && note.transcript && (
+          <button
+            className="btn-ghost text-xs"
+            onClick={regenerate}
+            disabled={regenerating || note.summaryStatus === 'pending'}
+          >
+            <Sparkles size={13} className={regenerating ? 'animate-pulse' : ''} />
+            Regenerate summary
+          </button>
+        )}
         {!note.undone && (
           <button className="btn-ghost text-xs text-red-500 dark:text-red-400" onClick={() => onUndo(note)} disabled={undoing}>
             <Undo2 size={13} /> {undoing ? 'Undoing…' : 'Undo'}
@@ -73,7 +95,7 @@ export default function QuickInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [filter, setFilter]   = useState('all');
-  const [editing, setEditing] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [undoingId, setUndoingId] = useState(null);
 
   const load = useCallback(() => {
@@ -84,6 +106,10 @@ export default function QuickInboxPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useSummaryPolling(notes, load);
+
+  // The editor always shows the latest copy (summaries update while it's open)
+  const editing = editingId ? notes.find(n => n.id === editingId) : null;
 
   const counts = useMemo(
     () => Object.fromEntries(FILTERS.map(f => [f.key, notes.filter(f.test).length])),
@@ -159,9 +185,10 @@ export default function QuickInboxPage() {
             <QuickNoteCard
               key={note.id}
               note={note}
-              onEdit={setEditing}
+              onEdit={n => setEditingId(n.id)}
               onUndo={handleUndo}
               undoing={undoingId === note.id}
+              onChanged={replace}
             />
           ))}
         </div>
@@ -170,7 +197,7 @@ export default function QuickInboxPage() {
       {editing && (
         <QuickNoteEditor
           note={editing}
-          onClose={() => setEditing(null)}
+          onClose={() => setEditingId(null)}
           onChanged={replace}
         />
       )}

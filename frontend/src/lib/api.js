@@ -58,6 +58,8 @@ export const captureQuick       = formData => http.post('/quick/capture', formDa
 export const updateQuickNote    = (id, data) => http.put(`/quick/${id}`, data).then(r => r.data);
 export const undoQuickNote      = id => http.post(`/quick/${id}/undo`).then(r => r.data);
 export const retryQuickNote     = id => http.post(`/quick/${id}/retry`).then(r => r.data);
+export const getQuickNote       = id => http.get(`/quick/${id}`).then(r => r.data);
+export const summarizeQuickNote = id => http.post(`/quick/${id}/summarize`).then(r => r.data);
 export const quickAudioUrl      = id => `/api/quick/${id}/audio`;
 
 // Trash / delete

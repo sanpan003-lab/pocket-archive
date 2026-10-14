@@ -1,5 +1,5 @@
 FROM node:24-alpine
-RUN apk add --no-cache python3 py3-pip py3-requests && \
+RUN apk add --no-cache python3 py3-pip py3-requests ffmpeg && \
     pip3 install python-dotenv requests anthropic tqdm icalendar reportlab --break-system-packages
 WORKDIR /app
 COPY package*.json ./

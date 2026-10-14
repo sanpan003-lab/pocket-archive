@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Zap, Unlink } from 'lucide-react';
 import { getQuickNotes, updateQuickNote, quickAudioUrl } from '../../lib/api';
+import QuickSummary, { TranscriptToggle } from './QuickSummary';
+import QuickAudio from './QuickAudio';
+import { useSummaryPolling } from '../../hooks/useSummaryPolling';
 
 function formatStamp(iso) {
   return new Date(iso).toLocaleString('en-US', {
@@ -14,13 +17,18 @@ export default function LinkedQuickNotes({ recordingId }) {
   const [busyId, setBusyId]   = useState(null);
   const [error, setError]     = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(() => (
     getQuickNotes({ recordingId })
-      .then(list => { if (!cancelled) setNotes(list.filter(n => !n.undone)); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [recordingId]);
+      .then(list => setNotes(list.filter(n => !n.undone)))
+      .catch(() => {})
+  ), [recordingId]);
+
+  useEffect(() => { load(); }, [load]);
+  useSummaryPolling(notes, load);
+
+  function replace(updated) {
+    setNotes(list => list.map(n => (n.id === updated.id ? updated : n)));
+  }
 
   async function unlink(note) {
     setBusyId(note.id);
@@ -49,11 +57,14 @@ export default function LinkedQuickNotes({ recordingId }) {
 
       <div className="flex flex-col gap-3">
         {notes.map(note => (
-          <div key={note.id} className="rounded-xl p-3.5 bg-black/[0.03] dark:bg-white/5 border border-black/5 dark:border-white/10">
+          <div key={note.id} className="rounded-xl p-3.5 bg-black/[0.03] dark:bg-white/5 border border-black/5 dark:border-white/10 min-w-0">
             <div className="flex items-start justify-between gap-3">
-              <p className="text-xs font-semibold text-navy-400 dark:text-white/40">
-                {formatStamp(note.capturedAt || note.createdAt)}
-              </p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-navy-400 dark:text-white/40">
+                  {formatStamp(note.capturedAt || note.createdAt)}
+                </p>
+                <p className="text-sm font-semibold text-navy-900 dark:text-white mt-0.5 break-words">{note.title}</p>
+              </div>
               <button
                 className="btn-ghost text-xs -mt-1 -mr-1 shrink-0"
                 onClick={() => unlink(note)}
@@ -63,12 +74,13 @@ export default function LinkedQuickNotes({ recordingId }) {
                 <Unlink size={12} /> {busyId === note.id ? 'Unlinking…' : 'Unlink'}
               </button>
             </div>
-            <p className="text-sm text-navy-800 dark:text-white/85 mt-1 leading-relaxed break-words whitespace-pre-wrap">
-              {note.content || note.transcript}
-            </p>
-            {note.audioFile && (
-              <audio controls preload="none" src={quickAudioUrl(note.id)} className="w-full mt-2 h-10" />
+
+            <QuickSummary note={note} clamp onChanged={replace} />
+            {note.summaryStatus !== 'done' && note.summaryStatus !== 'pending' && !note.transcript && note.content && (
+              <p className="text-sm text-navy-800 dark:text-white/85 mt-1 leading-relaxed break-words whitespace-pre-wrap">{note.content}</p>
             )}
+            <TranscriptToggle transcript={note.transcript} />
+            {note.audioFile && <QuickAudio src={quickAudioUrl(note.id)} durationSec={note.durationSec} />}
           </div>
         ))}
       </div>

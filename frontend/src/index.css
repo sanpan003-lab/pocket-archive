@@ -229,6 +229,11 @@
   .dark .badge-violet { background: rgba(139,92,246,0.24); color: #C4B5FD; }
   .dark .badge-rose   { background: rgba(244,63,94,0.22);  color: #FDA4AF; }
 
+  /* ── Quick note AI summary (compact markdown) ─────────────────────────── */
+  .quick-summary > div > :first-child { margin-top: 0; }
+  .quick-summary h3, .quick-summary h4 { margin-top: 0.75rem; }
+  .quick-summary p { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+
   /* ── Audio scrubber ───────────────────────────────────────────────────── */
   .audio-track {
     width: 100%;
