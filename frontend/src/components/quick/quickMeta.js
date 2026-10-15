@@ -1,9 +1,10 @@
-import { CalendarClock, Bell, Link2, StickyNote } from 'lucide-react';
+import { CalendarClock, Bell, Link2, StickyNote, ShoppingCart } from 'lucide-react';
 
 // color = badge tint and the accent bar on inbox cards (needs review uses REVIEW_ACCENT)
 export const QUICK_TYPES = {
   event:     { label: 'Event',       icon: CalendarClock, badge: 'badge-sky',    color: '#3B82F6' },
   reminder:  { label: 'Reminder',    icon: Bell,          badge: 'badge-violet', color: '#8B5CF6' },
+  errand:    { label: 'Errand',      icon: ShoppingCart,  badge: 'badge-green',  color: '#10B981', emoji: '🛒' },
   note_link: { label: 'Linked note', icon: Link2,         badge: 'badge-teal',   color: '#14B8A6' },
   note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-gold',   color: '#F59E0B' },
 };
@@ -17,7 +18,9 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Stored values are New York wall time ("YYYY-MM-DD" or ISO with offset),
 // so the first 10 characters are always the local calendar day.
 export function quickDay(note) {
-  const when = note.type === 'event' ? note.start : note.type === 'reminder' ? note.dueDate : null;
+  const when = note.type === 'event' ? note.start
+    : note.type === 'reminder' ? note.dueDate
+      : note.type === 'errand' && note.trigger !== 'arrival' ? note.start : null;
   return when ? when.slice(0, 10) : null;
 }
 
@@ -46,6 +49,7 @@ export function describeWhen(note) {
     return `${formatWhen(note.start)}${end}`;
   }
   if (note.type === 'reminder') return note.dueDate ? `Due ${formatWhen(note.dueDate)}` : 'No due date';
+  if (note.type === 'errand' && note.start && note.trigger !== 'arrival') return formatWhen(note.start);
   return null;
 }
 
@@ -99,6 +103,19 @@ export function confirmationFor(note) {
   if (note.type === 'note_link') {
     const linked = (note.actions || []).map(a => a.match(/^Linked to “(.+)”$/)?.[1]).find(Boolean);
     return { icon: '📝', text: linked ? `Saved to ${linked}` : 'Saved to recording', tone, detail };
+  }
+  if (note.type === 'errand') {
+    // "🛒 Publix list · 4 items · Tomorrow · reminds on arrival"
+    const n = (note.items || []).length;
+    const placeName = errandPlaceName(note);
+    const text = [
+      placeName ? `${placeName} list` : note.title,
+      n ? `${n} item${n === 1 ? '' : 's'}` : null,
+      note.start && note.trigger !== 'arrival' ? shortWhen(note.start) : null,
+      errandHasArrival(note) ? 'reminds on arrival' : null,
+    ].filter(Boolean).join(' · ');
+    const placeProblem = errandHasArrival(note) && note.place && !note.place.resolved ? note.place.error : null;
+    return { icon: '🛒', text, tone: placeProblem ? 'review' : tone, detail: detail || placeProblem || null };
   }
   return { icon: '📝', text: 'Quick note saved', tone, detail };
 }
@@ -184,4 +201,32 @@ export function cardTime(iso) {
   if (!iso) return '';
   if (Date.now() - new Date(iso).getTime() < 86400000) return timeAgo(iso);
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// ── Errands ───────────────────────────────────────────────────────────────
+
+export const errandHasArrival = note => note.trigger === 'arrival' || note.trigger === 'both';
+
+/** "Publix" as spoken (the resolved store's own name can be long). */
+export const errandPlaceName = note => note.place?.query || note.placeSpec?.query || null;
+
+export function errandProgress(note) {
+  const items = note.items || [];
+  return { done: items.filter(i => i.done).length, total: items.length };
+}
+
+/** Chips under an errand: "Tomorrow", "On arrival". */
+export function errandChips(note) {
+  const chips = [];
+  if (note.start && note.trigger !== 'arrival') chips.push({ key: 'time', label: shortWhen(note.start) });
+  if (errandHasArrival(note)) chips.push({ key: 'arrival', label: 'On arrival' });
+  return chips;
+}
+
+/** Google Maps directions (opens the Maps app on phones). */
+export function directionsUrl(place) {
+  if (!place) return null;
+  const dest = place.address ? `${place.name}, ${place.address}`
+    : Number.isFinite(place.lat) ? `${place.lat},${place.lng}` : null;
+  return dest ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}` : null;
 }

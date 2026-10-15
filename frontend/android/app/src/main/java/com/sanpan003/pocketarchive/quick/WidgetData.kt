@@ -26,7 +26,12 @@ object WidgetData {
         val type: String,
         val createdAt: Long,
         val needsReview: Boolean,
-    )
+        val itemsDone: Int = 0,
+        val itemsTotal: Int = 0,
+    ) {
+        /** "2/4" for errands with a checklist. */
+        val progress get() = if (type == "errand" && itemsTotal > 0) "$itemsDone/$itemsTotal" else null
+    }
 
     private const val PREFS = "widget_cache"
     private const val LIMIT = 5
@@ -116,6 +121,8 @@ object WidgetData {
             type = o.optString("type", "note"),
             createdAt = parseTime(o.optString("createdAt")),
             needsReview = o.optBoolean("needsReview", false),
+            itemsDone = o.optInt("itemsDone", 0),
+            itemsTotal = o.optInt("itemsTotal", 0),
         )
     }
 
@@ -127,6 +134,7 @@ object WidgetData {
     fun typeIcon(type: String) = when (type) {
         "event" -> "📅"
         "reminder" -> "⏰"
+        "errand" -> "🛒"
         "note_link" -> "🔗"
         else -> "📝"
     }

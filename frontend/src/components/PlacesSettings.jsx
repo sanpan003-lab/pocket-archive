@@ -1,0 +1,312 @@
+import { useCallback, useEffect, useState } from 'react';
+import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing } from 'lucide-react';
+import {
+  getPlaces, setHomeLocation, clearHomeLocation, searchPlaces,
+  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings,
+} from '../lib/api';
+
+const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
+
+const miles = m => (Number.isFinite(m) ? `${(m / 1609.34).toFixed(m < 16093 ? 1 : 0)} mi` : '');
+const errMsg = (err, fallback) => err.response?.data?.error || fallback;
+
+/** Search nearby places and pick one (used to add a place or change the preferred store). */
+function PlacePicker({ initialQuery = '', onPick, onCancel, busy }) {
+  const [query, setQuery]     = useState(initialQuery);
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(!!initialQuery);
+  const [error, setError]     = useState('');
+
+  // Sets state only once the request settles (also used for the initial search)
+  const search = useCallback(q => searchPlaces(q)
+    .then(data => {
+      setResults(data.results);
+      setError(data.home ? '' : 'Tip: set your home location first to see the stores closest to you.');
+    })
+    .catch(err => setError(errMsg(err, 'Search failed')))
+    .finally(() => setLoading(false)), []);
+
+  function run(e) {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setLoading(true);
+    setError('');
+    search(query.trim());
+  }
+
+  // Changing the store: show the nearby results straight away
+  useEffect(() => { if (initialQuery) search(initialQuery); }, [initialQuery, search]);
+
+  return (
+    <div className="mt-3 p-3 rounded-xl bg-navy-50/60 dark:bg-white/5">
+      <form onSubmit={run} className="flex gap-2">
+        <input className={INPUT} value={query} onChange={e => setQuery(e.target.value)} placeholder="Store or place, e.g. Publix" aria-label="Search places" />
+        <button type="submit" className="btn-gold shrink-0" disabled={loading || !query.trim()} aria-label="Search">
+          {loading ? <RefreshCw size={15} className="animate-spin" /> : <Search size={15} />}
+        </button>
+      </form>
+      {error && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2">{error}</p>}
+      {results && (
+        results.length === 0 ? (
+          <p className="text-sm text-navy-500 dark:text-white/50 mt-3">Nothing found nearby.</p>
+        ) : (
+          <ul className="mt-3 max-h-72 overflow-y-auto space-y-1.5">
+            {results.map(r => (
+              <li key={`${r.lat},${r.lng}`}>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2.5 rounded-xl bg-white dark:bg-white/5 hover:bg-gold-500/10 border border-navy-100 dark:border-white/10 flex items-center gap-3 disabled:opacity-50"
+                  onClick={() => onPick(r, query.trim())}
+                  disabled={busy}
+                >
+                  <Store size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-semibold text-navy-900 dark:text-white break-words">{r.name}</span>
+                    <span className="block text-xs text-navy-500 dark:text-white/50 break-words">{r.address || 'Address unknown'}</span>
+                  </span>
+                  <span className="text-xs tabular-nums text-navy-400 dark:text-white/40 shrink-0">{miles(r.distanceM)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+      <button type="button" className="btn-ghost text-xs mt-2" onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+function Toggle({ label, hint, checked, onChange, disabled }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      className="w-full flex items-center gap-3 py-2 text-left"
+      onClick={() => onChange(!checked)}
+    >
+      <BellRing size={18} className="shrink-0 text-navy-500 dark:text-white/60" />
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold text-navy-900 dark:text-white">{label}</span>
+        {hint && <span className="block text-xs text-navy-500 dark:text-white/50">{hint}</span>}
+      </span>
+      <span className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${checked ? 'bg-gold-500' : 'bg-navy-200 dark:bg-white/20'}`}>
+        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : ''}`} />
+      </span>
+    </button>
+  );
+}
+
+/** Settings → Places & errands: home location, errand options, My Places. */
+export default function PlacesSettings() {
+  const [data, setData]       = useState(null);
+  const [error, setError]     = useState('');
+  const [address, setAddress] = useState('');
+  const [editingHome, setEditingHome] = useState(false);
+  const [busy, setBusy]       = useState(null);
+  const [picker, setPicker]   = useState(null);   // { mode: 'add' } | { mode: 'change', place }
+  const [draft, setDraft]     = useState(null);   // picked result waiting for aliases
+  const [saved, setSaved]     = useState('');
+
+  const load = useCallback(() => {
+    getPlaces().then(d => { setData(d); setError(''); }).catch(err => setError(errMsg(err, 'Could not load places')));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  function flash(text) {
+    setSaved(text);
+    setTimeout(() => setSaved(''), 2500);
+  }
+
+  async function act(kind, fn, done) {
+    setBusy(kind);
+    setError('');
+    try {
+      await fn();
+      load();
+      if (done) flash(done);
+    } catch (err) {
+      setError(errMsg(err, 'Something went wrong'));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const saveHome = e => {
+    e.preventDefault();
+    act('home', async () => { await setHomeLocation(address.trim()); setEditingHome(false); setAddress(''); }, 'Home location saved');
+  };
+
+  const setSetting = patch => act('settings', () => updateErrandSettings(patch));
+
+  function picked(result, query) {
+    if (picker?.mode === 'change') {
+      const p = picker.place;
+      act('place', async () => {
+        await updateSavedPlace(p.id, { name: result.name, address: result.address, lat: result.lat, lng: result.lng });
+        setPicker(null);
+      }, `${p.aliases?.[0] || p.name} → ${result.address || result.name}`);
+    } else {
+      setDraft({ ...result, aliases: query, chain: query });
+      setPicker(null);
+    }
+  }
+
+  const saveDraft = e => {
+    e.preventDefault();
+    act('place', async () => {
+      await addSavedPlace({
+        name: draft.name, address: draft.address, lat: draft.lat, lng: draft.lng,
+        aliases: draft.aliases, chain: draft.chain,
+      });
+      setDraft(null);
+    }, 'Place saved');
+  };
+
+  const home = data?.home;
+  const settings = data?.errandSettings;
+
+  return (
+    <div id="places" className="glass-panel p-6 mb-4 scroll-mt-20">
+      <div className="flex items-center gap-2 mb-1">
+        <MapPin size={18} className="text-gold-500" />
+        <h2 className="font-bold text-navy-900 dark:text-white">Places &amp; errands</h2>
+      </div>
+      <p className="text-sm text-navy-600 dark:text-white/60 mb-4">
+        Stores for your errand lists are found near home with OpenStreetMap. Your home address stays on your server.
+      </p>
+      {error && <p className="text-sm text-red-500 dark:text-red-400 mb-3">{error}</p>}
+      {saved && <p className="text-sm text-emerald-600 dark:text-emerald-400 mb-3 flex items-center gap-1.5"><CheckCircle2 size={14} /> {saved}</p>}
+
+      {/* Home */}
+      <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mb-2">Home location</h3>
+      {data === null && !error ? (
+        <div className="h-12 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />
+      ) : home && !editingHome ? (
+        <div className="px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
+          <div className="flex items-start gap-3">
+            <Home size={16} className="mt-0.5 text-navy-500 dark:text-white/60 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">{home.address}</p>
+              {home.displayName && home.displayName !== home.address && (
+                <p className="text-xs text-navy-500 dark:text-white/50 break-words">Found: {home.displayName}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-1 mt-1.5 pl-7">
+            <button className="btn-ghost text-xs" onClick={() => { setAddress(home.address); setEditingHome(true); }}>Change</button>
+            <button
+              className="btn-ghost text-xs text-red-500 dark:text-red-400"
+              onClick={() => window.confirm('Remove your home location? Chain stores can no longer be found nearby.') && act('home', clearHomeLocation)}
+            >
+              <Trash2 size={13} /> Remove
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={saveHome} className="flex flex-col sm:flex-row gap-2">
+          <input
+            className={INPUT}
+            value={address}
+            onChange={e => setAddress(e.target.value)}
+            placeholder="Street, city, state"
+            autoComplete="street-address"
+            aria-label="Home address"
+          />
+          <div className="flex gap-2 shrink-0">
+            <button type="submit" className="btn-gold" disabled={!address.trim() || busy === 'home'}>
+              {busy === 'home' ? 'Finding…' : 'Save'}
+            </button>
+            {home && <button type="button" className="btn-ghost" onClick={() => setEditingHome(false)}>Cancel</button>}
+          </div>
+        </form>
+      )}
+
+      {/* Errand options */}
+      {settings && (
+        <div className="mt-5">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mb-1">Errands</h3>
+          <Toggle
+            label="Remind me on arrival for store errands"
+            hint="A dated store trip also reminds you when you get there (Android app)"
+            checked={settings.arrivalForStoreErrands}
+            onChange={v => setSetting({ arrivalForStoreErrands: v })}
+            disabled={busy === 'settings'}
+          />
+          <label className="flex items-center gap-3 py-2 text-sm">
+            <span className="flex-1 text-navy-700 dark:text-white/80">Arrival reminders expire after</span>
+            <select
+              className="bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-3 py-2 text-sm text-navy-900 dark:text-white"
+              value={settings.arrivalExpiryDays}
+              onChange={e => setSetting({ arrivalExpiryDays: Number(e.target.value) })}
+              disabled={busy === 'settings'}
+            >
+              {[7, 14, 30, 60].map(d => <option key={d} value={d}>{d} days</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {/* My Places */}
+      <div className="mt-5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mb-1">My Places</h3>
+        <p className="text-xs text-navy-500 dark:text-white/50 mb-2">
+          Your usual stores. When you say an alias like “Publix”, its address goes on the calendar event.
+        </p>
+        {data?.saved?.length > 0 && (
+          <ul className="space-y-2">
+            {data.saved.map(p => (
+              <li key={p.id} className="px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
+                <div className="flex items-start gap-3">
+                  <Store size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">
+                      {p.aliases?.length ? p.aliases.join(', ') : p.name}
+                    </p>
+                    <p className="text-xs text-navy-500 dark:text-white/50 break-words">{p.name}{p.address ? ` · ${p.address}` : ''}</p>
+                  </div>
+                </div>
+                <div className="flex gap-1 mt-1.5 pl-7">
+                  <button className="btn-ghost text-xs" onClick={() => setPicker({ mode: 'change', place: p })}>Change store</button>
+                  <button
+                    className="btn-ghost text-xs text-red-500 dark:text-red-400"
+                    onClick={() => window.confirm(`Remove “${p.aliases?.[0] || p.name}”?`) && act('place', () => deleteSavedPlace(p.id))}
+                  >
+                    Remove
+                  </button>
+                </div>
+                {picker?.mode === 'change' && picker.place.id === p.id && (
+                  <PlacePicker initialQuery={p.chain || p.aliases?.[0] || p.name} onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {draft ? (
+          <form onSubmit={saveDraft} className="mt-3 p-3 rounded-xl bg-navy-50/60 dark:bg-white/5 space-y-2">
+            <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">{draft.name}</p>
+            <p className="text-xs text-navy-500 dark:text-white/50 break-words">{draft.address || 'Address unknown'}</p>
+            <label className="block text-xs font-semibold text-navy-600 dark:text-white/60" htmlFor="place-aliases">
+              Call it (aliases, comma-separated)
+            </label>
+            <input id="place-aliases" className={INPUT} value={draft.aliases} onChange={e => setDraft(d => ({ ...d, aliases: e.target.value }))} />
+            <div className="flex gap-2">
+              <button type="submit" className="btn-gold" disabled={!draft.aliases.trim() || busy === 'place'}>
+                {busy === 'place' ? 'Saving…' : 'Save place'}
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
+            </div>
+          </form>
+        ) : picker?.mode === 'add' ? (
+          <PlacePicker onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
+        ) : (
+          <button className="btn-ghost text-sm mt-2" onClick={() => setPicker({ mode: 'add' })}>
+            <Store size={15} /> Add a place
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

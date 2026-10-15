@@ -149,4 +149,5 @@ module.exports = {
   hashPassword, savePassword, mustChangePassword,
   createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken,
   generateMediaToken, verifyMediaToken, DEVICE_TOKEN_DAYS,
+  getConfig, saveConfig, CONFIG_PATH,
 };

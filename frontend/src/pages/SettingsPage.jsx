@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   HardDrive, RefreshCw, Headphones, Sparkles,
   FileText, Info, Folder, CheckCircle2, XCircle, Lock, Smartphone,
 } from 'lucide-react';
 import { getStats, getHealth, changePassword, getDevices, revokeDevice } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import PlacesSettings from '../components/PlacesSettings';
 
 function shortDate(iso) {
   return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -162,6 +164,14 @@ export default function SettingsPage() {
 
   useEffect(() => { refresh(); }, []);
 
+  // /settings#places (e.g. from an errand without a home location)
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    const t = setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+    return () => clearTimeout(t);
+  }, [hash]);
+
   const isConnected = health?.ok === true;
 
   return (
@@ -229,6 +239,8 @@ export default function SettingsPage() {
           </p>
         )}
       </div>
+
+      <PlacesSettings />
 
       <ChangePasswordSection />
 

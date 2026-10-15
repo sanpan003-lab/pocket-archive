@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Inbox, Pencil, Eye, Undo2, AlertCircle, Link2, Sparkles, ChevronDown } from 'lucide-react';
-import { getQuickNotes, undoQuickNote, summarizeQuickNote, quickAudioUrl } from '../lib/api';
+import { Inbox, Pencil, Eye, Undo2, AlertCircle, Link2, Sparkles, ChevronDown, CheckCircle2, RotateCcw } from 'lucide-react';
+import { getQuickNotes, undoQuickNote, summarizeQuickNote, quickAudioUrl, setErrandDone } from '../lib/api';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
 import QuickSummary, { TranscriptToggle } from '../components/quick/QuickSummary';
 import QuickAudio from '../components/quick/QuickAudio';
+import ErrandPanel from '../components/quick/ErrandPanel';
+import { ArrivalBanner } from '../native/arrival';
+import { syncErrands, useArrivalPermission } from '../native/errands';
 import {
   QUICK_TYPES, REVIEW_ACCENT, describeWhen, summaryPreview, dayHeader, dayKey, cardTime,
 } from '../components/quick/quickMeta';
@@ -16,6 +19,7 @@ const FILTERS = [
   { key: 'review',   label: 'Needs review', test: n => !n.undone && n.status === 'needs_review' },
   { key: 'event',    label: 'Events',       test: n => !n.undone && n.type === 'event' },
   { key: 'reminder', label: 'Reminders',    test: n => !n.undone && n.type === 'reminder' },
+  { key: 'errand',   label: 'Errands',      test: n => !n.undone && n.type === 'errand' },
   { key: 'notes',    label: 'Notes',        test: n => !n.undone && (n.type === 'note' || n.type === 'note_link') },
   { key: 'undone',   label: 'Undone',       test: n => n.undone },
 ];
@@ -23,13 +27,24 @@ const FILTERS = [
 const capturedAt = n => n.capturedAt || n.createdAt;
 
 /** Collapsed: what it is + a 3-line preview. Expanded: summary │ transcript + audio │ actions. */
-function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, undoing, onChanged }) {
+function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, undoing, onChanged, arrivalReady }) {
   const meta = QUICK_TYPES[note.type] || QUICK_TYPES.note;
   const review = note.status === 'needs_review' && !note.undone;
+  const errand = note.type === 'errand';
   const when = describeWhen(note);
   const preview = note.summaryStatus === 'done' ? summaryPreview(note) : '';
   const bodyId = `qn-body-${note.id}`;
   const [regenerating, setRegenerating] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+
+  async function toggleDone() {
+    setFinishing(true);
+    try {
+      onChanged(await setErrandDone(note.id, !note.errandDone));
+      syncErrands(); // a finished errand stops arrival reminders
+    } catch { /* stays as is */ }
+    finally { setFinishing(false); }
+  }
 
   async function regenerate() {
     setRegenerating(true);
@@ -41,7 +56,7 @@ function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, 
   return (
     <article
       id={`qn-${note.id}`}
-      className={`quick-card animate-fade-in min-w-0 scroll-mt-24 ${highlighted ? 'quick-card-highlight' : ''} ${note.undone ? 'opacity-60' : ''}`}
+      className={`quick-card animate-fade-in min-w-0 scroll-mt-24 ${highlighted ? 'quick-card-highlight' : ''} ${note.undone ? 'opacity-60' : ''} ${errand && note.errandDone && !note.undone ? 'opacity-80' : ''}`}
     >
       <span className="quick-card-accent" style={{ background: review ? REVIEW_ACCENT : meta.color }} aria-hidden="true" />
 
@@ -71,11 +86,11 @@ function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, 
         </div>
 
         <p className="mt-2 font-semibold text-base text-navy-900 dark:text-white break-words">{note.title}</p>
-        {when && (
+        {when && !errand && (
           <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{when}{note.location ? ` · ${note.location}` : ''}</p>
         )}
 
-        {!expanded && (
+        {!expanded && !errand && (
           note.summaryStatus === 'pending' ? (
             <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-gold-600 dark:text-gold-400">
               <Sparkles size={12} className="animate-pulse" /> Summarizing…
@@ -88,11 +103,14 @@ function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, 
         )}
       </button>
 
+      {/* Errand: place, chips and the checklist are always visible */}
+      {errand && <ErrandPanel note={note} onChanged={onChanged} arrivalReady={arrivalReady} />}
+
       {expanded && (
         <div id={bodyId} className="pl-5 pr-4 pb-2 sm:pl-6 sm:pr-5 animate-fade-in">
           {/* Summary */}
           {note.summaryStatus && note.summaryStatus !== 'none' && (
-            <section className="pb-3">
+            <section className={`pb-3 ${errand ? 'quick-card-divider pt-1' : ''}`}>
               <QuickSummary note={note} onChanged={onChanged} />
             </section>
           )}
@@ -123,6 +141,12 @@ function QuickNoteCard({ note, expanded, highlighted, onToggle, onEdit, onUndo, 
                 {note.undone ? <Eye size={18} /> : <Pencil size={18} />}
                 {note.undone ? 'View' : 'Edit'}
               </button>
+              {errand && !note.undone && (
+                <button type="button" className="quick-card-action flex-1" onClick={toggleDone} disabled={finishing}>
+                  {note.errandDone ? <RotateCcw size={18} /> : <CheckCircle2 size={18} />}
+                  {note.errandDone ? 'Reopen' : 'Mark done'}
+                </button>
+              )}
               {!note.undone && note.transcript && (
                 <button
                   type="button"
@@ -161,6 +185,7 @@ export default function QuickInboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const focusId = searchParams.get('note');
   const reloadedFor = useRef(null);
+  const arrival = useArrivalPermission();
 
   const load = useCallback(() => {
     return getQuickNotes()
@@ -283,6 +308,8 @@ export default function QuickInboxPage() {
         </div>
       </div>
 
+      <ArrivalBanner />
+
       {error && (
         <div className="glass-card p-4 mb-4 flex items-center gap-3">
           <AlertCircle size={18} className="text-red-500 shrink-0" />
@@ -323,6 +350,7 @@ export default function QuickInboxPage() {
                     onUndo={handleUndo}
                     undoing={undoingId === note.id}
                     onChanged={replace}
+                    arrivalReady={arrival.ready}
                   />
                 ))}
               </div>

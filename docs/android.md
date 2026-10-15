@@ -94,6 +94,24 @@ in addition to the existing development origins; everything else stays blocked.
 | Intent `com.sanpan003.pocketarchive.START_RECORDING` | For automations (Bixby Routines, Tasker) |
 | Intent `com.sanpan003.pocketarchive.OPEN_INBOX` | Opens the Quick Capture inbox |
 
+## Errands & arrival reminders
+
+Say things like *"Tomorrow I need to go to Publix for milk, ketchup and yogurt"* or *"Remind me
+when I get to Publix to buy milk and soda"*. The note becomes an **errand**: a checklist, a store, and
+a reminder.
+
+| | |
+|---|---|
+| Checklist | Tap items in the Inbox (web or app). Checked items move to the bottom. The errand is done when every item is checked, or with **Mark done**. |
+| Store | Settings → *Places & errands*: set your **home location** once. Chains (Publix, Target…) are matched to stores within 15 miles of home (OpenStreetMap). Under **My Places** you can pin your usual store for an alias; its address goes on the calendar event. |
+| Calendar | A dated errand gets an all-day event (timed if you said a time) with the store address as the location and the checklist (☐/☑) in the description. It updates as you tick items. Arrival-only errands have no event. |
+| Arrival | The app registers geofences (150 m) around the nearby stores of active errands, up to 100, closest to home first. After about a minute inside one: **"🛒 You're at Publix — 3 items"** with Open list / Done / Snooze 1 hr. It doesn't repeat for the same store within 2 hours, and it shows on a paired Galaxy Watch too. |
+| Privacy | Your location never leaves the phone; only store coordinates come from your server. The phone tells the server only that a reminder fired (the day), never where you were. |
+| Setting | *Remind me on arrival for store errands* (default on) adds arrival to dated store trips. Arrival reminders expire after 14 days (configurable) unless they fired. |
+
+Arrival reminders need location **"Allow all the time"**. The app explains this and asks when your first
+arrival errand exists. Until it's allowed, the Inbox shows a banner.
+
 ## Permissions
 
 | Permission | Why |
@@ -103,6 +121,8 @@ in addition to the existing development origins; everything else stays blocked.
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE` (Android 14+) | Keep recording with the screen off |
 | `INTERNET` | Talk to your server |
 | `VIBRATE` | Start / saved / needs-review vibrations |
+| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION` | Errand arrival reminders (geofences). Asked only when you create your first arrival errand. |
+| `RECEIVE_BOOT_COMPLETED` | Re-register store geofences after a reboot |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED` | Added by WorkManager so queued uploads run when the network returns, even after a reboot |
 
 On first launch the app explains both permissions before asking. If you decline, Quick

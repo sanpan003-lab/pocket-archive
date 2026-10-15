@@ -32,6 +32,7 @@ object ResultNotifier {
         }
         WidgetState.result(ctx, "$icon $text", response.optJSONObject("note")?.optString("id")?.takeIf { it.isNotBlank() })
         WidgetData.refreshAsync(ctx)
+        ErrandWorker.syncNow(ctx) // a new errand may need geofences
         if (QuickRecorderPlugin.deliverToApp("result", payload)) return
 
         post(ctx, "$icon $text", detail ?: if (fromQueue) "Sent from queue" else null, tone)

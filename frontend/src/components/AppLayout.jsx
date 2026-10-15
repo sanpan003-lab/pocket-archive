@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import { ArrivalPermissionPrompt } from '../native/arrival';
 import { Menu, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
 import { useApp } from '../context/AppContext';
@@ -65,6 +66,7 @@ export default function AppLayout() {
         </div>
 
         <Outlet />
+        <ArrivalPermissionPrompt />
       </main>
     </div>
   );

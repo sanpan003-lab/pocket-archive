@@ -29,6 +29,9 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
     dueDate:  toInputValue(note.dueDate, note.allDay),
     location: note.location || '',
     linkedRecordingId: note.linkedRecordingId || '',
+    placeQuery: note.place?.query || note.placeSpec?.query || '',
+    trigger:    note.trigger || 'time',
+    itemsText:  (note.items || []).map(i => i.text).join('\n'),
   }));
   const [recordings, setRecordings] = useState([]);
   const [busy, setBusy]   = useState(null);   // 'save' | 'undo' | 'retry'
@@ -75,16 +78,24 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
   function save() {
     if (draft.type === 'event' && !draft.start)  return setError('Events need a start date');
     if (draft.type === 'note_link' && !draft.linkedRecordingId) return setError('Choose a recording to link to');
+    if (draft.type === 'errand' && draft.trigger !== 'arrival' && !draft.start) return setError('Pick a day, or choose “On arrival” only');
+    if (draft.type === 'errand' && draft.trigger !== 'time' && !draft.placeQuery.trim()) return setError('Arrival reminders need a place');
+    const errand = draft.type === 'errand';
     run('save', () => updateQuickNote(note.id, {
       type:     draft.type,
       title:    draft.title,
       content:  draft.content,
       allDay:   draft.allDay,
-      start:    draft.type === 'event' ? fromInput(draft.start, draft.allDay) : null,
+      start:    draft.type === 'event' || (errand && draft.trigger !== 'arrival') ? fromInput(draft.start, draft.allDay) : null,
       end:      draft.type === 'event' ? fromInput(draft.end, draft.allDay) : null,
       dueDate:  draft.type === 'reminder' ? fromInput(draft.dueDate, draft.allDay) : null,
       location: draft.location || null,
       linkedRecordingId: draft.type === 'note_link' ? draft.linkedRecordingId : null,
+      ...(errand ? {
+        trigger:    draft.trigger,
+        placeQuery: draft.placeQuery.trim() || null,
+        items:      draft.itemsText.split('\n').map(t => t.trim()).filter(Boolean),
+      } : {}),
       regenerateSummary: contentChanged && regenSummary && !!note.transcript,
     }));
   }
@@ -149,11 +160,38 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
             <input className={INPUT} value={draft.title} onChange={e => set('title', e.target.value)} />
           </div>
 
-          {(draft.type === 'event' || draft.type === 'reminder') && (
+          {(draft.type === 'event' || draft.type === 'reminder' || (draft.type === 'errand' && draft.trigger !== 'arrival')) && (
             <label className="flex items-center gap-2 text-sm text-navy-700 dark:text-white/80">
               <input type="checkbox" checked={draft.allDay} onChange={e => toggleAllDay(e.target.checked)} />
               {draft.type === 'event' ? 'All day' : 'No specific time'}
             </label>
+          )}
+
+          {draft.type === 'errand' && (
+            <>
+              <div>
+                <label className={LABEL}>Remind me</label>
+                <select className={INPUT} value={draft.trigger} onChange={e => set('trigger', e.target.value)}>
+                  <option value="time">On the day (calendar)</option>
+                  <option value="arrival">When I arrive (Android app)</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+              {draft.trigger !== 'arrival' && (
+                <div>
+                  <label className={LABEL}>Day</label>
+                  <input type={dateType} className={INPUT} value={draft.start} onChange={e => set('start', e.target.value)} />
+                </div>
+              )}
+              <div>
+                <label className={LABEL}>Store or place</label>
+                <input className={INPUT} value={draft.placeQuery} placeholder="e.g. Publix" onChange={e => set('placeQuery', e.target.value)} />
+              </div>
+              <div>
+                <label className={LABEL}>Items (one per line)</label>
+                <textarea className={`${INPUT} min-h-[120px] resize-y`} value={draft.itemsText} onChange={e => set('itemsText', e.target.value)} />
+              </div>
+            </>
           )}
 
           {draft.type === 'event' && (

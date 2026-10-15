@@ -236,7 +236,8 @@ class QuickToggleWidget : AppWidgetProvider() {
                 setTextViewText(icon, WidgetData.typeIcon(item.type))
                 setTextViewText(title, item.title)
                 setViewVisibility(dot, if (item.needsReview) View.VISIBLE else View.GONE)
-                setTextViewText(time, WidgetData.relativeTime(item.createdAt, now))
+                val ago = WidgetData.relativeTime(item.createdAt, now)
+                setTextViewText(time, item.progress?.let { "$it · $ago" } ?: ago)
                 setContentDescription(row, "${item.title}, ${WidgetData.relativeTime(item.createdAt, now)}${if (item.needsReview) ", needs review" else ""}")
                 setOnClickPendingIntent(row, inboxIntent(ctx, item.id))
             }

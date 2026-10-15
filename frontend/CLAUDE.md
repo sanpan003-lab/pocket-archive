@@ -95,3 +95,25 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 - `WidgetState.kt`: Uploading → Processing → result line (~6 s) → idle.
 - `WidgetRefreshWorker.kt`: every 30 min with network, plus after captures and app open.
 - Note rows deep-link to `/quick/inbox?note=<id>`. The Inbox expands, scrolls to and highlights that note.
+
+## Errands & Places
+
+- Type `errand` (backend `quickCapture.js`): `items: [{id,text,done}]`, `placeSpec` (what was said),
+  `place` (resolved: name, address, lat/lng, `branches[]` ≤ 20 with `key`), `trigger` time|arrival|both,
+  `arrival: { activeFrom, triggeredOn }`, `errandDone`. Calendar event only when dated and not arrival-only;
+  the description is the ☐/☑ checklist plus a link back (`PUBLIC_URL` env, else the last request's origin).
+- `places.js`: home, My Places (aliases) and errand settings live in `config.json` (never in git); lookups
+  are cached in `places-cache.json` next to it. Nominatim: real User-Agent, ≤ 1 request/s. Chains: Overpass
+  (public servers are flaky; two endpoints, then a Nominatim fallback), cached 30 days.
+- Android: `ErrandSync`/`ErrandWorker` fetch `GET /api/errands/active` and register up to 100 geofences
+  (150 m, 1-minute dwell), closest to home first. `ArrivalNotifier` shows the list with Open list / Done /
+  Snooze 1 hr; it doesn't repeat for the same errand and store within 2 h. The phone never sends its
+  location; it only reports "this errand fired" (day only) so the 14-day expiry restarts.
+- Emulator arrival test: allow mock locations for the shell (`appops set com.android.shell android:mock_location allow`),
+  `cmd location providers add-test-provider gps|network`, then feed `set-test-provider-location` every few
+  seconds for > 1 minute at a store. Reset the app-op and remove the providers afterwards.
+
+## Next up
+
+- Galaxy Watch 9 (Wear OS) app: record button, watch tile, watch-face complication, audio relayed via
+  phone, errand arrival lists on the watch.

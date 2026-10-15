@@ -99,6 +99,19 @@ export const getQuickNote       = id => http.get(`/quick/${id}`).then(r => r.dat
 export const summarizeQuickNote = id => http.post(`/quick/${id}/summarize`).then(r => r.data);
 export const quickAudioUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/audio`);
 
+// Errands: checklist + places
+export const updateErrandItems  = (id, change) => http.patch(`/quick/${id}/items`, change).then(r => r.data);
+export const setErrandDone      = (id, done = true) => http.post(`/quick/${id}/done`, { done }).then(r => r.data);
+export const getActiveErrands   = () => http.get('/errands/active').then(r => r.data);
+export const getPlaces          = () => http.get('/places').then(r => r.data);
+export const setHomeLocation    = address => http.put('/places/home', { address }).then(r => r.data);
+export const clearHomeLocation  = () => http.delete('/places/home').then(r => r.data);
+export const searchPlaces       = q => http.get('/places/search', { params: { q } }).then(r => r.data);
+export const addSavedPlace      = place => http.post('/places/saved', place).then(r => r.data);
+export const updateSavedPlace   = (id, place) => http.put(`/places/saved/${id}`, place).then(r => r.data);
+export const deleteSavedPlace   = id => http.delete(`/places/saved/${id}`).then(r => r.data);
+export const updateErrandSettings = settings => http.put('/errands/settings', settings).then(r => r.data);
+
 // Trash / delete
 export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);
 export const deleteRecording        = id   => http.post(`/recordings/${id}/delete`).then(r => r.data);

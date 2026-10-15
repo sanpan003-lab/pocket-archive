@@ -27,6 +27,8 @@ import com.getcapacitor.annotation.PermissionCallback
     permissions = [
         Permission(alias = "microphone", strings = [Manifest.permission.RECORD_AUDIO]),
         Permission(alias = "notifications", strings = [Manifest.permission.POST_NOTIFICATIONS]),
+        Permission(alias = "location", strings = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION]),
+        Permission(alias = "backgroundLocation", strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]),
     ],
 )
 class QuickRecorderPlugin : Plugin() {
@@ -73,6 +75,10 @@ class QuickRecorderPlugin : Plugin() {
         PendingStore.recoverOrphans(context)
         RecorderState.addStateListener(stateListener)
         RecorderState.addLevelListener(levelListener)
+        if (TokenStore.token(context) != null) {
+            ErrandWorker.schedulePeriodic(context)
+            ErrandWorker.syncNow(context)
+        }
     }
 
     override fun handleOnResume() {
@@ -82,6 +88,7 @@ class QuickRecorderPlugin : Plugin() {
             WidgetRefreshWorker.schedulePeriodic(context)
             WidgetData.refreshAsync(context)
         }
+        if (TokenStore.token(context) != null) ErrandWorker.syncNow(context)
     }
 
     override fun handleOnPause() { appVisible = false }
@@ -154,6 +161,8 @@ class QuickRecorderPlugin : Plugin() {
         TokenStore.setToken(context, call.getString("token"))
         UploadWorker.retryAllNow(context) // anything waiting on sign-in goes now
         WidgetData.refreshAsync(context)
+        ErrandWorker.schedulePeriodic(context)
+        ErrandWorker.syncNow(context)
         call.resolve()
     }
 
@@ -166,6 +175,8 @@ class QuickRecorderPlugin : Plugin() {
     fun clearToken(call: PluginCall) {
         TokenStore.setToken(context, null)
         WidgetData.clear(context) // don't keep note titles on the home screen after signing out
+        ErrandWorker.cancelAll(context)
+        ErrandSync.clear(context)
         call.resolve()
     }
 
@@ -173,6 +184,53 @@ class QuickRecorderPlugin : Plugin() {
     fun getLaunchRoute(call: PluginCall) {
         call.resolve(JSObject().put("route", pendingRoute))
         pendingRoute = null
+    }
+
+    // ── Errands: location for arrival reminders ───────────────────────────
+
+    private fun locationJson() = JSObject().apply {
+        val fine = getPermissionState("location").toString()
+        put("foreground", fine)
+        put(
+            "background",
+            when {
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> fine // no separate "all the time" before Android 10
+                fine != "granted" -> "prompt"
+                else -> getPermissionState("backgroundLocation").toString()
+            },
+        )
+    }
+
+    @PluginMethod
+    fun checkLocation(call: PluginCall) = call.resolve(locationJson())
+
+    /** Step 1: "While using the app". */
+    @PluginMethod
+    fun requestLocation(call: PluginCall) {
+        if (getPermissionState("location") == PermissionState.GRANTED) return call.resolve(locationJson())
+        requestPermissionForAlias("location", call, "locationResult")
+    }
+
+    /** Step 2: "Allow all the time" (Android 11+ shows its settings screen). */
+    @PluginMethod
+    fun requestBackgroundLocation(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || getPermissionState("location") != PermissionState.GRANTED ||
+            getPermissionState("backgroundLocation") == PermissionState.GRANTED
+        ) return call.resolve(locationJson())
+        requestPermissionForAlias("backgroundLocation", call, "locationResult")
+    }
+
+    @PermissionCallback
+    private fun locationResult(call: PluginCall) {
+        ErrandWorker.syncNow(context) // register geofences now that we may
+        call.resolve(locationJson())
+    }
+
+    /** Errand list changed in the app (checked items, done, new errand): refresh geofences. */
+    @PluginMethod
+    fun syncErrands(call: PluginCall) {
+        ErrandWorker.syncNow(context)
+        call.resolve()
     }
 
     // ── Permissions ────────────────────────────────────────────────────────

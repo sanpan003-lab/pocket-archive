@@ -16,7 +16,8 @@ import { useQuickSetting } from '../lib/quickSettings';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickToast from '../components/quick/QuickToast';
 import QuickSettings from '../components/quick/QuickSettings';
-import { QUICK_TYPES, describeWhen, confirmationFor } from '../components/quick/quickMeta';
+import { QUICK_TYPES, describeWhen, confirmationFor, errandPlaceName, errandProgress } from '../components/quick/quickMeta';
+import { syncErrands } from '../native/errands';
 
 const UNDO_WINDOW_MS = 30000;
 const TAP_TO_RECORD  = 'Tap to record';
@@ -135,6 +136,7 @@ export default function QuickCapturePage() {
     notify(fromQueue ? { ...conf, detail: conf.detail || 'Sent from queue' } : conf,
       fromQueue ? `Sent from queue. ${spoken}` : spoken);
     refreshReviewCount();
+    if (note?.type === 'errand') syncErrands();
   }, [refreshReviewCount, notify]);
 
   // Offline queue status + announce captures sent from the queue
@@ -436,7 +438,13 @@ export default function QuickCapturePage() {
               </div>
               <p className="font-semibold text-navy-900 dark:text-white break-words">{result.title}</p>
               {describeWhen(result) && <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{describeWhen(result)}</p>}
-              <Link to="/quick/inbox" className="inline-block mt-2 text-xs font-medium text-gold-600 dark:text-gold-400">
+              {result.type === 'errand' && (
+                <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5 break-words">
+                  {[errandPlaceName(result), `${errandProgress(result).total} items`].filter(Boolean).join(' · ')}
+                  {result.items?.length > 0 && `: ${result.items.map(i => i.text).join(', ')}`}
+                </p>
+              )}
+              <Link to={result.type === 'errand' ? `/quick/inbox?note=${result.id}` : '/quick/inbox'} className="inline-block mt-2 text-xs font-medium text-gold-600 dark:text-gold-400">
                 Open inbox →
               </Link>
             </div>

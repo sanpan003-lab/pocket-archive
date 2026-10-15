@@ -1,0 +1,444 @@
+// Places for errands: home location, saved places ("My Places" with aliases),
+// and store lookups using free OpenStreetMap services (no Google Maps billing).
+//
+// - Nominatim (geocoding): https://operations.osmfoundation.org/policies/nominatim/
+//   real User-Agent, at most 1 request/second, results cached.
+// - Overpass (chain stores near home, by brand/name tags), cached for 30 days.
+//
+// Home + saved places live in config.json (CONFIG_PATH, never in git); the
+// lookup cache sits next to it in places-cache.json.
+
+const fs   = require('fs');
+const path = require('path');
+
+const NOMINATIM_URL = process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org';
+// Public Overpass servers are often busy: try each, then fall back to Nominatim
+const OVERPASS_URLS = (process.env.OVERPASS_URL
+  || 'https://overpass-api.de/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter')
+  .split(',').map(u => u.trim()).filter(Boolean);
+const USER_AGENT    = process.env.PLACES_USER_AGENT
+  || 'PocketArchive/1.0 (self-hosted personal voice-note archive; errand reminders)';
+
+const CHAIN_RADIUS_M   = 24140;              // 15 miles
+const MAX_BRANCHES     = 20;
+const CACHE_DAYS       = 30;
+const NOMINATIM_GAP_MS = 1100;               // > 1 request/second
+const DEFAULT_ERRAND_SETTINGS = { arrivalForStoreErrands: true, arrivalExpiryDays: 14 };
+
+// ── Geometry ────────────────────────────────────────────────────────────────
+
+function distanceM(a, b) {
+  const R = 6371000;
+  const rad = x => (x * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+}
+
+const round5 = n => Math.round(n * 1e5) / 1e5;
+/** Stable id for a store location (also the Android geofence request id). */
+const branchKey = p => `${round5(p.lat).toFixed(5)},${round5(p.lng).toFixed(5)}`;
+
+const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+// ── OSM helpers ─────────────────────────────────────────────────────────────
+
+function addressFromTags(t = {}) {
+  const street = [t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' ');
+  const cityLine = [t['addr:city'], [t['addr:state'], t['addr:postcode']].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [street, cityLine].filter(Boolean).join(', ') || null;
+}
+
+// Nominatim result → short US-style address ("123 Main St, Springfield, IL 62701")
+function addressFromNominatim(r) {
+  const a = r.address || {};
+  const street = [a.house_number, a.road].filter(Boolean).join(' ');
+  const city = a.city || a.town || a.village || a.hamlet || a.suburb;
+  const state = a['ISO3166-2-lvl4']?.split('-')[1] || a.state;
+  const cityLine = [city, [state, a.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [street, cityLine].filter(Boolean).join(', ') || r.display_name || null;
+}
+
+function createPlaces({ getConfig, saveConfig, cacheFile }) {
+  // ── Cache (places-cache.json) ────────────────────────────────────────────
+  let cache = null;
+  function loadCache() {
+    if (cache) return cache;
+    try { cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')); } catch { cache = {}; }
+    return cache;
+  }
+  function cacheGet(key, maxAgeDays = CACHE_DAYS) {
+    const hit = loadCache()[key];
+    if (!hit) return null;
+    if (Date.now() - new Date(hit.at).getTime() > maxAgeDays * 86400000) return null;
+    return hit.value;
+  }
+  function cacheSet(key, value) {
+    const c = loadCache();
+    c[key] = { at: new Date().toISOString(), value };
+    try {
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, JSON.stringify(c), 'utf8');
+    } catch (err) {
+      console.warn(`[places] Could not write cache: ${err.message}`);
+    }
+  }
+
+  // ── Nominatim: one request at a time, ≥ 1.1 s apart ──────────────────────
+  let nominatimChain = Promise.resolve();
+  let lastNominatimAt = 0;
+  function nominatim(pathAndQuery) {
+    const run = async () => {
+      const wait = lastNominatimAt + NOMINATIM_GAP_MS - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      lastNominatimAt = Date.now();
+      const email = process.env.NOMINATIM_EMAIL ? `&email=${encodeURIComponent(process.env.NOMINATIM_EMAIL)}` : '';
+      const res = await fetch(`${NOMINATIM_URL}${pathAndQuery}${email}`, {
+        headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+      return res.json();
+    };
+    const p = nominatimChain.then(run, run);
+    nominatimChain = p.catch(() => {});
+    return p;
+  }
+
+  /** Address/place → [{ name, address, lat, lng }] (cached). */
+  async function geocode(query, { near, limit = 5 } = {}) {
+    const q = String(query || '').trim();
+    if (!q) return [];
+    const nearKey = near ? `${near.lat.toFixed(2)},${near.lng.toFixed(2)}` : '';
+    const key = `geo:${norm(q)}:${nearKey}:${limit}`;
+    const cached = cacheGet(key, 180);
+    if (cached) return cached;
+
+    let params = `format=jsonv2&addressdetails=1&limit=${limit}&q=${encodeURIComponent(q)}`;
+    if (near) {
+      // Prefer results around home (≈ 30 km box), but don't exclude others
+      const d = 0.3;
+      params += `&viewbox=${near.lng - d},${near.lat + d},${near.lng + d},${near.lat - d}&bounded=0`;
+    }
+    const results = (await nominatim(`/search?${params}`)).map(r => ({
+      name:    r.name || r.display_name?.split(',')[0] || q,
+      address: addressFromNominatim(r),
+      lat:     Number(r.lat),
+      lng:     Number(r.lon),
+      osm:     r.osm_type && r.osm_id ? `${r.osm_type[0]}${r.osm_id}` : null,
+    })).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+    if (near) results.sort((a, b) => distanceM(near, a) - distanceM(near, b));
+    cacheSet(key, results);
+    return results;
+  }
+
+  async function reverseAddress(p) {
+    const key = `rev:${branchKey(p)}`;
+    const cached = cacheGet(key, 180);
+    if (cached !== null) return cached;
+    try {
+      const r = await nominatim(`/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${p.lat}&lon=${p.lng}`);
+      const address = r && !r.error ? addressFromNominatim(r) : null;
+      cacheSet(key, address);
+      return address;
+    } catch (err) {
+      console.warn(`[places] Reverse geocode failed: ${err.message}`);
+      return null;
+    }
+  }
+
+  // ── A brand's stores near home (cached 30 days) ──────────────────────────
+
+  // Bounding box around home (cheaper for Overpass than "around")
+  function boxAround(home, radiusM) {
+    const dLat = radiusM / 111320;
+    const dLng = radiusM / (111320 * Math.cos((home.lat * Math.PI) / 180));
+    return { s: home.lat - dLat, w: home.lng - dLng, n: home.lat + dLat, e: home.lng + dLng };
+  }
+
+  async function overpassStores(brand, box) {
+    const esc = brand.replace(/[\^$.*+?()[\]{}|"]/g, '\$&');
+    const bbox = `(${box.s.toFixed(4)},${box.w.toFixed(4)},${box.n.toFixed(4)},${box.e.toFixed(4)})`;
+    // Stores only (shop=*), matched by name or brand, case-insensitive
+    // ("The Home Depot" should match "Home Depot", so no ^ anchor)
+    const query = `[out:json][timeout:15];(nwr["shop"]["name"~"${esc}",i]${bbox};nwr["shop"]["brand"~"${esc}",i]${bbox};);out center tags;`;
+    let lastErr;
+    for (const url of OVERPASS_URLS) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+        const data = await res.json();
+        return (data.elements || []).map(el => ({
+          tags: el.tags || {},
+          lat: el.lat ?? el.center?.lat,
+          lng: el.lon ?? el.center?.lon,
+        }));
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[places] ${new URL(url).host}: ${err.message}`);
+      }
+    }
+    throw lastErr || new Error('Overpass unavailable');
+  }
+
+  // Fallback: Nominatim name search limited to the box around home
+  async function nominatimStores(brand, box) {
+    const params = `format=jsonv2&addressdetails=1&limit=40&bounded=1&q=${encodeURIComponent(brand)}`
+      + `&viewbox=${box.w},${box.n},${box.e},${box.s}`;
+    const wanted = norm(brand);
+    return (await nominatim(`/search?${params}`))
+      .filter(r => norm(r.name || '').includes(wanted) || norm(r.address?.shop || '').includes(wanted))
+      .map(r => ({ name: r.name, address: addressFromNominatim(r), lat: Number(r.lat), lng: Number(r.lon), shop: true }));
+  }
+
+  async function chainBranches(brand, home) {
+    const key = `chain:${norm(brand)}:${home.lat.toFixed(3)},${home.lng.toFixed(3)}`;
+    const cached = cacheGet(key);
+    if (cached) return cached;
+
+    const box = boxAround(home, CHAIN_RADIUS_M);
+    let found;
+    try {
+      found = (await overpassStores(brand, box)).map(e => ({
+        name: e.tags.name || e.tags.brand || brand, address: addressFromTags(e.tags), lat: e.lat, lng: e.lng,
+        shop: !!e.tags.shop && !/pharmacy|fuel|liquor|alcohol/.test(e.tags.shop),
+      }));
+    } catch {
+      found = [];
+    }
+    if (!found.length) found = await nominatimStores(brand, box); // Overpass down or empty
+
+    const stores = [];
+    for (const f of found) {
+      if (!Number.isFinite(f.lat) || !Number.isFinite(f.lng)) continue;
+      const p = { name: f.name, address: f.address, lat: round5(f.lat), lng: round5(f.lng), main: f.shop };
+      // Pharmacy / liquor store / gas station of the same branch → one location
+      const dup = stores.find(s => distanceM(s, p) < 200);
+      if (dup) {
+        if (p.main && !dup.main) Object.assign(dup, p, { address: p.address || dup.address });
+        else if (!dup.address && p.address) dup.address = p.address;
+        continue;
+      }
+      stores.push(p);
+    }
+    const nearest = stores
+      .map(s => ({ name: s.name, address: s.address, lat: s.lat, lng: s.lng, distanceM: distanceM(home, s) }))
+      .filter(s => s.distanceM <= CHAIN_RADIUS_M)
+      .sort((a, b) => a.distanceM - b.distanceM)
+      .slice(0, MAX_BRANCHES);
+    if (nearest.length) cacheSet(key, nearest); // don't cache a miss caused by a flaky server
+    return nearest;
+  }
+
+  // ── Config: home, saved places, errand settings ──────────────────────────
+  const placesConfig = () => getConfig().places || {};
+
+  function updatePlacesConfig(fn) {
+    const config = getConfig();
+    config.places = fn({ ...(config.places || {}) });
+    saveConfig(config);
+    return config.places;
+  }
+
+  const getHome = () => placesConfig().home || null;
+  const getSaved = () => placesConfig().saved || [];
+  const getErrandSettings = () => ({ ...DEFAULT_ERRAND_SETTINGS, ...(placesConfig().errandSettings || {}) });
+
+  async function setHome(address) {
+    const [hit] = await geocode(address, { limit: 1 });
+    if (!hit) throw Object.assign(new Error('Address not found — try adding the city and state'), { status: 404 });
+    const home = { address: String(address).trim(), displayName: hit.address || hit.name, lat: hit.lat, lng: hit.lng, geocodedAt: new Date().toISOString() };
+    updatePlacesConfig(p => ({ ...p, home }));
+    return home;
+  }
+
+  /** Saved place whose name or aliases match the query (case/punctuation-insensitive). */
+  function findAlias(query) {
+    const q = norm(query);
+    if (!q) return null;
+    return getSaved().find(p => [p.name, ...(p.aliases || [])].some(a => norm(a) === q)) || null;
+  }
+
+  /**
+   * Nearby search for the Settings picker: a brand's stores (Overpass)
+   * plus geocoder results, nearest to home first.
+   */
+  async function search(query) {
+    const home = getHome();
+    const q = String(query || '').trim();
+    if (!q) return [];
+    const out = [];
+    if (home) {
+      try { out.push(...(await chainBranches(q, home))); }
+      catch (err) { console.warn(`[places] Overpass search failed: ${err.message}`); }
+    }
+    if (out.length < 3) {
+      const geo = await geocode(q, { near: home || undefined, limit: 5 });
+      for (const g of geo) {
+        if (out.some(o => distanceM(o, g) < 200)) continue;
+        out.push({ ...g, distanceM: home ? distanceM(home, g) : null });
+      }
+    }
+    // Fill in missing street addresses for the first few (reverse geocode, rate limited)
+    for (const r of out.slice(0, 5)) {
+      if (!r.address) r.address = await reverseAddress(r);
+    }
+    return out.slice(0, MAX_BRANCHES);
+  }
+
+  /**
+   * spec: { query, kind: 'chain'|'specific'|null } from the classifier →
+   * { query, kind, name, address, lat, lng, source, savedPlaceId, branches[], resolved, error }
+   * Never throws: unresolved places are kept with an error message.
+   */
+  async function resolve(spec) {
+    const query = String(spec?.query || '').trim();
+    const kind = spec?.kind === 'chain' || spec?.kind === 'specific' ? spec.kind : null;
+    if (!query) return null;
+    const base = { query, kind, name: query, address: null, lat: null, lng: null, source: null, savedPlaceId: null, branches: [], resolved: false, error: null };
+    const home = getHome();
+
+    try {
+      const alias = findAlias(query);
+      let branches = [];
+      if (kind === 'chain' && home) {
+        try { branches = await chainBranches(alias?.chain || query, home); }
+        catch (err) { console.warn(`[places] Chain lookup failed for "${query}": ${err.message}`); }
+      }
+
+      if (alias) {
+        // My usual store: calendar location; all nearby branches still trigger
+        const own = { name: alias.name, address: alias.address, lat: alias.lat, lng: alias.lng, distanceM: home ? distanceM(home, alias) : null };
+        if (!branches.some(b => distanceM(b, own) < 200)) branches = [own, ...branches].slice(0, MAX_BRANCHES);
+        return withKeys({ ...base, name: alias.name, address: alias.address, lat: alias.lat, lng: alias.lng, source: 'saved', savedPlaceId: alias.id, branches, resolved: true });
+      }
+
+      if (kind === 'chain') {
+        if (!home) return { ...base, error: 'Set your home location in Settings to find nearby stores' };
+        if (!branches.length) return { ...base, error: `No ${query} stores found within 15 miles of home` };
+        const nearest = { ...branches[0] };
+        if (!nearest.address) nearest.address = await reverseAddress(nearest);
+        branches[0] = nearest;
+        return withKeys({ ...base, name: nearest.name || query, address: nearest.address, lat: nearest.lat, lng: nearest.lng, source: 'osm', branches, resolved: true });
+      }
+
+      // Specific place (or unknown kind): geocode, near home when known
+      const [hit] = await geocode(query, { near: home || undefined, limit: 3 });
+      if (!hit) return { ...base, error: `Couldn't find "${query}"` };
+      const place = { name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, distanceM: home ? distanceM(home, hit) : null };
+      return withKeys({ ...base, ...place, source: 'nominatim', branches: [place], resolved: true });
+    } catch (err) {
+      console.warn(`[places] Resolve failed for "${query}": ${err.message}`);
+      return { ...base, error: `Place lookup failed: ${err.message}` };
+    }
+  }
+
+  function withKeys(place) {
+    place.branches = (place.branches || []).slice(0, MAX_BRANCHES).map(b => ({ ...b, key: branchKey(b) }));
+    return place;
+  }
+
+  // ── Routes (all behind the /api auth guard) ───────────────────────────────
+  function register(app) {
+    app.get('/api/places', (_req, res) => {
+      res.json({ home: getHome(), saved: getSaved(), errandSettings: getErrandSettings() });
+    });
+
+    // PUT /api/places/home { address } — geocode once and store lat/lng
+    app.put('/api/places/home', async (req, res) => {
+      const address = String(req.body?.address || '').trim();
+      if (!address) return res.status(400).json({ error: 'address is required' });
+      try {
+        res.json(await setHome(address));
+      } catch (err) {
+        res.status(err.status || 502).json({ error: err.message });
+      }
+    });
+
+    app.delete('/api/places/home', (_req, res) => {
+      updatePlacesConfig(p => ({ ...p, home: null }));
+      res.json({ success: true });
+    });
+
+    // GET /api/places/search?q=Publix — nearby results to pick a store from
+    app.get('/api/places/search', async (req, res) => {
+      const q = String(req.query.q || '').trim().slice(0, 100);
+      if (!q) return res.status(400).json({ error: 'q is required' });
+      try {
+        res.json({ home: !!getHome(), results: await search(q) });
+      } catch (err) {
+        res.status(502).json({ error: `Place search failed: ${err.message}` });
+      }
+    });
+
+    // POST /api/places/saved { name, aliases[], address, lat, lng, chain? }
+    app.post('/api/places/saved', (req, res) => {
+      const place = cleanSaved(req.body);
+      if (place.error) return res.status(400).json({ error: place.error });
+      place.id = `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      updatePlacesConfig(p => ({ ...p, saved: [...(p.saved || []), place] }));
+      res.json(place);
+    });
+
+    // PUT /api/places/saved/:id — rename, change aliases, or pick another store
+    app.put('/api/places/saved/:id', (req, res) => {
+      const existing = getSaved().find(p => p.id === req.params.id);
+      if (!existing) return res.status(404).json({ error: 'Place not found' });
+      const place = cleanSaved({ ...existing, ...req.body });
+      if (place.error) return res.status(400).json({ error: place.error });
+      place.id = existing.id;
+      updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).map(s => (s.id === place.id ? place : s)) }));
+      res.json(place);
+    });
+
+    app.delete('/api/places/saved/:id', (req, res) => {
+      if (!getSaved().some(p => p.id === req.params.id)) return res.status(404).json({ error: 'Place not found' });
+      updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).filter(s => s.id !== req.params.id) }));
+      res.json({ success: true });
+    });
+
+    // GET/PUT /api/errands/settings
+    app.get('/api/errands/settings', (_req, res) => res.json(getErrandSettings()));
+    app.put('/api/errands/settings', (req, res) => {
+      const body = req.body || {};
+      const next = { ...getErrandSettings() };
+      if (typeof body.arrivalForStoreErrands === 'boolean') next.arrivalForStoreErrands = body.arrivalForStoreErrands;
+      if (body.arrivalExpiryDays !== undefined) {
+        const days = parseInt(body.arrivalExpiryDays, 10);
+        if (!(days >= 1 && days <= 90)) return res.status(400).json({ error: 'arrivalExpiryDays must be 1–90' });
+        next.arrivalExpiryDays = days;
+      }
+      updatePlacesConfig(p => ({ ...p, errandSettings: next }));
+      res.json(next);
+    });
+  }
+
+  function cleanSaved(body = {}) {
+    const name = String(body.name || '').trim().slice(0, 80);
+    const lat = Number(body.lat);
+    const lng = Number(body.lng);
+    if (!name) return { error: 'name is required' };
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return { error: 'Pick a place from the search results' };
+    }
+    const aliases = (Array.isArray(body.aliases) ? body.aliases : String(body.aliases || '').split(','))
+      .map(a => String(a).trim().slice(0, 60)).filter(Boolean);
+    return {
+      name,
+      aliases: [...new Set(aliases)],
+      address: body.address ? String(body.address).trim().slice(0, 200) : null,
+      lat: round5(lat), lng: round5(lng),
+      chain: body.chain ? String(body.chain).trim().slice(0, 60) : null,
+    };
+  }
+
+  return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey };
+}
+
+module.exports = { createPlaces, _internal: { distanceM, branchKey, addressFromTags, addressFromNominatim } };

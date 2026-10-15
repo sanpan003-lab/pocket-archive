@@ -12,8 +12,10 @@ const {
   hashPassword, savePassword, mustChangePassword,
   createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken,
   generateMediaToken, verifyMediaToken,
+  getConfig, saveConfig, CONFIG_PATH,
 } = require('./auth');
 const { createQuickCapture } = require('./quickCapture');
+const { createPlaces } = require('./places');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -599,8 +601,16 @@ app.get('/api/auth/media-token', (_req, res) => {
   res.json({ token: generateMediaToken(), expiresInSec: 12 * 60 * 60 });
 });
 
+// ── Places (home, My Places, store lookups) for errands ────────────────────
+const places = createPlaces({
+  getConfig, saveConfig,
+  cacheFile: path.join(path.dirname(CONFIG_PATH), 'places-cache.json'),
+});
+places.register(app);
+
 // ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
 const quick = createQuickCapture({
+  places,
   archivePath:         ARCHIVE_PATH,
   getRecentRecordings: limit => getAllIds().slice(0, limit).map(id => ({ id, title: getTitle(id), date: getDate(id) })),
   recordingExists:     id => isValidId(id) && getAllIds().includes(id),

@@ -1,6 +1,7 @@
 // Quick Capture — one-tap voice notes that are transcribed (Gemini),
-// classified (Claude) and acted on: calendar events, reminders, notes
-// linked to a recording, or standalone notes. Everything is undoable.
+// classified (Claude) and acted on: calendar events, reminders, errands
+// (checklists at a store, with arrival reminders on Android), notes linked
+// to a recording, or standalone notes. Everything is undoable.
 //
 // Storage: ARCHIVE/07_Quick_Notes/{id}.json + 07_Quick_Notes/audio/{id}.{ext}
 
@@ -11,7 +12,8 @@ const gcal   = require('./googleCalendar');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 
 const TIMEZONE = gcal.TIMEZONE;
-const QUICK_TYPES = ['event', 'reminder', 'note_link', 'note'];
+const QUICK_TYPES = ['event', 'reminder', 'errand', 'note_link', 'note'];
+const ERRAND_TRIGGERS = ['time', 'arrival', 'both'];
 const LINK_MIN_CONFIDENCE = 0.7;
 const INLINE_AUDIO_LIMIT  = 15 * 1024 * 1024; // Gemini inline requests cap at 20 MB total
 const NEEDS_REVIEW_SPOKEN = "Saved, but I couldn't understand it — check your inbox.";
@@ -233,12 +235,28 @@ const CLASSIFICATION_SCHEMA = {
     dueDate:            NULLABLE_STRING,
     linkedRecordingId:  NULLABLE_STRING,
     linkConfidence:     { type: 'number' },
+    items:              { type: 'array', items: { type: 'string' } },
+    place: {
+      anyOf: [
+        {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            kind:  { anyOf: [{ type: 'string', enum: ['chain', 'specific'] }, { type: 'null' }] },
+          },
+          required: ['query', 'kind'],
+          additionalProperties: false,
+        },
+        { type: 'null' },
+      ],
+    },
+    trigger:            { anyOf: [{ type: 'string', enum: ERRAND_TRIGGERS }, { type: 'null' }] },
     content:            { type: 'string' },
     spokenConfirmation: { type: 'string' },
   },
   required: [
     'type', 'title', 'start', 'end', 'allDay', 'location', 'dueDate',
-    'linkedRecordingId', 'linkConfidence', 'content', 'spokenConfirmation',
+    'linkedRecordingId', 'linkConfidence', 'items', 'place', 'trigger', 'content', 'spokenConfirmation',
   ],
   additionalProperties: false,
 };
@@ -248,6 +266,7 @@ const CLASSIFY_SYSTEM = `You turn a short voice memo, dictated while driving, in
 Choose "type":
 - "event": something scheduled for a specific day (appointment, meeting, call, pickup). Fill start/end.
 - "reminder": a task or to-do ("remind me to…", "I need to…", "don't forget…"). Put any deadline in dueDate.
+- "errand": a trip to a store or place to buy or pick up things, and/or a list of things to get ("Tomorrow I need to go to Publix for milk and eggs", "Remind me when I get to Publix to buy soda", "Pick up at Home Depot: screws, tape", "I need milk, bread and coffee"). Prefer "errand" over "event" or "reminder" whenever the memo lists things to buy or get, or ties a task to arriving at a store.
 - "note_link": the memo adds information to ONE of the listed recordings (same topic, person, or case). Set linkedRecordingId to that recording's id and linkConfidence to how sure you are (0–1). Only choose this when linkConfidence >= 0.7; otherwise use "note".
 - "note": anything else.
 
@@ -257,12 +276,19 @@ Dates and times:
 - Events with a time but no end last 1 hour. Events with a day but no time are all-day: allDay true and start as "YYYY-MM-DD".
 - A requested event with no determinable day becomes a "reminder" with dueDate null.
 - Reminders: dueDate is "YYYY-MM-DD" (no time) or a timed ISO value; allDay true when there is no time.
-- Use null for fields that don't apply; linkConfidence 0 when not linking.
+- Use null for fields that don't apply; linkConfidence 0 when not linking; items [] when there is no list.
+
+Errands:
+- items: each thing to buy or get as its own entry — clean and capitalized, no filler, no quantities unless spoken ("Milk", "Ketchup", "Chicken sandwich", "2 boxes of screws"). Split "milk, soda and chicken" into three items. Never invent items.
+- place: { "query": the store or place as spoken, e.g. "Publix", "Home Depot", "Dr. Smith's office", "kind": "chain" for a store brand with many locations (Publix, Target, CVS, Home Depot, Costco), "specific" for one particular place or address, or null if unsure }. place is null when no place is named.
+- trigger: "arrival" when the reminder should happen on getting there ("when I get to", "when I'm at", "next time I'm at", "once I'm at"); "time" when a day or time is given for the trip ("tomorrow", "on Saturday at 10"); "both" when both are said; null otherwise.
+- A dated errand puts the day in start ("YYYY-MM-DD", allDay true) or a timed start when a time is said; end null. start is null when no day is given.
+- title: short, e.g. "Publix shopping" or "Home Depot pickup"; content: the full request.
 
 Text:
 - title: short and specific (under 60 characters), no trailing period.
 - content: the memo cleaned up — remove filler words and false starts, keep every detail (names, numbers, places).
-- spokenConfirmation: one short sentence to be read aloud, under 20 words, with natural day names and times (never ISO dates), for example "Added to calendar: Dentist, Tuesday at 3 PM", "Reminder set: Call the pharmacy, tomorrow", "Saved note for CVS Specialty Refill", or "Saved quick note: Gas mileage idea".`;
+- spokenConfirmation: one short sentence to be read aloud, under 20 words, with natural day names and times (never ISO dates), for example "Added to calendar: Dentist, Tuesday at 3 PM", "Reminder set: Call the pharmacy, tomorrow", "Publix list saved, 4 items, for tomorrow", "Saved note for CVS Specialty Refill", or "Saved quick note: Gas mileage idea".`;
 
 async function classify({ transcript, now, recordings }) {
   if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
@@ -395,6 +421,27 @@ function applyFields(note, fields, { recordingExists }) {
     }
   }
 
+  if (type === 'errand') {
+    // Optional day of the trip: all-day unless a time was said
+    const start = normalizeWhen(fields.start, false);
+    if (start && (allDay || DATE_ONLY_RE.test(start) || DATE_ONLY_RE.test(String(fields.start).trim()))) {
+      note.allDay = true;
+      note.start  = start.slice(0, 10);
+    } else if (start) {
+      note.allDay = false;
+      note.start  = start;
+      note.end    = toZonedIso(new Date(parseZoned(start).getTime() + 60 * 60 * 1000));
+    } else {
+      note.allDay = true;
+    }
+    note.items = normalizeItems(fields.items, note.items);
+    const spec = fields.place && typeof fields.place === 'object' ? fields.place : null;
+    note.placeSpec = spec && String(spec.query || '').trim()
+      ? { query: String(spec.query).trim().slice(0, 100), kind: spec.kind === 'chain' || spec.kind === 'specific' ? spec.kind : null }
+      : null;
+    note.trigger = ERRAND_TRIGGERS.includes(fields.trigger) ? fields.trigger : null;
+  }
+
   if (note.type === 'reminder') {
     const due = normalizeWhen(fields.dueDate ?? fields.start, false);
     note.dueDate = due;
@@ -413,10 +460,88 @@ function applyFields(note, fields, { recordingExists }) {
   return note;
 }
 
+// ── Errands: checklist items, place, trigger ───────────────────────────────
+
+const newItemId = () => `it_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+function cleanItemText(text) {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim().replace(/[.,;]+$/, '').slice(0, 120);
+  return t ? t[0].toUpperCase() + t.slice(1) : '';
+}
+
+/** Strings (classifier) or {id,text,done} (edits) → [{ id, text, done }]; keeps ids/done of matching items. */
+function normalizeItems(list, previous = []) {
+  const prev = Array.isArray(previous) ? previous : [];
+  if (!Array.isArray(list)) return prev;
+  const out = [];
+  for (const entry of list.slice(0, 100)) {
+    const obj = entry && typeof entry === 'object' ? entry : { text: entry };
+    const text = cleanItemText(obj.text);
+    if (!text) continue;
+    const match = (obj.id && prev.find(p => p.id === obj.id))
+      || prev.find(p => p.text.toLowerCase() === text.toLowerCase() && !out.some(o => o.id === p.id));
+    out.push({ id: match?.id || newItemId(), text, done: typeof obj.done === 'boolean' ? obj.done : !!match?.done });
+  }
+  return out;
+}
+
+// "YYYY-MM-DD" today in New York
+const todayNY = (now = new Date()) => toZonedIso(now).slice(0, 10);
+
+const hasArrival = note => note.trigger === 'arrival' || note.trigger === 'both';
+const hasTime    = note => note.trigger !== 'arrival' && !!note.start;
+
+/** Last day an arrival reminder stays armed: N days after it became active (or last fired). */
+function arrivalExpiresOn(note, settings) {
+  const from = note.arrival?.triggeredOn || note.arrival?.activeFrom;
+  return from ? addDays(from, settings.arrivalExpiryDays) : null;
+}
+
+function isActiveArrival(note, settings, today = todayNY()) {
+  if (note.type !== 'errand' || note.undone || note.errandDone || !hasArrival(note)) return false;
+  if (!note.place?.resolved || !note.place.branches?.length) return false;
+  const from = note.arrival?.activeFrom;
+  if (from && from > today) return false;
+  const until = arrivalExpiresOn(note, settings);
+  return !until || today <= until;
+}
+
+const placeLabel = note => note.place?.query || note.placeSpec?.query || null;
+
+function errandItemsText(note) {
+  return (note.items || []).map(i => `${i.done ? '☑' : '☐'} ${i.text}`).join('\n');
+}
+
 // ── Google Calendar reconciliation ─────────────────────────────────────────
 
-function desiredGoogleEvent(note) {
+function errandDescription(note, link) {
+  const place = note.place;
+  return [
+    note.items?.length ? `🛒 Shopping list\n${errandItemsText(note)}` : null,
+    place?.resolved ? `📍 ${[place.name, place.address].filter(Boolean).join(' — ')}` : null,
+    hasArrival(note) ? '🔔 The Pocket Archive app also reminds you when you arrive.' : null,
+    note.errandDone ? '✅ Done' : null,
+    link ? `Open in Pocket Archive: ${link}` : 'Created by Pocket Archive Quick Capture',
+  ].filter(Boolean).join('\n\n');
+}
+
+function desiredGoogleEvent(note, { link } = {}) {
   if (note.undone) return null;
+  if (note.type === 'errand') {
+    // Arrival-only errands live on the phone, not in the calendar
+    if (!note.start || note.trigger === 'arrival') return null;
+    const timed = !DATE_ONLY_RE.test(note.start);
+    const place = note.place;
+    return {
+      summary:     `${note.errandDone ? '✅' : '🛒'} ${note.title}`,
+      description: errandDescription(note, link),
+      location:    place?.resolved ? [place.name, place.address].filter(Boolean).join(', ') : (placeLabel(note) || note.location || undefined),
+      start: timed ? { dateTime: note.start, timeZone: TIMEZONE } : { date: note.start },
+      end:   timed
+        ? { dateTime: note.end || toZonedIso(new Date(parseZoned(note.start).getTime() + 3600000)), timeZone: TIMEZONE }
+        : { date: addDays(note.start, 1) },
+    };
+  }
   const description = [
     note.content,
     note.transcript && note.transcript !== note.content ? `Transcript: ${note.transcript}` : null,
@@ -450,9 +575,22 @@ function desiredGoogleEvent(note) {
 
 // Make Google match the note: create, update, or delete its event.
 // Never throws — failures are recorded on the note.
+// Link back to the note in the app, e.g. https://nas.example.com/quick/inbox?note=qn_…
+let seenOrigin = null;
+function rememberOrigin(req) {
+  const host = req.get('x-forwarded-host') || req.get('host');
+  if (!host) return;
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  seenOrigin = `${proto}://${host}`;
+}
+function noteLink(note) {
+  const base = (process.env.PUBLIC_URL || seenOrigin || '').replace(/\/+$/, '');
+  return base ? `${base}/quick/inbox?note=${encodeURIComponent(note.id)}` : null;
+}
+
 async function syncGoogle(note) {
   const ids     = note.googleEventIds || [];
-  const desired = desiredGoogleEvent(note);
+  const desired = desiredGoogleEvent(note, { link: noteLink(note) });
 
   if (!desired && !ids.length) { note.googleSync = null; return note; }
   if (!gcal.isConfigured()) {
@@ -518,6 +656,18 @@ function confirmationFor(note, recordingTitle) {
   if (note.type === 'note_link') {
     return { icon: '📝', text: recordingTitle ? `Saved to ${recordingTitle}` : 'Saved to recording', tone, detail };
   }
+  if (note.type === 'errand') {
+    const n = (note.items || []).length;
+    const placeName = placeLabel(note);
+    const text = [
+      placeName ? `${placeName} list` : note.title,
+      n ? `${n} item${n === 1 ? '' : 's'}` : null,
+      hasTime(note) ? shortWhen(note.start) : null,
+      hasArrival(note) ? 'reminds on arrival' : null,
+    ].filter(Boolean).join(' · ');
+    const placeProblem = hasArrival(note) && note.place && !note.place.resolved ? note.place.error : null;
+    return { icon: '🛒', text, tone: placeProblem ? 'review' : tone, detail: detail || placeProblem || null };
+  }
   return { icon: '📝', text: 'Quick note saved', tone, detail };
 }
 
@@ -527,6 +677,13 @@ function describeActions(note, recordingTitle) {
   else if (note.type === 'event')     actions.push('Added to calendar');
   else if (note.type === 'reminder')  actions.push(note.dueDate ? 'Reminder with due date' : 'Reminder (no due date)');
   else if (note.type === 'note_link') actions.push(`Linked to “${recordingTitle || note.linkedRecordingId}”`);
+  else if (note.type === 'errand') {
+    const n = (note.items || []).length;
+    actions.push(n ? `Checklist with ${n} item${n === 1 ? '' : 's'}` : 'Errand saved');
+    if (hasArrival(note)) {
+      actions.push(note.place?.resolved ? `Arrival reminder at ${placeLabel(note)}` : `Arrival reminder off: ${note.place?.error || 'no place'}`);
+    }
+  }
   else                                actions.push('Saved as quick note');
 
   if (note.googleSync === 'synced')  actions.push('Synced to Google Calendar');
@@ -543,10 +700,76 @@ function describeActions(note, recordingTitle) {
  *   getRecentRecordings(limit) → [{ id, title, date }],
  *   recordingExists(id) → bool,
  *   getRecordingTitle(id) → string,
+ *   places?: createPlaces(…) — store lookups + errand settings (optional)
  * }
  */
 function createQuickCapture(deps) {
   const store = createStore(deps.archivePath);
+  const places = deps.places || null;
+  const errandSettings = () => places?.getErrandSettings() || { arrivalForStoreErrands: true, arrivalExpiryDays: 14 };
+
+  /**
+   * Resolve the errand's place and settle its trigger.
+   * auto: apply the "Remind me on arrival for store errands" setting (new captures);
+   * edits pass the user's explicit trigger instead.
+   */
+  async function prepareErrand(note, { auto = true, now = new Date() } = {}) {
+    if (note.type !== 'errand') return note;
+    const spec = note.placeSpec;
+    if (spec?.query) {
+      const changed = !note.place || String(note.place.query || '').toLowerCase() !== spec.query.toLowerCase();
+      if (changed || !note.place.resolved) {
+        note.place = places
+          ? await places.resolve(spec)
+          : { query: spec.query, kind: spec.kind, name: spec.query, resolved: false, branches: [], error: 'Place lookup is not available' };
+      }
+    } else {
+      note.place = null;
+    }
+
+    let t = note.trigger;
+    if (auto) {
+      if (spec?.query && errandSettings().arrivalForStoreErrands) {
+        if (t === 'time' || (!t && note.start)) t = 'both';
+        else if (!t) t = 'arrival';
+      }
+      if (!t && note.start) t = 'time';
+    }
+    if ((t === 'arrival' || t === 'both') && !spec?.query) t = note.start ? 'time' : null; // nowhere to arrive at
+    if (!note.start && t === 'both') t = 'arrival';
+    if (!note.start && t === 'time') t = null;
+    note.trigger = t;
+
+    // Arrival reminders start on the day of the trip (or now) and expire after N days
+    note.arrival = hasArrival(note)
+      ? { activeFrom: note.start ? note.start.slice(0, 10) : todayNY(now), triggeredOn: note.arrival?.triggeredOn || null }
+      : null;
+    return note;
+  }
+
+  // Checklist taps can come in quick succession: one Calendar update per burst
+  const calendarTimers = new Map();
+  function queueCalendarSync(id, delayMs = 1500) {
+    clearTimeout(calendarTimers.get(id));
+    calendarTimers.set(id, setTimeout(async () => {
+      calendarTimers.delete(id);
+      const snapshot = store.read(id);
+      if (!snapshot) return;
+      await syncGoogle(snapshot);
+      // Only copy the Google fields onto the latest copy (items may have changed meanwhile)
+      const latest = store.read(id);
+      if (!latest) return;
+      Object.assign(latest, {
+        googleEventIds: snapshot.googleEventIds, googleSync: snapshot.googleSync, googleError: snapshot.googleError,
+      });
+      finalize(latest);
+    }, delayMs));
+  }
+
+  function setErrandDone(note, done) {
+    note.errandDone  = !!done;
+    note.completedAt = done ? (note.completedAt || new Date().toISOString()) : null;
+  }
 
   const audioUpload = multer({
     storage: multer.memoryStorage(),
@@ -691,6 +914,7 @@ function createQuickCapture(deps) {
         const recordings = deps.getRecentRecordings(100);
         note.classification = await classify({ transcript: note.transcript, now, recordings });
         applyFields(note, note.classification, deps);
+        await prepareErrand(note, { now });
         note.spokenConfirmation = String(note.classification.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
       } catch (err) {
         console.warn(`[quick] Classification failed for ${note.id}: ${err.message}`);
@@ -748,6 +972,7 @@ function createQuickCapture(deps) {
       });
     }, async (req, res) => {
       if (!req.file?.buffer?.length) return res.status(400).json({ error: 'audio file is required' });
+      rememberOrigin(req);
 
       const clientId = typeof req.body.clientId === 'string' ? req.body.clientId.slice(0, 64) : null;
       if (clientId) {
@@ -812,6 +1037,11 @@ function createQuickCapture(deps) {
             createdAt:     n.capturedAt || n.createdAt,
             needsReview:   n.status === 'needs_review',
             summaryStatus: n.summaryStatus || null,
+            ...(n.type === 'errand' ? {
+              itemsTotal: (n.items || []).length,
+              itemsDone:  (n.items || []).filter(i => i.done).length,
+              errandDone: !!n.errandDone,
+            } : {}),
           }));
         res.json(recent);
       } catch (err) {
@@ -896,6 +1126,7 @@ function createQuickCapture(deps) {
         return res.status(400).json({ error: 'Choose a recording to link to' });
       }
 
+      const wasType = note.type;
       try {
         if (typeof body.content === 'string' && body.content.trim() !== (note.content || '').trim()) {
           note.contentEdited = true; // the summarizer trusts the user's corrections
@@ -912,7 +1143,20 @@ function createQuickCapture(deps) {
           dueDate:           pick('dueDate'),
           linkedRecordingId: pick('linkedRecordingId'),
           linkConfidence:    1,
+          items:             body.items !== undefined ? body.items : note.items,
+          place:             body.placeQuery !== undefined
+            ? (String(body.placeQuery || '').trim()
+              ? { query: body.placeQuery, kind: body.placeKind ?? (note.placeSpec?.query?.toLowerCase() === String(body.placeQuery).trim().toLowerCase() ? note.placeSpec.kind : null) }
+              : null)
+            : note.placeSpec,
+          trigger:           pick('trigger'),
         }, deps);
+        rememberOrigin(req);
+        // New errand (type changed): apply the arrival setting; otherwise keep the chosen trigger
+        await prepareErrand(note, { auto: wasType !== 'errand' && body.trigger === undefined });
+        if (note.type === 'errand' && body.items !== undefined && note.items.length) {
+          setErrandDone(note, note.items.every(i => i.done));
+        }
         if (note.status === 'needs_review') note.status = 'ok';
         note.unlinkedFrom = null;
         await syncGoogle(note);
@@ -923,6 +1167,101 @@ function createQuickCapture(deps) {
         console.error('/quick PUT error:', err);
         res.status(500).json({ error: err.message });
       }
+    });
+
+    // ── Errands ────────────────────────────────────────────────────────────
+
+    function loadErrand(req, res) {
+      const { id } = req.params;
+      if (!isQuickId(id)) { res.status(400).json({ error: 'Invalid quick note ID' }); return null; }
+      const note = store.read(id);
+      if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
+      if (note.undone) { res.status(409).json({ error: 'This capture was undone' }); return null; }
+      if (note.type !== 'errand') { res.status(409).json({ error: 'Only errands have a checklist' }); return null; }
+      return note;
+    }
+
+    // PATCH /api/quick/:id/items — { action: 'toggle'|'add'|'edit'|'remove', itemId?, text?, done? }
+    app.patch('/api/quick/:id/items', (req, res) => {
+      const note = loadErrand(req, res);
+      if (!note) return;
+      const { action, itemId, text, done } = req.body || {};
+      const items = [...(note.items || [])];
+      const idx = items.findIndex(i => i.id === itemId);
+      const needItem = ['toggle', 'edit', 'remove'].includes(action);
+      if (needItem && idx < 0) return res.status(404).json({ error: 'Item not found' });
+
+      if (action === 'toggle') {
+        items[idx] = { ...items[idx], done: typeof done === 'boolean' ? done : !items[idx].done };
+      } else if (action === 'add' || action === 'edit') {
+        const clean = cleanItemText(text);
+        if (!clean) return res.status(400).json({ error: 'text is required' });
+        if (action === 'add') {
+          if (items.length >= 100) return res.status(400).json({ error: 'A list can have up to 100 items' });
+          items.push({ id: newItemId(), text: clean, done: false });
+        } else {
+          items[idx] = { ...items[idx], text: clean };
+        }
+      } else if (action === 'remove') {
+        items.splice(idx, 1);
+      } else {
+        return res.status(400).json({ error: 'action must be toggle, add, edit or remove' });
+      }
+
+      note.items = items;
+      const allDone = items.length > 0 && items.every(i => i.done);
+      if (allDone) setErrandDone(note, true);                        // last item checked → complete
+      else if (note.errandDone && action !== 'remove') setErrandDone(note, false); // reopened
+      rememberOrigin(req);
+      res.json(finalize(note));
+      queueCalendarSync(note.id);
+    });
+
+    // POST /api/quick/:id/done — { done = true } "Mark done" / reopen; stops arrival reminders
+    app.post('/api/quick/:id/done', (req, res) => {
+      const note = loadErrand(req, res);
+      if (!note) return;
+      setErrandDone(note, req.body?.done !== false);
+      rememberOrigin(req);
+      res.json(finalize(note));
+      queueCalendarSync(note.id, 0);
+    });
+
+    // GET /api/errands/active — arrival errands for the phone's geofences.
+    // Only store coordinates go down; the phone never sends its location.
+    app.get('/api/errands/active', (_req, res) => {
+      try {
+        const settings = errandSettings();
+        const today = todayNY();
+        const errands = store.list()
+          .filter(n => isActiveArrival(n, settings, today))
+          .map(n => ({
+            id:         n.id,
+            title:      n.title,
+            placeName:  placeLabel(n),
+            address:    n.place.address || null,
+            items:      (n.items || []).map(i => ({ text: i.text, done: !!i.done })),
+            itemsLeft:  (n.items || []).filter(i => !i.done).length,
+            expiresOn:  arrivalExpiresOn(n, settings),
+            branches:   n.place.branches.map(b => ({
+              key: b.key, lat: b.lat, lng: b.lng, name: b.name || null, address: b.address || null,
+              distanceM: Number.isFinite(b.distanceM) ? b.distanceM : null,
+            })),
+          }));
+        res.json({ generatedAt: new Date().toISOString(), errands });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // POST /api/errands/:id/triggered — the phone showed the arrival reminder.
+    // Records only the day (no store, no location) so the reminder doesn't expire mid-trip.
+    app.post('/api/errands/:id/triggered', (req, res) => {
+      const note = loadErrand(req, res);
+      if (!note) return;
+      if (note.arrival) note.arrival = { ...note.arrival, triggeredOn: todayNY() };
+      res.json({ success: true, expiresOn: arrivalExpiresOn(note, errandSettings()) });
+      store.write(note);
     });
 
     // POST /api/quick/:id/undo — remove Google event(s) and link, keep history
@@ -985,5 +1324,8 @@ function createQuickCapture(deps) {
 module.exports = {
   createQuickCapture,
   // exported for tests
-  _internal: { applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor },
+  _internal: {
+    applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
+    normalizeItems, isActiveArrival, arrivalExpiresOn, errandDescription,
+  },
 };

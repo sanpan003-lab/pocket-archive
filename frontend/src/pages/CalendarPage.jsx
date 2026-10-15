@@ -211,7 +211,7 @@ export default function CalendarPage() {
                     <meta.icon size={16} className="shrink-0" style={{ color: meta.color }} />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-navy-900 dark:text-white text-sm break-words">
-                        {note.type === 'reminder' ? '⏰ ' : ''}{note.title}
+                        {note.type === 'reminder' ? '⏰ ' : note.type === 'errand' ? '🛒 ' : ''}{note.title}
                       </p>
                       <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">{describeWhen(note)}</p>
                     </div>
