@@ -17,7 +17,7 @@ services:
       - CONFIG_PATH=/data/config/config.json
       - SYNC_SCRIPT_PATH=/data/archive/PocketSync_Project/pocket_sync.py
       - CLAUDE_MODEL=claude-sonnet-5-5
-      - JWT_SECRET=de9d9f94561e09b6f4f9d8b796c8af5aaba24028c0fafd46f6a84b000de230ec
+      # Secrets (JWT_SECRET, API keys) come from .env — never put them here
     volumes:
       - /volume1/PocketArchive:/data/archive
       - /volume1/pocket-archive-app/config:/data/config

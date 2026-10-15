@@ -38,6 +38,17 @@ inside the Android app (`android/`). The backend lives in
 
 1. Make sure the web part is deployed if it changed: run `deploy-to-nas.bat`, copy the
    backend to the NAS, and rebuild the container (the app loads its screens from there).
+   Copy the backend with exactly these exclusions (the NAS keeps its own secrets and config;
+   `.git-old-backup` is the backend folder's retired git history and must never be copied):
+
+   ```bat
+   robocopy C:\Users\sundi\Documents\pocket-archive-backend Z:\pocket-archive /E ^
+     /XD node_modules .git .git-old-backup ^
+     /XF .env docker-compose.yml config.json *service-account*.json
+   ```
+
+   All commits go to `C:\Users\sundi\Documents\pocket-archive-monorepo`; the backend
+   folder has no git history of its own.
 2. From this folder run:
 
    ```bat

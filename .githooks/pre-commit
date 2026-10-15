@@ -1,0 +1,31 @@
+#!/bin/sh
+# Blocks commits that contain secrets: API-key-looking strings or secret files.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Bypass (only if you're sure it's a false positive):  git commit --no-verify
+
+fail=0
+
+# 1. Secret files, by name
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+bad_files=$(printf '%s\n' "$files" | grep -iE '(^|/)(\.env|config\.json|keystore\.properties)$|(^|/)[^/]*service-account[^/]*\.json$|\.jks$')
+if [ -n "$bad_files" ]; then
+  echo "pre-commit: blocked, these files must never be committed:" >&2
+  printf '  %s\n' $bad_files >&2
+  fail=1
+fi
+
+# 2. API-key-looking strings in added lines (the key itself is never printed)
+key_re='sk-ant-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{20,}|pk_[A-Za-z0-9_]{20,}'
+hits=$(git diff --cached -U0 --diff-filter=ACMR --no-color | awk '
+  /^\+\+\+ / { file = substr($0, 7); next }
+  /^\+/ { print file }' | sort -u | while read -r f; do
+    git diff --cached -U0 --no-color -- "$f" | grep -E '^\+' | grep -qE "$key_re" && echo "$f"
+  done)
+if [ -n "$hits" ]; then
+  echo "pre-commit: blocked, these files contain something that looks like an API key:" >&2
+  printf '  %s\n' $hits >&2
+  echo "Move the key to .env (gitignored) and reference it from there." >&2
+  fail=1
+fi
+
+exit $fail
