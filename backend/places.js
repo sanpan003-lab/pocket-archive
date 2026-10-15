@@ -16,6 +16,10 @@ const NOMINATIM_URL = process.env.NOMINATIM_URL || 'https://nominatim.openstreet
 const OVERPASS_URLS = (process.env.OVERPASS_URL
   || 'https://overpass-api.de/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter')
   .split(',').map(u => u.trim()).filter(Boolean);
+// Home address fallbacks: US Census Bureau geocoder (free, no key; often knows
+// new streets before OpenStreetMap does), then the ZIP code's center
+const CENSUS_URL    = process.env.CENSUS_GEOCODER_URL || 'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+const ZIP_URL       = process.env.ZIP_LOOKUP_URL || 'https://api.zippopotam.us/us';
 const USER_AGENT    = process.env.PLACES_USER_AGENT
   || 'PocketArchive/1.0 (self-hosted personal voice-note archive; errand reminders)';
 
@@ -41,6 +45,52 @@ const round5 = n => Math.round(n * 1e5) / 1e5;
 const branchKey = p => `${round5(p.lat).toFixed(5)},${round5(p.lng).toFixed(5)}`;
 
 const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** The lookup service couldn't answer (offline, timeout, 5xx) — as opposed to "no match". */
+class LookupUnavailable extends Error {}
+
+const HOME_SOURCES = {
+  openstreetmap: 'OpenStreetMap',
+  census:        'US Census Bureau',
+  zip:           'ZIP code center (approximate)',
+  phone:         'Phone location',
+  browser:       'Browser location',
+};
+
+// Last 5-digit group, e.g. "…, Orlando, FL 32801-1234" → "32801"
+function zipOf(address) {
+  const all = String(address || '').match(/\b\d{5}(?:-\d{4})?\b/g);
+  return all ? all[all.length - 1].slice(0, 5) : null;
+}
+
+/**
+ * For logs: city and ZIP only — never the street. "Orlando, FL 32801" → 'city "Orlando", ZIP 32801'
+ */
+function logArea(address) {
+  const parts = String(address || '').split(',').map(x => x.trim()).filter(Boolean);
+  const zip = zipOf(address);
+  // City = the part before "FL 32801" / "FL" / "32801" (only when there's a street part before it)
+  const tail = parts.findIndex((x, i) => i > 0 && /^([A-Za-z]{2}|[A-Za-z .]+)?\s*\d{5}(-\d{4})?$|^[A-Za-z]{2}$/.test(x));
+  const city = tail > 1 ? parts[tail - 1] : (parts.length >= 3 ? parts[parts.length - 2] : null);
+  const bits = [city && !/\d/.test(city) ? `city "${city}"` : null, zip ? `ZIP ${zip}` : null].filter(Boolean);
+  return bits.length ? bits.join(', ') : 'area unknown';
+}
+
+const titleCase = s => String(s || '').toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase())
+  .replace(/\b(Ne|Nw|Se|Sw|Fl|Ga|Al|Sc|Nc|Tx|Ca|Ny)\b/g, m => m.toUpperCase());
+
+async function httpJson(url, label, timeoutMs = 12000) {
+  let res;
+  try {
+    res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    throw new LookupUnavailable(err.name === 'TimeoutError' ? `${label} timed out` : `${label} unreachable`);
+  }
+  if (res.status === 404) return null; // e.g. unknown ZIP
+  if (!res.ok) throw new LookupUnavailable(`${label} HTTP ${res.status}`);
+  try { return await res.json(); }
+  catch { throw new LookupUnavailable(`${label} sent an invalid response`); }
+}
 
 // ── OSM helpers ─────────────────────────────────────────────────────────────
 
@@ -94,11 +144,16 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       lastNominatimAt = Date.now();
       const email = process.env.NOMINATIM_EMAIL ? `&email=${encodeURIComponent(process.env.NOMINATIM_EMAIL)}` : '';
-      const res = await fetch(`${NOMINATIM_URL}${pathAndQuery}${email}`, {
-        headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+      let res;
+      try {
+        res = await fetch(`${NOMINATIM_URL}${pathAndQuery}${email}`, {
+          headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' },
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch (err) {
+        throw new LookupUnavailable(err.name === 'TimeoutError' ? 'OpenStreetMap timed out' : 'OpenStreetMap unreachable');
+      }
+      if (!res.ok) throw new LookupUnavailable(`OpenStreetMap HTTP ${res.status}`);
       return res.json();
     };
     const p = nominatimChain.then(run, run);
@@ -127,6 +182,8 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       lat:     Number(r.lat),
       lng:     Number(r.lon),
       osm:     r.osm_type && r.osm_id ? `${r.osm_type[0]}${r.osm_id}` : null,
+      // Street-level (not just a city or ZIP area)
+      street:  !!(r.address?.road || r.address?.house_number || r.address?.building || r.address?.amenity || r.address?.shop),
     })).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
     if (near) results.sort((a, b) => distanceM(near, a) - distanceM(near, b));
     cacheSet(key, results);
@@ -250,12 +307,97 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   const getSaved = () => placesConfig().saved || [];
   const getErrandSettings = () => ({ ...DEFAULT_ERRAND_SETTINGS, ...(placesConfig().errandSettings || {}) });
 
+  /**
+   * Address → home coordinates: OpenStreetMap → US Census Bureau → ZIP code center.
+   * Throws 404 (no source matched) or 503 (no source could be reached).
+   * Logs only city/ZIP, never the street.
+   */
+  async function geocodeHome(address) {
+    const outcomes = []; // "openstreetmap: no match", "census: timed out", …
+    let reachedAny = false;
+    const tryIt = async (source, fn) => {
+      try {
+        const hit = await fn();
+        reachedAny = true;
+        if (hit) return { ...hit, source };
+        outcomes.push(`${source}: no match`);
+      } catch (err) {
+        if (!(err instanceof LookupUnavailable)) throw err;
+        outcomes.push(`${source}: ${err.message}`);
+      }
+      return null;
+    };
+
+    const hit =
+      await tryIt('openstreetmap', async () => {
+        const [h] = await geocode(address, { limit: 1 });
+        // "1234 New Street, …" matching only the city/ZIP area isn't good enough — let Census try
+        if (h && /^\s*\d/.test(address) && h.street === false) return null;
+        return h && { lat: h.lat, lng: h.lng, displayName: h.address || h.name };
+      })
+      || await tryIt('census', async () => {
+        const data = await httpJson(`${CENSUS_URL}?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&format=json`, 'US Census', 15000);
+        const m = data?.result?.addressMatches?.[0];
+        return m && Number.isFinite(m.coordinates?.y) && { lat: m.coordinates.y, lng: m.coordinates.x, displayName: titleCase(m.matchedAddress) };
+      })
+      || await (async () => {
+        const zip = zipOf(address);
+        if (!zip) { outcomes.push('zip: no ZIP code in the address'); return null; }
+        return tryIt('zip', async () => {
+          const data = await httpJson(`${ZIP_URL}/${zip}`, 'ZIP lookup');
+          const place = data?.places?.[0];
+          const lat = Number(place?.latitude);
+          const lng = Number(place?.longitude);
+          return place && Number.isFinite(lat) && Number.isFinite(lng) && {
+            lat, lng, approximate: true,
+            displayName: `${place['place name']}, ${place['state abbreviation']} ${zip}`,
+          };
+        });
+      })();
+
+    if (hit) {
+      if (outcomes.length) console.log(`[places] Home matched via ${hit.source} after ${outcomes.join('; ')} (${logArea(address)})`);
+      return hit;
+    }
+    console.warn(`[places] Home geocode failed (${logArea(address)}): ${outcomes.join('; ')}`);
+    if (!reachedAny) {
+      throw Object.assign(new Error("Can't reach the address lookup service — try again"), { status: 503 });
+    }
+    const hint = zipOf(address)
+      ? 'check the street and ZIP code, or use your current location'
+      : 'add the ZIP code, or use your current location';
+    throw Object.assign(new Error(`Address not found — ${hint}`), { status: 404 });
+  }
+
   async function setHome(address) {
-    const [hit] = await geocode(address, { limit: 1 });
-    if (!hit) throw Object.assign(new Error('Address not found — try adding the city and state'), { status: 404 });
-    const home = { address: String(address).trim(), displayName: hit.address || hit.name, lat: hit.lat, lng: hit.lng, geocodedAt: new Date().toISOString() };
+    const hit = await geocodeHome(String(address).trim());
+    const home = {
+      address: String(address).trim(), displayName: hit.displayName || null,
+      lat: round5(hit.lat), lng: round5(hit.lng),
+      source: hit.source, approximate: !!hit.approximate, geocodedAt: new Date().toISOString(),
+    };
     updatePlacesConfig(p => ({ ...p, home }));
     return home;
+  }
+
+  /** "Use my current location": save the coordinates as they are (no geocoding). */
+  function setHomeFromCoords({ lat, lng, accuracyM, source, address }) {
+    const home = {
+      address: String(address || '').trim().slice(0, 200) || 'Current location',
+      displayName: address ? String(address).trim().slice(0, 200) : null,
+      lat: round5(lat), lng: round5(lng),
+      accuracyM: Number.isFinite(accuracyM) ? Math.round(accuracyM) : null,
+      source, approximate: false, geocodedAt: new Date().toISOString(),
+    };
+    updatePlacesConfig(p => ({ ...p, home }));
+    console.log(`[places] Home set from ${source} location`);
+    return home;
+  }
+
+  /** Nearest street address to a point (for confirming "Use my current location"). */
+  async function nearestAddress(lat, lng) {
+    const r = await nominatim(`/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${lat}&lon=${lng}`);
+    return r && !r.error ? addressFromNominatim(r) : null;
   }
 
   /** Saved place whose name or aliases match the query (case/punctuation-insensitive). */
@@ -350,14 +492,43 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       res.json({ home: getHome(), saved: getSaved(), errandSettings: getErrandSettings() });
     });
 
-    // PUT /api/places/home { address } — geocode once and store lat/lng
+    // PUT /api/places/home
+    //   { address }                                   → geocode (OpenStreetMap → Census → ZIP center)
+    //   { lat, lng, accuracyM?, source, address? }    → "Use my current location" (saved as is)
     app.put('/api/places/home', async (req, res) => {
-      const address = String(req.body?.address || '').trim();
+      const body = req.body || {};
+      if (body.lat !== undefined || body.lng !== undefined) {
+        const lat = Number(body.lat);
+        const lng = Number(body.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+          return res.status(400).json({ error: 'lat/lng are invalid' });
+        }
+        const source = body.source === 'phone' ? 'phone' : 'browser';
+        return res.json(setHomeFromCoords({ lat, lng, accuracyM: Number(body.accuracyM), source, address: body.address }));
+      }
+      const address = String(body.address || '').trim().slice(0, 200);
       if (!address) return res.status(400).json({ error: 'address is required' });
       try {
         res.json(await setHome(address));
       } catch (err) {
-        res.status(err.status || 502).json({ error: err.message });
+        if (!err.status) console.warn(`[places] Home lookup error: ${err.message}`);
+        res.status(err.status || 502).json({ error: err.status ? err.message : "Can't reach the address lookup service — try again" });
+      }
+    });
+
+    // GET /api/places/reverse?lat=&lng= — nearest address, to confirm a GPS location
+    app.get('/api/places/reverse', async (req, res) => {
+      const lat = Number(req.query.lat);
+      const lng = Number(req.query.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        return res.status(400).json({ error: 'lat/lng are invalid' });
+      }
+      try {
+        res.json({ address: await nearestAddress(lat, lng) });
+      } catch (err) {
+        console.warn(`[places] Reverse lookup failed: ${err.message}`);
+        // The location can still be saved without an address
+        res.json({ address: null, error: "Can't reach the address lookup service" });
       }
     });
 
@@ -441,4 +612,7 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey };
 }
 
-module.exports = { createPlaces, _internal: { distanceM, branchKey, addressFromTags, addressFromNominatim } };
+module.exports = {
+  createPlaces, HOME_SOURCES,
+  _internal: { distanceM, branchKey, addressFromTags, addressFromNominatim, zipOf, logArea, titleCase },
+};

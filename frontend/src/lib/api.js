@@ -104,7 +104,9 @@ export const updateErrandItems  = (id, change) => http.patch(`/quick/${id}/items
 export const setErrandDone      = (id, done = true) => http.post(`/quick/${id}/done`, { done }).then(r => r.data);
 export const getActiveErrands   = () => http.get('/errands/active').then(r => r.data);
 export const getPlaces          = () => http.get('/places').then(r => r.data);
-export const setHomeLocation    = address => http.put('/places/home', { address }).then(r => r.data);
+// address string → server geocodes it; { lat, lng, accuracyM, source, address } → "Use my current location"
+export const setHomeLocation    = home => http.put('/places/home', typeof home === 'string' ? { address: home } : home).then(r => r.data);
+export const reversePlace       = (lat, lng) => http.get('/places/reverse', { params: { lat, lng } }).then(r => r.data);
 export const clearHomeLocation  = () => http.delete('/places/home').then(r => r.data);
 export const searchPlaces       = q => http.get('/places/search', { params: { q } }).then(r => r.data);
 export const addSavedPlace      = place => http.post('/places/saved', place).then(r => r.data);

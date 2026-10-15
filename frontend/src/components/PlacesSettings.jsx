@@ -1,14 +1,33 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing } from 'lucide-react';
+import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed } from 'lucide-react';
 import {
   getPlaces, setHomeLocation, clearHomeLocation, searchPlaces,
-  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings,
+  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, reversePlace,
 } from '../lib/api';
+import { isNative } from '../lib/platform';
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
 
 const miles = m => (Number.isFinite(m) ? `${(m / 1609.34).toFixed(m < 16093 ? 1 : 0)} mi` : '');
-const errMsg = (err, fallback) => err.response?.data?.error || fallback;
+const errMsg = (err, fallback) => err.response?.data?.error
+  || (err.request && !err.response ? "Can't reach your Pocket Archive server — check your connection" : fallback);
+
+// Which lookup found the home location
+const HOME_SOURCE = {
+  openstreetmap: 'OpenStreetMap',
+  census:        'US Census Bureau',
+  zip:           'ZIP code center',
+  phone:         'phone location',
+  browser:       'browser location',
+};
+
+const GEO_ERRORS = {
+  1: isNative
+    ? 'Location permission is off — allow it for Pocket Archive in Android Settings → Apps.'
+    : "Location access is blocked — allow it in your browser's site settings.",
+  2: "Your location isn't available right now — check that location is on and try again.",
+  3: 'Finding your location timed out — try again.',
+};
 
 /** Search nearby places and pick one (used to add a place or change the preferred store). */
 function PlacePicker({ initialQuery = '', onPick, onCancel, busy }) {
@@ -108,6 +127,7 @@ export default function PlacesSettings() {
   const [picker, setPicker]   = useState(null);   // { mode: 'add' } | { mode: 'change', place }
   const [draft, setDraft]     = useState(null);   // picked result waiting for aliases
   const [saved, setSaved]     = useState('');
+  const [located, setLocated] = useState(null);   // { lat, lng, accuracy, address, error } waiting for confirmation
 
   const load = useCallback(() => {
     getPlaces().then(d => { setData(d); setError(''); }).catch(err => setError(errMsg(err, 'Could not load places')));
@@ -137,6 +157,48 @@ export default function PlacesSettings() {
     e.preventDefault();
     act('home', async () => { await setHomeLocation(address.trim()); setEditingHome(false); setAddress(''); }, 'Home location saved');
   };
+
+  // "Use my current location": phone GPS in the app (WebView geolocation), browser location on the web
+  function locate() {
+    setError('');
+    setLocated(null);
+    if (!navigator.geolocation) {
+      setError(window.isSecureContext ? "This browser can't share its location." : 'Location needs a secure (https) connection.');
+      return;
+    }
+    setBusy('locate');
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        reversePlace(lat, lng)
+          .then(found => setLocated({ lat, lng, accuracy, address: found.address, error: found.error }))
+          .catch(err => setLocated({ lat, lng, accuracy, address: null, error: errMsg(err, "Couldn't look up the address") }))
+          .finally(() => setBusy(null));
+      },
+      err => {
+        setBusy(null);
+        setError(GEO_ERRORS[err.code] || 'Could not get your location.');
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  }
+
+  const saveLocated = () => act('home', async () => {
+    await setHomeLocation({
+      lat: located.lat, lng: located.lng, accuracyM: located.accuracy,
+      source: isNative ? 'phone' : 'browser', address: located.address,
+    });
+    setLocated(null);
+    setEditingHome(false);
+    setAddress('');
+  }, 'Home location saved');
+
+  const locateButton = (short = false) => (
+    <button type="button" className="btn-ghost text-xs" onClick={locate} disabled={busy === 'locate' || busy === 'home'}>
+      <LocateFixed size={14} className={busy === 'locate' ? 'animate-pulse' : ''} />
+      {busy === 'locate' ? 'Finding you…' : short ? 'Use current location' : 'Use my current location'}
+    </button>
+  );
 
   const setSetting = patch => act('settings', () => updateErrandSettings(patch));
 
@@ -192,16 +254,30 @@ export default function PlacesSettings() {
               {home.displayName && home.displayName !== home.address && (
                 <p className="text-xs text-navy-500 dark:text-white/50 break-words">Found: {home.displayName}</p>
               )}
+              {HOME_SOURCE[home.source] && (
+                <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">
+                  Matched by {HOME_SOURCE[home.source]}
+                  {Number.isFinite(home.accuracyM) ? ` (±${home.accuracyM} m)` : ''}
+                </p>
+              )}
+              {home.approximate && (
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                  Approximate — stores are found around your ZIP code’s center. Use your current location for a precise spot.
+                </p>
+              )}
             </div>
           </div>
-          <div className="flex gap-1 mt-1.5 pl-7">
-            <button className="btn-ghost text-xs" onClick={() => { setAddress(home.address); setEditingHome(true); }}>Change</button>
-            <button
-              className="btn-ghost text-xs text-red-500 dark:text-red-400"
-              onClick={() => window.confirm('Remove your home location? Chain stores can no longer be found nearby.') && act('home', clearHomeLocation)}
-            >
-              <Trash2 size={13} /> Remove
-            </button>
+          <div className="flex flex-col items-start mt-1.5 pl-7">
+            <div className="flex flex-wrap gap-1">
+              <button className="btn-ghost text-xs" onClick={() => { setAddress(home.address); setEditingHome(true); }}>Change</button>
+              <button
+                className="btn-ghost text-xs text-red-500 dark:text-red-400"
+                onClick={() => window.confirm('Remove your home location? Chain stores can no longer be found nearby.') && act('home', clearHomeLocation)}
+              >
+                <Trash2 size={13} /> Remove
+              </button>
+            </div>
+            {locateButton(true)}
           </div>
         </div>
       ) : (
@@ -221,6 +297,28 @@ export default function PlacesSettings() {
             {home && <button type="button" className="btn-ghost" onClick={() => setEditingHome(false)}>Cancel</button>}
           </div>
         </form>
+      )}
+      {(!home || editingHome) && data !== null && <div className="mt-1">{locateButton()}</div>}
+
+      {/* Confirm the GPS spot before saving it */}
+      {located && (
+        <div className="mt-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5" role="group" aria-label="Confirm current location">
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">Your current location</p>
+          <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">
+            {located.address ? `Nearest address: ${located.address}` : 'No street address found nearby'}
+          </p>
+          <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">
+            Accuracy about {Math.max(1, Math.round(located.accuracy || 0))} m
+            {located.error ? ` · ${located.error} (the location can still be saved)` : ''}
+          </p>
+          <p className="text-xs text-navy-500 dark:text-white/50 mt-1">Save this spot as home? Nearby stores are found around it.</p>
+          <div className="flex gap-2 mt-2">
+            <button type="button" className="btn-gold text-sm" onClick={saveLocated} disabled={busy === 'home'}>
+              {busy === 'home' ? 'Saving…' : 'Save as home'}
+            </button>
+            <button type="button" className="btn-ghost text-sm" onClick={() => setLocated(null)}>Cancel</button>
+          </div>
+        </div>
       )}
 
       {/* Errand options */}
