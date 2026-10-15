@@ -20,6 +20,13 @@ class RecordTrampolineActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) setShowWhenLocked(true)
 
+        // "Stop Recording" launcher entry (Samsung side key / Routines): stop if recording, else nothing
+        if (intent?.component?.className?.endsWith(".StopRecordLauncher") == true) {
+            QuickActions.stop(this)
+            finish()
+            return
+        }
+
         val ready = when (intent?.action) {
             QuickActions.ACTION_START_RECORDING -> QuickActions.start(this)
             else -> QuickActions.toggle(this)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +64,8 @@ import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 private val Gold = Color(0xFFF59E0B)
 private val GoldDark = Color(0xFFD97706)
@@ -249,6 +253,27 @@ private fun ResultView(r: Phase.Result, onDismiss: () -> Unit) {
         r.detail?.let {
             Spacer(Modifier.height(4.dp))
             Text(it, textAlign = TextAlign.Center, fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f), maxLines = 2)
+        }
+        // Smart append: two big buttons for "Add to …?", Undo otherwise
+        val ctx = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val send: (String) -> Unit = { choice ->
+            val id = r.captureId
+            if (id != null) scope.launch {
+                PhoneLink.message(ctx, Protocol.MSG_DECIDE, JSONObject().put("captureId", id).put("choice", choice).toString().toByteArray())
+            }
+            Haptics.start(ctx)
+            onDismiss()
+        }
+        if (r.ask) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { send("yes") }, modifier = Modifier.height(48.dp)) { Text("Yes", fontWeight = FontWeight.Bold) }
+                Button(onClick = { send("new") }, modifier = Modifier.height(48.dp), colors = ButtonDefaults.filledTonalButtonColors()) { Text("New") }
+            }
+        } else if (r.undoable) {
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = { send("undo") }, modifier = Modifier.height(44.dp), colors = ButtonDefaults.filledTonalButtonColors()) { Text("Undo") }
         }
     }
 }

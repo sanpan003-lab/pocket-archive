@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Settings, Volume2, Vibrate } from 'lucide-react';
+import { Settings, Volume2, Vibrate, VolumeX, Square } from 'lucide-react';
+import { isNative } from '../../lib/platform';
+import { useQuickSetting } from '../../lib/quickSettings';
+import { syncRecorderPref } from '../../native/nativeSession';
 
 function Toggle({ icon: Icon, label, hint, checked, onChange }) {
   return (
@@ -30,6 +33,8 @@ function Toggle({ icon: Icon, label, hint, checked, onChange }) {
 export default function QuickSettings({ readAloud, onReadAloud, feedback, onFeedback }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const [volumeStop, setVolumeStop] = useQuickSetting('volumeStop');
+  const [launcherToggle, setLauncherToggle] = useQuickSetting('launcherToggle');
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +77,26 @@ export default function QuickSettings({ readAloud, onReadAloud, feedback, onFeed
             checked={feedback}
             onChange={onFeedback}
           />
+          {isNative && (
+            <>
+              <p className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mt-3 mb-1">Stopping</p>
+              <Toggle
+                icon={VolumeX}
+                label="Volume down stops recording"
+                hint="Also with the screen off. Volume up is ignored while recording."
+                checked={volumeStop}
+                onChange={on => { setVolumeStop(on); syncRecorderPref({ volumeStop: on }); }}
+              />
+              <div className="divider my-1" />
+              <Toggle
+                icon={Square}
+                label="Quick Record stops a recording"
+                hint="Opening Quick Record again (e.g. side key) stops and saves"
+                checked={launcherToggle}
+                onChange={on => { setLauncherToggle(on); syncRecorderPref({ launcherToggle: on }); }}
+              />
+            </>
+          )}
         </div>
       )}
     </div>

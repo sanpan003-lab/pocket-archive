@@ -22,6 +22,7 @@ object Feedback {
 
     fun recordingStopped(ctx: Context) {
         if (!TokenStore.feedbackEnabled(ctx)) return
+        vibrate(ctx, longArrayOf(0, 60)) // short buzz: you can feel it stopped (screen off, volume key)
         tone(ToneGenerator.TONE_PROP_ACK, 150)
     }
 

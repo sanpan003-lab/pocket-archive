@@ -611,6 +611,7 @@ places.register(app);
 // ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
 const quick = createQuickCapture({
   places,
+  getConfig, saveConfig,
   archivePath:         ARCHIVE_PATH,
   getRecentRecordings: limit => getAllIds().slice(0, limit).map(id => ({ id, title: getTitle(id), date: getDate(id) })),
   recordingExists:     id => isValidId(id) && getAllIds().includes(id),

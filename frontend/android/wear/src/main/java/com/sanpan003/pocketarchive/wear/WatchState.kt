@@ -16,7 +16,11 @@ sealed class Phase {
     /** Handed to the phone; the server's answer comes back as [Result]. */
     data object Sent : Phase()
     data object Queued : Phase()
-    data class Result(val icon: String, val text: String, val tone: String, val detail: String?) : Phase()
+    /** captureId + ask/undoable: smart append buttons on the wrist (Yes / New note, or Undo) */
+    data class Result(
+        val icon: String, val text: String, val tone: String, val detail: String?,
+        val captureId: String? = null, val ask: Boolean = false, val undoable: Boolean = false,
+    ) : Phase()
 }
 
 /**
@@ -46,7 +50,8 @@ object WatchState {
         main.removeCallbacks(backToIdle)
         _phase.value = phase
         when (phase) {
-            is Phase.Result, Phase.Queued -> main.postDelayed(backToIdle, SHOW_MS)
+            is Phase.Result -> main.postDelayed(backToIdle, if (phase.ask) 30_000L else if (phase.undoable) 8_000L else SHOW_MS)
+            Phase.Queued -> main.postDelayed(backToIdle, SHOW_MS)
             Phase.Sent -> main.postDelayed(backToIdle, SHOW_MS * 4) // the result normally arrives first
             else -> Unit
         }

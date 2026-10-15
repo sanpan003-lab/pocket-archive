@@ -99,6 +99,30 @@ export const getQuickNote       = id => http.get(`/quick/${id}`).then(r => r.dat
 export const summarizeQuickNote = id => http.post(`/quick/${id}/summarize`).then(r => r.data);
 export const quickAudioUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/audio`);
 
+// Smart append: answers, Move, Merge into, Combine, settings
+export const decideQuickNote    = (id, choice, dest = {}) => http.post(`/quick/${id}/decide`, { choice, ...dest }).then(r => r.data);
+export const moveQuickNote      = (id, dest) => http.post(`/quick/${id}/move`, dest).then(r => r.data);
+export const mergeQuickNote     = (id, target) => http.post(`/quick/${id}/merge`, target).then(r => r.data);
+export const unmergeQuickNote   = id => http.post(`/quick/${id}/unmerge`).then(r => r.data);
+export const combineQuickNotes  = (mainId, ids, title) => http.post('/quick/combine', { mainId, ids, title }).then(r => r.data);
+export const suggestCombinedTitle = ids => http.post('/quick/combine/suggest', { ids }).then(r => r.data);
+export const splitQuickNote     = (id, groupId) => http.post(`/quick/${id}/split`, { groupId }).then(r => r.data);
+export const searchQuickTargets = (q, exclude) => http.get('/quick/targets', { params: { q, exclude } }).then(r => r.data);
+export const getQuickSettings   = () => http.get('/quick/settings').then(r => r.data);
+export const updateQuickSettings = settings => http.put('/quick/settings', settings).then(r => r.data);
+
+// Projects
+export const getProjects        = (params = {}) => http.get('/projects', { params }).then(r => r.data);
+export const getProject         = id => http.get(`/projects/${id}`).then(r => r.data);
+export const createProject      = (name, aliases = []) => http.post('/projects', { name, aliases }).then(r => r.data);
+export const updateProject      = (id, data) => http.put(`/projects/${id}`, data).then(r => r.data);
+export const mergeProject       = (id, intoId) => http.post(`/projects/${id}/merge`, { intoId }).then(r => r.data);
+export const addNotesToProject  = (id, noteIds) => http.post(`/projects/${id}/notes`, { noteIds }).then(r => r.data);
+export const removeNoteFromProject = (id, noteId) => http.delete(`/projects/${id}/notes/${noteId}`).then(r => r.data);
+export const resummarizeProject = id => http.post(`/projects/${id}/summarize`).then(r => r.data);
+export const deleteProject      = id => http.delete(`/projects/${id}`).then(r => r.data);
+export const restoreProject     = id => http.post(`/projects/${id}/restore`).then(r => r.data);
+
 // Errands: checklist + places
 export const updateErrandItems  = (id, change) => http.patch(`/quick/${id}/items`, change).then(r => r.data);
 export const setErrandDone      = (id, done = true) => http.post(`/quick/${id}/done`, { done }).then(r => r.data);

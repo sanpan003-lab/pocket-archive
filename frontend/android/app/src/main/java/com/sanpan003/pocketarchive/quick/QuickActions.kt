@@ -37,6 +37,7 @@ object QuickActions {
         return true
     }
 
+    /** Stops and uploads. Does nothing when not recording (never starts one). */
     fun stop(ctx: Context) {
         if (RecorderState.recording) {
             ctx.startService(QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_STOP))

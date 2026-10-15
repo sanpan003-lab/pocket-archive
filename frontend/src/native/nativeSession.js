@@ -11,15 +11,20 @@ let mediaTimer = null;
 export const getDeviceToken = () => deviceToken;
 export const getMediaToken  = () => mediaToken;
 
-function feedbackPref() {
-  try { return localStorage.getItem('pa_quickFeedback') !== 'false'; } catch { return true; }
+function pref(key) {
+  try { return localStorage.getItem(key) !== 'false'; } catch { return true; }
 }
 
 /** Before the app renders: point native uploads at the server and load the stored token. */
 export async function initNativeSession() {
   if (!isNative) return;
   try {
-    await QuickRecorder.configure({ apiBase: API_ORIGIN, feedback: feedbackPref() });
+    await QuickRecorder.configure({
+      apiBase: API_ORIGIN,
+      feedback: pref('pa_quickFeedback'),
+      volumeStop: pref('pa_volumeStop'),
+      launcherToggle: pref('pa_launcherToggle'),
+    });
     deviceToken = (await QuickRecorder.getToken()).token || null;
   } catch {
     deviceToken = null;
@@ -53,6 +58,11 @@ export async function startMediaTokens(fetchMediaToken) {
 /** "Sound & vibration" setting → native recorder cues. */
 export function syncFeedbackPref(enabled) {
   if (isNative) QuickRecorder.configure({ feedback: enabled }).catch(() => {});
+}
+
+/** Android-only recorder settings: { volumeStop } or { launcherToggle } */
+export function syncRecorderPref(values) {
+  if (isNative) QuickRecorder.configure(values).catch(() => {});
 }
 
 /** Friendly name shown under Settings → Devices, e.g. "Android app · SM-S938U". */

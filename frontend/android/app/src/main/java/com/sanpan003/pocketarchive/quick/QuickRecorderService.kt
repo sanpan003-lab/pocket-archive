@@ -15,6 +15,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
+import androidx.media.VolumeProviderCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import com.sanpan003.pocketarchive.R
 import java.io.File
 import java.util.concurrent.Executors
@@ -54,6 +57,8 @@ class QuickRecorderService : Service() {
     private var heardVoice = false
     private var noiseFloor = 400.0
     private var uploadsInFlight = 0
+    /** Captures the volume keys while recording (screen on or off); released on stop. */
+    private var keySession: MediaSessionCompat? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -121,6 +126,57 @@ class QuickRecorderService : Service() {
         RecorderState.update(this, true, System.currentTimeMillis())
         Feedback.recordingStarted(this)
         main.postDelayed(poll, POLL_MS)
+        if (TokenStore.volumeStop(this)) captureVolumeKeys()
+    }
+
+    // ── Volume keys: down = stop & upload, up = ignored ────────────────────
+
+    /**
+     * A remote-volume media session makes Android send the volume keys here
+     * (not to the ringer/media volume) while it's active. It only exists
+     * while recording, so a stray press later can never start anything.
+     */
+    private fun captureVolumeKeys() {
+        releaseVolumeKeys()
+        try {
+            val provider = object : VolumeProviderCompat(VOLUME_CONTROL_RELATIVE, 100, 50) {
+                override fun onAdjustVolume(direction: Int) {
+                    if (direction < 0) main.post { stopFromKey() }
+                }
+                override fun onSetVolumeTo(volume: Int) {
+                    if (volume < currentVolume) main.post { stopFromKey() }
+                }
+            }
+            keySession = MediaSessionCompat(this, "PocketArchiveRecorder").apply {
+                setPlaybackToRemote(provider)
+                setPlaybackState(
+                    PlaybackStateCompat.Builder()
+                        .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1f)
+                        .setActions(PlaybackStateCompat.ACTION_STOP)
+                        .build()
+                )
+                setCallback(object : MediaSessionCompat.Callback() {
+                    override fun onStop() = stopFromKey()
+                })
+                isActive = true
+            }
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Volume keys unavailable", e)
+            keySession = null
+        }
+    }
+
+    private fun stopFromKey() {
+        if (recorder == null) return // already stopped: no double stop
+        Log.i(TAG, "Stopped with the volume key")
+        stopRecording()
+    }
+
+    private fun releaseVolumeKeys() {
+        keySession?.let {
+            runCatching { it.isActive = false; it.release() }
+        }
+        keySession = null
     }
 
     /** Mic level → silence detection (adaptive noise floor) + in-app pulse. */
@@ -156,6 +212,7 @@ class QuickRecorderService : Service() {
         }
         main.removeCallbacks(poll)
         recorder = null
+        releaseVolumeKeys()
         val stoppedCleanly = try {
             active.stop()
             true
@@ -218,6 +275,7 @@ class QuickRecorderService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(poll)
+        releaseVolumeKeys()
         recorder?.let { active ->
             // Killed mid-recording: keep what we have and queue it
             runCatching { active.stop() }

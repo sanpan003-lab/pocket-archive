@@ -13,6 +13,7 @@ object WidgetState {
     enum class Phase { IDLE, UPLOADING, PROCESSING, RESULT }
 
     private const val RESULT_MS = 6_000L
+    private const val ACTION_MS = 30_000L   // Undo / Move / Yes / New stay for 30 s
     private const val BUSY_MAX_MS = 3 * 60_000L
 
     @Volatile private var phase = Phase.IDLE
@@ -22,13 +23,19 @@ object WidgetState {
     /** Note id of the last result, so tapping it opens that note. */
     @Volatile var noteId: String? = null
         private set
+    /** Smart append: capture to Undo / answer from the widget (null = no buttons) */
+    @Volatile var captureId: String? = null
+        private set
+    /** The result is a question ("Add to …?") → Yes / New note buttons */
+    @Volatile var ask = false
+        private set
 
     private val main = Handler(Looper.getMainLooper())
 
     fun current(): Phase {
         val age = System.currentTimeMillis() - since
         return when (phase) {
-            Phase.RESULT -> if (age < RESULT_MS) Phase.RESULT else Phase.IDLE
+            Phase.RESULT -> if (age < (if (captureId != null) ACTION_MS else RESULT_MS)) Phase.RESULT else Phase.IDLE
             Phase.UPLOADING, Phase.PROCESSING -> if (age < BUSY_MAX_MS) phase else Phase.IDLE
             Phase.IDLE -> Phase.IDLE
         }
@@ -41,16 +48,27 @@ object WidgetState {
     }
 
     /** Show the outcome briefly, then go back to the (refreshed) list. */
-    fun result(ctx: Context, line: String, id: String? = null) {
+    fun result(ctx: Context, line: String, id: String? = null, capture: String? = null, isAsk: Boolean = false) {
         set(ctx, Phase.RESULT, line, id)
+        captureId = capture
+        ask = isAsk
+        QuickToggleWidget.updateAll(ctx.applicationContext)
         val app = ctx.applicationContext
         main.removeCallbacksAndMessages(this)
-        main.postAtTime({ QuickToggleWidget.updateAll(app) }, this, android.os.SystemClock.uptimeMillis() + RESULT_MS + 100)
+        val showMs = if (capture != null) ACTION_MS else RESULT_MS
+        main.postAtTime({ QuickToggleWidget.updateAll(app) }, this, android.os.SystemClock.uptimeMillis() + showMs + 100)
         // Also via WorkManager in case this process is gone by then
-        WidgetRefreshWorker.settleLater(app, RESULT_MS + 1_000)
+        WidgetRefreshWorker.settleLater(app, showMs + 1_000)
+    }
+
+    /** A button was used: back to the list */
+    fun clear(ctx: Context) {
+        set(ctx, Phase.IDLE, "", null)
     }
 
     private fun set(ctx: Context, p: Phase, line: String, id: String?) {
+        captureId = null
+        ask = false
         phase = p
         since = System.currentTimeMillis()
         text = line

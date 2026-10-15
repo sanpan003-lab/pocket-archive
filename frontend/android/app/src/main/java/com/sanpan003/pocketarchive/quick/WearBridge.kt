@@ -32,6 +32,7 @@ object WearBridge {
     const val MSG_TOKEN_REQUEST = "/pa/token-request"
     const val MSG_SYNC_REQUEST = "/pa/sync-request"
     const val MSG_ARRIVAL = "/pa/arrival"
+    const val MSG_DECIDE = "/pa/decide"
     const val DATA_STATE = "/pa/state"
     const val DATA_TOGGLE = "/pa/toggle"
     const val DATA_DONE = "/pa/done"

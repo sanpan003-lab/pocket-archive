@@ -221,6 +221,23 @@ class QuickToggleWidget : AppWidgetProvider() {
             setViewVisibility(R.id.lg_spinner, if (s.busy) View.VISIBLE else View.GONE)
             setTextViewText(R.id.lg_busy_text, s.phaseText)
             setOnClickPendingIntent(R.id.lg_busy, inboxIntent(ctx, s.resultNoteId))
+            // Smart append: Undo / Move, or Yes / New note for "Add to …?"
+            val capture = WidgetState.captureId
+            val withActions = s.phase == WidgetState.Phase.RESULT && capture != null
+            setViewVisibility(R.id.lg_actions, if (withActions) View.VISIBLE else View.GONE)
+            if (capture != null && withActions) {
+                if (WidgetState.ask) {
+                    setTextViewText(R.id.lg_action1, "Yes")
+                    setTextViewText(R.id.lg_action2, "New note")
+                    setOnClickPendingIntent(R.id.lg_action1, QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_YES, capture))
+                    setOnClickPendingIntent(R.id.lg_action2, QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_NEW, capture))
+                } else {
+                    setTextViewText(R.id.lg_action1, "Undo")
+                    setTextViewText(R.id.lg_action2, "Move")
+                    setOnClickPendingIntent(R.id.lg_action1, QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_UNDO, capture))
+                    setOnClickPendingIntent(R.id.lg_action2, Notifications.openApp(ctx, "/quick/inbox?move=$capture"))
+                }
+            }
 
             // Recent notes
             setTextViewText(R.id.lg_empty, if (s.signedOut) "Open Pocket Archive to sign in" else "No quick notes yet — tap the mic")

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mic, Square, Loader2, Undo2, CloudOff, AlertCircle, Lock, Check } from 'lucide-react';
-import { captureQuick, undoQuickNote, getQuickNotes } from '../lib/api';
+import { captureQuick, undoQuickNote, getQuickNotes, moveQuickNote } from '../lib/api';
 import { speak, unlockSpeech, stopSpeaking } from '../lib/speech';
 import {
   enqueue, buildCaptureForm, isRetryable, queueCount, onQueueChange, flushQueue,
@@ -18,6 +18,8 @@ import QuickToast from '../components/quick/QuickToast';
 import QuickSettings from '../components/quick/QuickSettings';
 import { QUICK_TYPES, describeWhen, confirmationFor, errandPlaceName, errandProgress } from '../components/quick/quickMeta';
 import { syncErrands } from '../native/errands';
+import AskPrompt from '../components/quick/AskPrompt';
+import TargetPicker from '../components/quick/TargetPicker';
 
 const UNDO_WINDOW_MS = 30000;
 const TAP_TO_RECORD  = 'Tap to record';
@@ -127,14 +129,23 @@ export default function QuickCapturePage() {
       .catch(() => {});
   }, []);
 
+  const [moving, setMoving] = useState(false);
+  const undoRef = useRef(null);
   const showResult = useCallback((note, spoken, { fromQueue = false } = {}) => {
     setResult(note);
     setMessage(null);
     setPhase('done');
-    setUndoUntil(Date.now() + UNDO_WINDOW_MS);
+    // "Add to …?" waits for an answer instead of the Undo countdown
+    setUndoUntil(note?.status === 'pending_decision' ? 0 : Date.now() + UNDO_WINDOW_MS);
     const conf = confirmationFor(note);
-    notify(fromQueue ? { ...conf, detail: conf.detail || 'Sent from queue' } : conf,
-      fromQueue ? `Sent from queue. ${spoken}` : spoken);
+    // Smart append: Undo / Move right on the toast for 30 s
+    const actions = conf.undoable && note?.appliedTo ? [
+      { label: 'Undo', onClick: () => undoRef.current?.() },
+      ...(conf.movable ? [{ label: 'Move', onClick: () => setMoving(true) }] : []),
+    ] : undefined;
+    notify(fromQueue ? { ...conf, detail: conf.detail || 'Sent from queue', actions, duration: actions ? 30000 : undefined }
+      : { ...conf, actions, duration: actions ? 30000 : undefined },
+    fromQueue ? `Sent from queue. ${spoken}` : spoken);
     refreshReviewCount();
     if (note?.type === 'errand') syncErrands();
   }, [refreshReviewCount, notify]);
@@ -321,6 +332,19 @@ export default function QuickCapturePage() {
     }
   }
 
+  useEffect(() => { undoRef.current = handleUndo; });
+
+  async function handleMove(dest) {
+    setMoving(false);
+    if (!result) return;
+    try {
+      const r = await moveQuickNote(result.id, dest.new ? { new: true } : { targetType: dest.targetType, targetId: dest.targetId });
+      showResult(r.note, r.confirmation?.text);
+    } catch (err) {
+      setMessage(err.response?.data?.error || 'Could not move it');
+    }
+  }
+
   const recording  = recorder.recording;
   const processing = phase === 'processing';
   const finished   = phase === 'done' || phase === 'queued';
@@ -430,7 +454,34 @@ export default function QuickCapturePage() {
           )}
 
           {/* Result */}
-          {result && phase === 'done' && (
+          {result && phase === 'done' && result.status === 'pending_decision' && (
+            <div className="w-full max-w-md animate-slide-up">
+              <AskPrompt note={result} onResolved={r => showResult(r.note, r.confirmation?.text)} />
+            </div>
+          )}
+          {result && phase === 'done' && result.appliedTo && result.status !== 'pending_decision' && (
+            <div className="glass-card w-full max-w-md p-4 animate-slide-up">
+              <p className="font-semibold text-navy-900 dark:text-white break-words">
+                {result.appendConfirmation?.icon} {result.appendConfirmation?.text || `Added to ${result.appliedTo.title}`}
+              </p>
+              {result.appendConfirmation?.detail && <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{result.appendConfirmation.detail}</p>}
+              <div className="flex flex-wrap gap-3 mt-2">
+                <Link
+                  to={result.appliedTo.type === 'project' ? `/projects/${result.appliedTo.id}` : `/quick/inbox?note=${result.appliedTo.id}`}
+                  className="text-xs font-medium text-gold-600 dark:text-gold-400"
+                >
+                  Open {result.appliedTo.title} →
+                </Link>
+                {result.appendConfirmation?.movable && (
+                  <button className="text-xs font-medium text-navy-600 dark:text-white/60 underline" onClick={() => setMoving(true)}>Move…</button>
+                )}
+              </div>
+            </div>
+          )}
+          {moving && result && (
+            <TargetPicker title="Move it to…" exclude={result.appliedTo?.id} allowNewNote onClose={() => setMoving(false)} onPick={handleMove} />
+          )}
+          {result && phase === 'done' && !result.appliedTo && result.status !== 'pending_decision' && (
             <div className="glass-card w-full max-w-md p-4 animate-slide-up">
               <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
                 <span className={`badge ${meta.badge}`}><meta.icon size={11} /> {meta.label}</span>

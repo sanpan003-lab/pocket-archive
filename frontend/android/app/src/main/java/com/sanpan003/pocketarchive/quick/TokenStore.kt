@@ -22,6 +22,8 @@ object TokenStore {
     private const val PREF_TOKEN = "token"
     private const val PREF_API_BASE = "api_base"
     private const val PREF_FEEDBACK = "feedback"
+    private const val PREF_VOLUME_STOP = "volume_stop"
+    private const val PREF_LAUNCHER_TOGGLE = "launcher_toggle"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
 
     @Volatile private var cachedToken: String? = null
@@ -89,6 +91,20 @@ object TokenStore {
     }
 
     fun feedbackEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(PREF_FEEDBACK, true)
+
+    /** "Volume down stops recording" (default on). */
+    fun setVolumeStop(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(PREF_VOLUME_STOP, enabled).apply()
+    }
+
+    fun volumeStop(ctx: Context): Boolean = prefs(ctx).getBoolean(PREF_VOLUME_STOP, true)
+
+    /** "Quick Record stops a running recording" (default on). */
+    fun setLauncherToggle(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(PREF_LAUNCHER_TOGGLE, enabled).apply()
+    }
+
+    fun launcherToggle(ctx: Context): Boolean = prefs(ctx).getBoolean(PREF_LAUNCHER_TOGGLE, true)
 
     private fun b64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
     private fun unb64(text: String) = Base64.decode(text, Base64.NO_WRAP)

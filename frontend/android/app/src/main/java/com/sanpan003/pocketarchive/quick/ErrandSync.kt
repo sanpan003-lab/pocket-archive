@@ -134,18 +134,25 @@ object ErrandSync {
     /** POST and report: true = done (or will never work), false = retry later. */
     fun post(ctx: Context, path: String, body: JSONObject = JSONObject()) = request(ctx, "POST", path, body)
 
-    fun request(ctx: Context, method: String, path: String, body: JSONObject = JSONObject()): Boolean {
-        val apiBase = TokenStore.apiBase(ctx) ?: return true
-        val token = TokenStore.token(ctx) ?: return true
+    fun request(ctx: Context, method: String, path: String, body: JSONObject = JSONObject()): Boolean =
+        requestJson(ctx, method, path, body).first
+
+    /** (done-or-permanent-failure, response JSON if successful). false = retry later. */
+    fun requestJson(ctx: Context, method: String, path: String, body: JSONObject = JSONObject()): Pair<Boolean, JSONObject?> {
+        val apiBase = TokenStore.apiBase(ctx) ?: return true to null
+        val token = TokenStore.token(ctx) ?: return true to null
         val request = Request.Builder()
             .url("$apiBase$path")
             .header("Authorization", "Bearer $token")
             .method(method, body.toString().toRequestBody("application/json".toMediaType()))
             .build()
         return try {
-            client.newCall(request).execute().use { r -> r.isSuccessful || r.code in 400..499 }
+            client.newCall(request).execute().use { r ->
+                val json = if (r.isSuccessful) runCatching { JSONObject(r.body.string()) }.getOrNull() else null
+                (r.isSuccessful || r.code in 400..499) to json
+            }
         } catch (e: IOException) {
-            false
+            false to null
         }
     }
 }

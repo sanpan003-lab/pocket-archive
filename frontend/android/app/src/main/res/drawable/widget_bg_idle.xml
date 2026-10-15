@@ -1,3 +1,4 @@
+<!-- Gold mic button — same gradient as the app icon (branding/icon-background.svg) -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <gradient android:angle="315" android:startColor="#FFF59E0B" android:endColor="#FFD97706"/>
+    <gradient android:angle="315" android:startColor="#FFFBBF24" android:centerColor="#FFF59E0B" android:endColor="#FFD97706"/>
 </shape>

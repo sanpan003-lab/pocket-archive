@@ -24,6 +24,8 @@ object Protocol {
     const val MSG_SYNC_REQUEST = "/pa/sync-request"
     /** Message phone → watch: "You're at Publix" (the watch shows its own notification). */
     const val MSG_ARRIVAL = "/pa/arrival"
+    /** Message watch → phone: smart append answer. JSON {captureId, choice: "undo"|"yes"|"new"} */
+    const val MSG_DECIDE = "/pa/decide"
 
     /** DataItem phone → watch: recent notes + open errands. Strings "recent", "errands"; long "updatedAt". */
     const val DATA_STATE = "/pa/state"

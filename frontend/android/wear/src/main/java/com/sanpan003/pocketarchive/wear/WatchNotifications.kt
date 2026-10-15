@@ -68,9 +68,12 @@ object ResultPresenter {
         val tone = conf.optString("tone", "success")
         val detail = conf.optString("detail").takeIf { it.isNotBlank() && it != "null" }
         val review = tone != "success"
+        val captureId = conf.optString("captureId").takeIf { it.isNotBlank() && it != "null" }
+        val ask = tone == "ask" && captureId != null
+        val undoable = conf.optBoolean("undoable") && captureId != null && !ask
 
         if (review) Haptics.review(ctx) else Haptics.success(ctx)
-        WatchState.set(Phase.Result(icon, text, tone, detail))
+        WatchState.set(Phase.Result(icon, text, tone, detail, captureId, ask, undoable))
         if (WatchState.visible) return
 
         WatchNotifications.ensureChannels(ctx)

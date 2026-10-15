@@ -16,6 +16,8 @@ import org.json.JSONObject
 object ResultNotifier {
     private const val TAG = "QuickRecorder"
     private const val TIMEOUT_MS = 4000L
+    private const val UNDO_TIMEOUT_MS = 30_000L        // Undo / Move stay available for 30 s
+    private const val ASK_TIMEOUT_MS = 2 * 60_000L     // "Add to …?" — no answer in 2 min → new note
 
     fun deliver(ctx: Context, response: JSONObject, fromQueue: Boolean) {
         val conf = response.optJSONObject("confirmation")
@@ -30,7 +32,13 @@ object ResultNotifier {
             put("confirmation", conf)
             put("fromQueue", fromQueue)
         }
-        WidgetState.result(ctx, "$icon $text", response.optJSONObject("note")?.optString("id")?.takeIf { it.isNotBlank() })
+        // Smart append: the capture lives inside another note → open that one; Undo/answer by capture id
+        val note = response.optJSONObject("note")
+        val captureId = conf?.optString("captureId")?.takeIf { it.isNotBlank() } ?: note?.optString("id")
+        val ask = tone == "ask"
+        val undoable = conf?.optBoolean("undoable") == true && !ask
+        val openId = note?.optJSONObject("appliedTo")?.optString("id")?.takeIf { it.isNotBlank() } ?: note?.optString("id")?.takeIf { it.isNotBlank() }
+        WidgetState.result(ctx, "$icon $text", openId, captureId.takeIf { ask || undoable }, ask)
         WidgetData.refreshAsync(ctx)
         ErrandWorker.syncNow(ctx) // a new errand may need geofences (and the watch a fresh list)
 
@@ -44,7 +52,16 @@ object ResultNotifier {
         )
         if (QuickRecorderPlugin.deliverToApp("result", payload)) return
 
-        post(ctx, "$icon $text", detail ?: if (fromWatch) "From your watch" else if (fromQueue) "Sent from queue" else null, tone, localOnly = shownOnWatch)
+        post(
+            ctx, "$icon $text", detail ?: if (fromWatch) "From your watch" else if (fromQueue) "Sent from queue" else null, tone,
+            localOnly = shownOnWatch, captureId = captureId, ask = ask, undoable = undoable,
+        )
+    }
+
+    /** After Undo from a notification / the widget / the watch */
+    fun undone(ctx: Context) {
+        WidgetState.result(ctx, "↩️ Undone")
+        post(ctx, "↩️ Undone", null, "queued")
     }
 
     fun queued(ctx: Context, reason: String) {
@@ -69,7 +86,10 @@ object ResultNotifier {
         post(ctx, "⚠️ Couldn't save voice note", reason, "review", localOnly = shownOnWatch)
     }
 
-    private fun post(ctx: Context, title: String, text: String?, tone: String, localOnly: Boolean = false) {
+    private fun post(
+        ctx: Context, title: String, text: String?, tone: String, localOnly: Boolean = false,
+        captureId: String? = null, ask: Boolean = false, undoable: Boolean = false,
+    ) {
         Notifications.ensureChannels(ctx)
         val success = tone == "success"
         val channel = when {
@@ -99,9 +119,19 @@ object ResultNotifier {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
             .setAutoCancel(true)
-            .setTimeoutAfter(TIMEOUT_MS)
+            .setTimeoutAfter(if (ask) ASK_TIMEOUT_MS else if (undoable) UNDO_TIMEOUT_MS else TIMEOUT_MS)
             .setContentIntent(Notifications.openApp(ctx, "/quick/inbox"))
             .setLocalOnly(localOnly) // already shown by the watch app
+            .apply {
+                if (captureId != null && ask) {
+                    addAction(0, "Yes", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_YES, captureId))
+                    addAction(0, "New note", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_NEW, captureId))
+                    addAction(0, "Other…", Notifications.openApp(ctx, "/quick/inbox?note=$captureId"))
+                } else if (captureId != null && undoable) {
+                    addAction(0, "Undo", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_UNDO, captureId))
+                    addAction(0, "Move", Notifications.openApp(ctx, "/quick/inbox?move=$captureId"))
+                }
+            }
             .build()
 
         if (!Notifications.canPost(ctx)) {

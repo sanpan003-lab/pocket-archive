@@ -158,6 +158,44 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 4. `update-android.bat` installs the watch APK on every connected watch (detected by
    `ro.build.characteristics` = watch) and the phone APK on phones.
 
+## App icon (`npm run icons`)
+
+- Source of truth: `scripts/icons/design.mjs` (tilted gold mic, Option A) writes the SVGs in `branding/`
+  (`npm run icons:design`). `npm run icons` renders everything from them with `@resvg/resvg-js`:
+  web favicons/PWA icons in `public/`, Android adaptive icons (vector drawables + `mipmap-anydpi-v26`),
+  monochrome, Quick Record (red dot), Stop Recording (stop square), notification/splash icons, and the
+  same set for `android/wear`. `npm run icons:preview` → `branding/preview.png`.
+- The web sidebar/login logo is separate and unchanged. Don't hand-edit generated icon files.
+
+## Smart append & projects (backend `quickAppend.js`, `projects.js`)
+
+- The classifier gets CANDIDATES (open errands, active projects, 14-day notes, 30-day events/reminders)
+  and returns `action/targetId/confidence/addItems/removeItems/changes/appendText/...`. Thresholds and
+  "always ask" toggles live in `config.quickSettings` (`GET/PUT /api/quick/settings`).
+- An applied append is a hidden capture (`kind:'append'`, `appliedTo`, `resultLine`) plus an audit entry
+  on the target, so Undo/Move reverse it exactly. Asks are `status:'pending_decision'` until
+  `POST /api/quick/:id/decide` (yes|new|other) or the 2-minute sweep (→ new note + `possibleMatch`).
+- Routes `/api/quick/targets` and `/api/quick/settings` must stay registered before `/api/quick/:id`.
+- Combine: `POST /api/quick/combine`, `POST /api/quick/:id/split`. Projects: `/api/projects…`
+  (`ARCHIVE/08_Projects/{id}.json`, soft delete).
+- Android: notification/widget actions go through `QuickActionReceiver` → `ErrandWorker.captureAction`;
+  the watch sends `/pa/decide` `{captureId, choice}`. Widget/notification *Move* opens
+  `/quick/inbox?move=<captureId>`.
+
+## Stopping a recording (Part C)
+
+- `QuickRecorderService` holds a `MediaSessionCompat` with a remote `VolumeProviderCompat` only while
+  recording (volume down → stop; up ignored), released in `stopRecording`/`onDestroy`.
+  `MainActivity.onKeyDown/onKeyUp` handle the keys when the app is on screen.
+- `.QuickRecordLauncher` stops when already recording (`TokenStore.launcherToggle`);
+  `.StopRecordLauncher` (alias of `RecordTrampolineActivity`) only ever stops.
+- Settings (`volumeStop`, `launcherToggle`) are stored in localStorage and pushed to native through
+  `QuickRecorder.configure` (`src/native/nativeSession.js`).
+- Emulator testing: screen-off key injection is unreliable there (the screen woke and the key arrived
+  late). Test the session routing with another app in front (`input keyevent 25` after HOME); keys that
+  aren't consumed by a window take the same MediaSessionService path as screen-off keys on a phone.
+  `adb emu event send` needs the console auth token. Recordings stop after 4 s of silence, so press quickly.
+
 ## Next up
 
 - ~~Galaxy Watch 9 (Wear OS) app~~ — done (see above).

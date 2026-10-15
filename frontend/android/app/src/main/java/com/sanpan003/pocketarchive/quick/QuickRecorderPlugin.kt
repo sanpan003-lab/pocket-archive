@@ -148,11 +148,16 @@ class QuickRecorderPlugin : Plugin() {
 
     // ── Settings & secure token storage ────────────────────────────────────
 
-    /** { apiBase, feedback } — server URL for native uploads and the "Sound & vibration" setting. */
+    /**
+     * { apiBase, feedback, volumeStop, launcherToggle } — server URL for native uploads,
+     * "Sound & vibration", "Volume down stops recording", "Quick Record stops a recording".
+     */
     @PluginMethod
     fun configure(call: PluginCall) {
         call.getString("apiBase")?.let { TokenStore.setApiBase(context, it) }
         call.getBoolean("feedback")?.let { TokenStore.setFeedbackEnabled(context, it) }
+        call.getBoolean("volumeStop")?.let { TokenStore.setVolumeStop(context, it) }
+        call.getBoolean("launcherToggle")?.let { TokenStore.setLauncherToggle(context, it) }
         call.resolve()
     }
 

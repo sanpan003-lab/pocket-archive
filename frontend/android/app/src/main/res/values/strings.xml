@@ -6,6 +6,7 @@
     <string name="custom_url_scheme">com.sanpan003.pocketarchive</string>
 
     <string name="quick_record_label">Quick Record</string>
+    <string name="stop_record_label">Stop Recording</string>
     <string name="widget_label">Quick Capture</string>
     <string name="widget_description">Tap to record a voice note, tap again to save it</string>
     <string name="tile_label">Quick Capture</string>

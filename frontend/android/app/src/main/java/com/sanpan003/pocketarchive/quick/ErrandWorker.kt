@@ -43,6 +43,21 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
                 WearBridge.syncState(ctx)
                 Result.success()
             }
+            ACTION_CAPTURE -> {
+                val choice = inputData.getString(KEY_CHOICE)
+                if (id == null || choice == null) return Result.failure()
+                val (done, json) = if (choice == "undo") ErrandSync.requestJson(ctx, "POST", "/api/quick/$id/undo")
+                else ErrandSync.requestJson(ctx, "POST", "/api/quick/$id/decide", JSONObject().put("choice", choice))
+                if (!done) return Result.retry()
+                when {
+                    choice == "undo" && json != null -> ResultNotifier.undone(ctx)
+                    json != null -> ResultNotifier.deliver(ctx, json, fromQueue = false) // the new outcome (+ watch)
+                }
+                ErrandSync.syncBlocking(ctx)
+                WidgetData.refreshBlocking(ctx)
+                WearBridge.syncState(ctx)
+                Result.success()
+            }
             ACTION_ITEM -> {
                 val itemId = inputData.getString(KEY_ITEM)
                 if (id == null || itemId == null) return Result.failure()
@@ -89,6 +104,8 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
         private const val ACTION_TRIGGERED = "triggered"
         private const val ACTION_SNOOZE = "snooze"
         private const val ACTION_ITEM = "item"
+        private const val ACTION_CAPTURE = "capture"
+        private const val KEY_CHOICE = "choice"
         private const val KEY_ITEM = "itemId"
         private const val KEY_DONE = "done"
         private const val KEY_DATA_URI = "dataUri"
@@ -113,6 +130,10 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
 
         fun markDone(ctx: Context, id: String, dataUri: String? = null) =
             enqueueNetwork(ctx, "errand-done-$id", ACTION_DONE, id, workDataOf(KEY_DATA_URI to dataUri))
+
+        /** Smart append from a notification / the widget / the watch: "undo", "yes" or "new". */
+        fun captureAction(ctx: Context, captureId: String, choice: String) =
+            enqueueNetwork(ctx, "capture-$choice-$captureId", ACTION_CAPTURE, captureId, workDataOf(KEY_CHOICE to choice))
 
         /** Checklist item checked on the watch → PATCH /api/quick/:id/items (retries until online). */
         fun toggleItem(ctx: Context, id: String, itemId: String, done: Boolean, dataUri: String) =

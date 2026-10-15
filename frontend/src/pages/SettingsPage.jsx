@@ -7,6 +7,7 @@ import {
 import { getStats, getHealth, changePassword, getDevices, revokeDevice } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
+import SmartAppendSettings from '../components/SmartAppendSettings';
 
 function shortDate(iso) {
   return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -239,6 +240,8 @@ export default function SettingsPage() {
           </p>
         )}
       </div>
+
+      <SmartAppendSettings />
 
       <PlacesSettings />
 

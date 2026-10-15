@@ -67,6 +67,12 @@ class WearListenerService : WearableListenerService() {
         when (event.path) {
             WearBridge.MSG_TOKEN_REQUEST -> WearBridge.async { WearBridge.sendToken(this, event.sourceNodeId) }
             WearBridge.MSG_SYNC_REQUEST -> ErrandWorker.syncNow(this)
+            // Watch result screen: Undo, or Yes / New note for "Add to …?"
+            WearBridge.MSG_DECIDE -> runCatching {
+                val o = org.json.JSONObject(String(event.data))
+                val choice = o.optString("choice")
+                if (choice in setOf("undo", "yes", "new")) ErrandWorker.captureAction(this, o.getString("captureId"), choice)
+            }
         }
     }
 

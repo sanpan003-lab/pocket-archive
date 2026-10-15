@@ -67,6 +67,22 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Third launcher entry "Stop Recording": no UI. Stops & uploads if recording, does nothing
+             otherwise (never starts one). Must be a launcher entry so Samsung's side key and
+             Routines ("Open app") can pick it; Android has no way to hide those from the drawer. -->
+        <activity-alias
+            android:name=".StopRecordLauncher"
+            android:targetActivity=".quick.RecordTrampolineActivity"
+            android:label="@string/stop_record_label"
+            android:icon="@mipmap/ic_stop_record"
+            android:roundIcon="@mipmap/ic_stop_record"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- Invisible: lets the widget and tile start recording without opening the app -->
         <activity
             android:name=".quick.RecordTrampolineActivity"
@@ -143,6 +159,9 @@
             android:exported="false" />
         <receiver
             android:name=".quick.ErrandActionReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".quick.QuickActionReceiver"
             android:exported="false" />
         <receiver
             android:name=".quick.ErrandBootReceiver"

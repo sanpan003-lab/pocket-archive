@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trash2, RotateCcw, AlertCircle, Mic2 } from 'lucide-react';
-import { getDeletedRecordings, restoreRecording, permanentDeleteRecording } from '../lib/api';
+import { getDeletedRecordings, restoreRecording, permanentDeleteRecording, getProjects, restoreProject } from '../lib/api';
 
 function ConfirmModal({ message, confirmLabel, confirmStyle, onConfirm, onCancel, busy, error }) {
   return (
@@ -22,6 +22,45 @@ function ConfirmModal({ message, confirmLabel, confirmStyle, onConfirm, onCancel
         </div>
       </div>
     </div>
+  );
+}
+
+/** Projects moved to Trash (or merged into another project); restore puts their notes back. */
+function DeletedProjects() {
+  const [projects, setProjects] = useState([]);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => {
+    getProjects({ deleted: '1' }).then(list => setProjects(list)).catch(() => {});
+  }, []);
+  if (!projects.length) return null;
+  async function restore(p) {
+    setBusy(p.id);
+    try {
+      await restoreProject(p.id);
+      setProjects(list => list.filter(x => x.id !== p.id));
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <section className="mb-6" aria-label="Deleted projects">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-navy-400 dark:text-white/40">Projects</h2>
+      <ul className="space-y-2">
+        {projects.map(p => (
+          <li key={p.id} className="glass-card p-4 flex items-center gap-3">
+            <span className="flex-1 min-w-0">
+              <span className="block font-semibold text-navy-900 dark:text-white truncate">📁 {p.name}</span>
+              <span className="block text-xs text-navy-500 dark:text-white/50">
+                {p.mergedInto ? 'Merged into another project' : 'Deleted'} · {(p.noteIds || []).length} notes
+              </span>
+            </span>
+            <button className="btn-ghost text-sm shrink-0" onClick={() => restore(p)} disabled={busy === p.id}>
+              {busy === p.id ? 'Restoring…' : 'Restore'}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -98,6 +137,8 @@ export default function TrashPage() {
           Recordings moved to trash. Restore or delete them permanently.
         </p>
       </div>
+
+      <DeletedProjects />
 
       {error && (
         <div className="glass-card p-5 flex items-center gap-4 mb-4">

@@ -4,6 +4,9 @@ import { useCallback, useState } from 'react';
 export const QUICK_SETTINGS = {
   readAloud: { key: 'pa_quickReadAloud', default: false }, // speak the confirmation
   feedback:  { key: 'pa_quickFeedback',  default: true  }, // sound & vibration
+  // Android app only (synced to the native recorder)
+  volumeStop:     { key: 'pa_volumeStop',     default: true }, // volume down stops recording
+  launcherToggle: { key: 'pa_launcherToggle', default: true }, // Quick Record stops a running recording
 };
 
 function load(name) {

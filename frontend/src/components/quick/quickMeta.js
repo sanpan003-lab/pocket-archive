@@ -86,6 +86,8 @@ export function shortWhen(value) {
  */
 export function confirmationFor(note) {
   if (!note) return null;
+  // Smart append / "Add to …?" — the server already wrote the confirmation
+  if (note.appendConfirmation) return { ...note.appendConfirmation, captureId: note.id };
   if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
 
   const calendarFailed = note.googleSync === 'failed';
@@ -230,3 +232,6 @@ export function directionsUrl(place) {
     : Number.isFinite(place.lat) ? `${place.lat},${place.lng}` : null;
   return dest ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}` : null;
 }
+
+/** "Updated 3×" — later voice updates and merged notes */
+export const updateCount = note => (note.updates || []).length;

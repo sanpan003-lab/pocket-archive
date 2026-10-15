@@ -10,6 +10,8 @@ const path   = require('path');
 const multer = require('multer');
 const gcal   = require('./googleCalendar');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
+const { createProjects } = require('./projects');
+const { createAppender } = require('./quickAppend');
 
 const TIMEZONE = gcal.TIMEZONE;
 const QUICK_TYPES = ['event', 'reminder', 'errand', 'note_link', 'note'];
@@ -253,10 +255,30 @@ const CLASSIFICATION_SCHEMA = {
     trigger:            { anyOf: [{ type: 'string', enum: ERRAND_TRIGGERS }, { type: 'null' }] },
     content:            { type: 'string' },
     spokenConfirmation: { type: 'string' },
+    // Smart append
+    action:             { type: 'string', enum: ['create', 'append', 'update', 'cancel'] },
+    targetId:           { type: 'string' },
+    targetType:         { anyOf: [{ type: 'string', enum: ['errand', 'note', 'project', 'event', 'reminder', 'recording'] }, { type: 'null' }] },
+    targetName:         { type: 'string' },
+    explicitTarget:     { type: 'boolean' },
+    confidence:         { type: 'number' },
+    addItems:           { type: 'array', items: { type: 'string' } },
+    removeItems:        { type: 'array', items: { type: 'string' } },
+    changes: {
+      type: 'object',
+      properties: { start: { type: 'string' }, end: { type: 'string' }, title: { type: 'string' }, location: { type: 'string' } },
+      required: ['start', 'end', 'title', 'location'],
+      additionalProperties: false,
+    },
+    appendText:         { type: 'string' },
+    alsoProjectId:      { type: 'string' },
+    newProjectName:     { type: 'string' },
   },
   required: [
     'type', 'title', 'start', 'end', 'allDay', 'location', 'dueDate',
     'linkedRecordingId', 'linkConfidence', 'items', 'place', 'trigger', 'content', 'spokenConfirmation',
+    'action', 'targetId', 'targetType', 'targetName', 'explicitTarget', 'confidence',
+    'addItems', 'removeItems', 'changes', 'appendText', 'alsoProjectId', 'newProjectName',
   ],
   additionalProperties: false,
 };
@@ -288,9 +310,31 @@ Errands:
 Text:
 - title: short and specific (under 60 characters), no trailing period.
 - content: the memo cleaned up — remove filler words and false starts, keep every detail (names, numbers, places).
-- spokenConfirmation: one short sentence to be read aloud, under 20 words, with natural day names and times (never ISO dates), for example "Added to calendar: Dentist, Tuesday at 3 PM", "Reminder set: Call the pharmacy, tomorrow", "Publix list saved, 4 items, for tomorrow", "Saved note for CVS Specialty Refill", or "Saved quick note: Gas mileage idea".`;
+- spokenConfirmation: one short sentence to be read aloud, under 20 words, with natural day names and times (never ISO dates), for example "Added to calendar: Dentist, Tuesday at 3 PM", "Reminder set: Call the pharmacy, tomorrow", "Publix list saved, 4 items, for tomorrow", "Saved note for CVS Specialty Refill", or "Saved quick note: Gas mileage idea".
 
-async function classify({ transcript, now, recordings }) {
+Adding to existing things (smart append):
+You also get CANDIDATES: open errands with their items, active projects, quick notes from the last 14 days, upcoming events/reminders, and recent recordings. Decide whether the memo creates something new or changes one of them.
+- "action":
+  - "create": a new, separate thing (the default).
+  - "append": add to an existing target — items to a list, more information to a note or project ("add eggs and bread to my Publix list", "also need milk", "for the Tesla drawer project: the cubby is 7 inches deep", "add to my notes about the kitchen").
+  - "update": change an existing event/reminder/errand ("move the dentist to 4 PM", "the Publix trip is Saturday now", "rename…"). Put the new values in "changes"; keep the original day when only a time is given (e.g. dentist on Tue Oct 20 at 3, "move it to 4" → "2026-10-20T16:00:00-04:00").
+  - "cancel": cancel an existing event/reminder/errand ("cancel the dentist", "never mind the Publix trip").
+- targetId/targetType: the candidate being changed (ids exactly as listed; recordings use type "recording"). For create: targetId "" and targetType null.
+- explicitTarget: true when the memo itself names the target ("my Publix list", "the dentist", "the Tesla drawer project", "add to Pocket Archive", "this is for X", "add this to my X notes").
+- targetName: the target as spoken when explicitTarget is true (e.g. "Pocket Archive", "Publix list"), even if no candidate matches; otherwise "".
+- confidence 0–1: how sure the memo is about that target. Explicit references: 0.9+. Implicit matches only when the memo clearly continues the target (same store, topic, people, or thing); weigh recent targets higher; unrelated memos are "create". An ambiguous continuation is 0.6–0.8.
+- A short memo that only names more things to get ("also need milk", "and paper towels") continues the most recent open errand: append with confidence 0.9.
+- Append to a NOTE only when the memo adds detail to that same specific thing. A separate idea, bug, task or item that merely shares a topic or product name with a note ("Pocket Archive idea: …" after "Pocket Archive bug: …") is "create" — related notes are grouped by projects, not merged — UNLESS the memo explicitly says to add it somewhere (next rule).
+- Explicit "add to" phrasing ALWAYS appends, whatever is being added: "I want to add to Pocket Archive: …", "add this to my Pocket Archive notes", "this is for Pocket Archive", "put this under the kitchen project" → action "append", explicitTarget true, targetName as spoken (e.g. "Pocket Archive"), confidence 0.95, appendText = what to add. Set targetId only when exactly one candidate is meant (a project, list or a single note); when several notes share that name, or nothing matches, leave targetId "" — the app groups them into a project.
+- addItems/removeItems: for list appends ("take soda off the Publix list" → removeItems ["Soda"]), cleaned like items; [] otherwise.
+- appendText: for append to a note/project, the new information cleaned up (keep every detail); "" otherwise.
+- changes: for update; unchanged fields "" (all "" otherwise).
+- newProjectName: when the memo starts/creates a project ("start a project called kitchen backsplash" → "Kitchen backsplash"); action "create"; "" otherwise.
+- alsoProjectId: when a NEW note clearly belongs to an active project but is its own thing (e.g. a reminder for that project); otherwise "".
+- Always also fill the create fields (type, title, content, …) as if the memo were new, so it can be kept as its own note if the user prefers.
+- spokenConfirmation for appends describes the change ("Added eggs and bread to your Publix list").`;
+
+async function classify({ transcript, now, recordings, candidates = '' }) {
   if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
@@ -309,6 +353,7 @@ async function classify({ transcript, now, recordings }) {
       content:
         `Current date/time: ${ctx.human} (${ctx.iso})\nTimezone: ${TIMEZONE}\n\n` +
         `Recent recordings (id | date | title):\n${recentList}\n\n` +
+        `CANDIDATES\n${candidates || '(none)'}\n\n` +
         `<transcript>\n${transcript}\n</transcript>`,
     }],
     output_config: {
@@ -361,6 +406,14 @@ async function summarize(note) {
     ? `\n\n<edited_note>\n${note.content}\n</edited_note>\n(The user corrected the note above — trust it over the transcript where they differ.)`
     : '';
 
+  // Later voice updates / merged notes: the summary covers all of them
+  const updates = (note.updates || []).length
+    ? `\n\n<updates>\n${note.updates.map(u => `[${describeNow(new Date(u.at)).human}] ${u.text}`).join('\n')}\n</updates>\n(Updates added later, oldest first — fold them into one summary; newer information wins.)`
+    : '';
+  const itemsNow = note.type === 'errand' && (note.items || []).length
+    ? `\n\n<checklist>\n${note.items.map(i => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n')}\n</checklist>`
+    : '';
+
   const msg = await client.messages.create({
     model:      process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
     max_tokens: 4000,
@@ -369,7 +422,7 @@ async function summarize(note) {
       role: 'user',
       content:
         `Captured: ${ctx.human} (${TIMEZONE})\n\n` +
-        `<transcript>\n${note.transcript}\n</transcript>${edited}`,
+        `<transcript>\n${note.transcript || note.content || ''}\n</transcript>${edited}${updates}${itemsNow}`,
     }],
     output_config: { effort: 'medium' },
     // Retry on a fallback model if the primary model declines the request
@@ -383,6 +436,23 @@ async function summarize(note) {
     .trim();
   if (!text) throw new Error('Claude returned an empty summary');
   return text;
+}
+
+async function suggestTitle(notes) {
+  if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
+  const msg = await client.messages.create({
+    model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+    max_tokens: 200,
+    system: 'Write one short title (under 60 characters, no quotes, no trailing period) for a note that combines the voice notes below. Output only the title.',
+    messages: [{ role: 'user', content: notes.map(n => `- ${n.title}: ${String(n.summary || n.content || '').slice(0, 300)}`).join('\n') }],
+    output_config: { effort: 'low' },
+    fallbacks: 'default',
+  }, { headers: { 'anthropic-beta': 'server-side-fallback-2026-07-01' } });
+  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('').trim().replace(/^["']|["']$/g, '').replace(/\.$/, '');
+  if (!text) throw new Error('No title');
+  return text.slice(0, 80);
 }
 
 // ── Classification → note fields ───────────────────────────────────────────
@@ -498,7 +568,7 @@ function arrivalExpiresOn(note, settings) {
 }
 
 function isActiveArrival(note, settings, today = todayNY()) {
-  if (note.type !== 'errand' || note.undone || note.errandDone || !hasArrival(note)) return false;
+  if (note.type !== 'errand' || note.undone || note.errandDone || note.hidden || note.cancelled || note.status === 'pending_decision' || !hasArrival(note)) return false;
   if (!note.place?.resolved || !note.place.branches?.length) return false;
   const from = note.arrival?.activeFrom;
   if (from && from > today) return false;
@@ -526,7 +596,8 @@ function errandDescription(note, link) {
 }
 
 function desiredGoogleEvent(note, { link } = {}) {
-  if (note.undone) return null;
+  if (note.undone || note.cancelled || note.status === 'pending_decision') return null;
+  if (note.kind === 'append') return null; // a voice update living inside another note
   if (note.type === 'errand') {
     // Arrival-only errands live on the phone, not in the calendar
     if (!note.start || note.trigger === 'arrival') return null;
@@ -641,6 +712,7 @@ function shortWhen(value) {
 
 // { icon, text, tone: 'success'|'review', detail? }
 function confirmationFor(note, recordingTitle) {
+  if (note.appendConfirmation) return { ...note.appendConfirmation, captureId: note.id };
   if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
   const calendarFailed = note.googleSync === 'failed';
   const tone = calendarFailed ? 'review' : 'success';
@@ -707,6 +779,20 @@ function createQuickCapture(deps) {
   const store = createStore(deps.archivePath);
   const places = deps.places || null;
   const errandSettings = () => places?.getErrandSettings() || { arrivalForStoreErrands: true, arrivalExpiryDays: 14 };
+
+  /** Read-modify-write one note on disk (used by projects / merges) */
+  function updateNote(id, fn) {
+    const n = store.read(id);
+    if (!n) return null;
+    fn(n);
+    return store.write(n);
+  }
+
+  const projects = createProjects({
+    archivePath: deps.archivePath,
+    getNote: id => store.read(id),
+    updateNote,
+  });
 
   /**
    * Resolve the errand's place and settle its trigger.
@@ -787,6 +873,17 @@ function createQuickCapture(deps) {
     return { note, spokenConfirmation: note.spokenConfirmation, confirmation: confirmationFor(note, title) };
   }
 
+  // Smart append engine (needs the helpers above; created lazily so all are defined)
+  let appender = null;
+  const smart = () => appender || (appender = createAppender({
+    store, projects, deps,
+    finalize, syncGoogle, updateNote, cleanItemText, setErrandDone,
+    queueCalendarSync,
+    markSummaryPending: n => markSummaryPending(n),
+    queueSummaryLater: id => setImmediate(() => queueSummary(id)),
+    normalizeWhen, parseZoned, toZonedIso, shortWhen, DATE_ONLY_RE,
+  }));
+
   function finalize(note) {
     note.actions = describeActions(note, note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null);
     return store.write(note);
@@ -840,7 +937,7 @@ function createQuickCapture(deps) {
   let summaryRunning = false;
 
   function markSummaryPending(note) {
-    if (note.transcript) {
+    if (note.transcript || note.content || (note.updates || []).length) {
       Object.assign(note, { summaryStatus: 'pending', summaryError: null });
     } else {
       Object.assign(note, { summaryStatus: 'failed', summaryError: 'No transcript to summarize' });
@@ -861,7 +958,7 @@ function createQuickCapture(deps) {
       while (summaryQueue.length) {
         const id = summaryQueue.shift();
         const note = store.read(id);
-        if (!note || note.undone || !note.transcript) continue;
+        if (!note || note.undone || note.kind === 'append' || !(note.transcript || note.content || (note.updates || []).length)) continue;
         try {
           const summary = await summarize(note);
           updateGroup(id, { summary, summaryStatus: 'done', summaryError: null }, 'summaryUpdatedAt');
@@ -894,8 +991,11 @@ function createQuickCapture(deps) {
       migrateAudio()
         .catch(err => console.warn(`[quick] Audio migration stopped: ${err.message}`))
         .then(() => backfillSummaries())
+        .then(() => projects.backfill())
         .catch(err => console.warn(`[quick] Summary backfill stopped: ${err.message}`));
     }, 3000);
+    // "Add to …?" questions nobody answered within 2 minutes → keep as new notes
+    setInterval(() => smart().sweepPending().catch(() => {}), 30_000).unref?.();
   }
 
   // Transcribe → classify → act → save. Never throws for AI failures:
@@ -912,10 +1012,10 @@ function createQuickCapture(deps) {
     if (note.transcript) {
       try {
         const recordings = deps.getRecentRecordings(100);
-        note.classification = await classify({ transcript: note.transcript, now, recordings });
+        note.classification = await classify({ transcript: note.transcript, now, recordings, candidates: smart().candidates(now) });
         applyFields(note, note.classification, deps);
-        await prepareErrand(note, { now });
         note.spokenConfirmation = String(note.classification.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
+        await routeIntent(note, note.classification, now);
       } catch (err) {
         console.warn(`[quick] Classification failed for ${note.id}: ${err.message}`);
         note.error = `Classification failed: ${err.message}`;
@@ -936,8 +1036,41 @@ function createQuickCapture(deps) {
     if (note.googleSync === 'failed') {
       note.spokenConfirmation = `${note.spokenConfirmation.replace(/[.!]?$/, '.')} Google Calendar didn't update.`;
     }
-    markSummaryPending(note); // generated after the response is sent
+    if (note.kind !== 'append') markSummaryPending(note); // generated after the response is sent
     return finalize(note);
+  }
+
+  /** Smart append: apply / ask / create (+ projects) for a freshly classified capture. */
+  async function routeIntent(note, cls, now) {
+    const decision = smart().decide(note, cls);
+    if (decision.mode === 'apply') {
+      note.lastPayload = decision.payload;
+      await smart().apply(note, decision.target, decision.payload, { origin: 'voice' });
+      return;
+    }
+    if (decision.mode === 'createProject') {
+      smart().createProjectFrom(note, decision);
+      return;
+    }
+    if (decision.mode === 'ask') {
+      await prepareErrand(note, { now });   // ready in case the answer is "New note"
+      smart().markPending(note, decision);
+      return;
+    }
+    await prepareErrand(note, { now });
+    // New project by voice ("start a project called …"), or a note for an existing project
+    const name = String(cls.newProjectName || '').trim();
+    if (name) {
+      const existing = projects.findByName(name, { includeArchived: false });
+      const p = existing || projects.create({ name });
+      projects.addNote(p.id, note.id);
+      note.projectId = p.id;
+      note.appliedTo = { type: 'project', id: p.id, title: p.name, origin: 'voice', created: !existing, moved: [] };
+      note.appendConfirmation = { icon: '📁', text: existing ? `Added to project ${p.name}` : `Started project ${p.name}`, tone: 'success', detail: null, undoable: true, movable: false };
+    } else if (cls.alsoProjectId && projects.read(cls.alsoProjectId) && !projects.read(cls.alsoProjectId).deleted) {
+      projects.addNote(cls.alsoProjectId, note.id);
+      note.projectId = cls.alsoProjectId;
+    }
   }
 
   function referenceTime(capturedAt) {
@@ -953,6 +1086,9 @@ function createQuickCapture(deps) {
     app.get('/api/quick', (req, res) => {
       try {
         let notes = store.list();
+        // Voice updates and merged notes live inside their target (see its "updates")
+        if (req.query.all !== '1') notes = notes.filter(n => !n.hidden);
+        if (req.query.projectId) notes = notes.filter(n => n.projectId === req.query.projectId);
         if (req.query.recordingId) notes = notes.filter(n => n.linkedRecordingId === req.query.recordingId);
         if (req.query.status)      notes = notes.filter(n => n.status === req.query.status);
         res.json(notes);
@@ -1030,12 +1166,14 @@ function createQuickCapture(deps) {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 20);
         const withSummary = req.query.summary === '1';
         const recent = store.list()
-          .filter(n => !n.undone)
+          .filter(n => !n.undone && (!n.hidden || n.kind === 'append'))
           .slice(0, limit)
           .map(n => ({
-            id:            n.id,
-            title:         n.title,
-            type:          n.type,
+            id:            n.kind === 'append' && n.appliedTo ? n.appliedTo.id : n.id,
+            title:         n.kind === 'append' && n.resultLine ? n.resultLine : n.title,
+            type:          n.kind === 'append' && n.appliedTo ? (n.appliedTo.type === 'note' ? 'note' : n.appliedTo.type) : n.type,
+            append:        n.kind === 'append' || undefined,
+            pending:       n.status === 'pending_decision' || undefined,
             createdAt:     n.capturedAt || n.createdAt,
             needsReview:   n.status === 'needs_review',
             summaryStatus: n.summaryStatus || null,
@@ -1052,6 +1190,31 @@ function createQuickCapture(deps) {
       } catch (err) {
         res.status(500).json({ error: err.message });
       }
+    });
+
+    // (registered before /api/quick/:id so these words aren't treated as ids)
+    // GET /api/quick/targets?q= — picker for "Other…", Move, Merge into
+    app.get('/api/quick/targets', (req, res) => {
+      const q = String(req.query.q || '').toLowerCase().trim();
+      const match = t => !q || t.toLowerCase().includes(q);
+      const exclude = req.query.exclude;
+      const out = [];
+      for (const p of projects.active()) {
+        if (match(`${p.name} ${(p.aliases || []).join(' ')}`)) out.push({ type: 'project', id: p.id, title: p.name, subtitle: `Project · ${p.noteIds.length} notes` });
+      }
+      for (const n of store.list().filter(x => smart().visible(x) && x.id !== exclude).slice(0, 200)) {
+        const type = n.type === 'errand' ? 'errand' : ['event', 'reminder'].includes(n.type) ? n.type : 'note';
+        const title = smart().errandName(n) || n.title;
+        if (!match(`${title} ${n.title} ${n.summary || ''}`)) continue;
+        out.push({ type, id: n.id, title, subtitle: `${type === 'note' ? 'Note' : type[0].toUpperCase() + type.slice(1)} · ${(n.capturedAt || n.createdAt || '').slice(0, 10)}` });
+        if (out.length >= 40) break;
+      }
+      res.json(out);
+    });
+
+    app.get('/api/quick/settings', (_req, res) => res.json(smart().settings()));
+    app.put('/api/quick/settings', (req, res) => {
+      try { res.json(smart().saveSettings(req.body || {})); } catch (err) { fail(res, err); }
     });
 
     // GET /api/quick/:id — one quick note (used to poll summary progress)
@@ -1263,7 +1426,7 @@ function createQuickCapture(deps) {
     app.get('/api/errands/open', (_req, res) => {
       try {
         const errands = store.list()
-          .filter(n => n.type === 'errand' && !n.undone && !n.errandDone)
+          .filter(n => n.type === 'errand' && !n.undone && !n.errandDone && !n.hidden && !n.cancelled && n.status !== 'pending_decision')
           .slice(0, 20)
           .map(n => ({
             id:        n.id,
@@ -1290,6 +1453,137 @@ function createQuickCapture(deps) {
       store.write(note);
     });
 
+    // ── Smart append: answers, Move, Merge, Combine, settings ──────────────
+
+    const loadNote = (req, res) => {
+      const { id } = req.params;
+      if (!isQuickId(id)) { res.status(400).json({ error: 'Invalid quick note ID' }); return null; }
+      const note = store.read(id);
+      if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
+      if (note.undone) { res.status(409).json({ error: 'This capture was undone' }); return null; }
+      return note;
+    };
+    const fail = (res, err) => res.status(err.status || 500).json({ error: err.message });
+    const destOf = body => (body?.new ? { new: true } : { targetType: body?.targetType, targetId: body?.targetId });
+
+    // POST /api/quick/:id/decide { choice: 'yes'|'new'|'other', targetType?, targetId? }
+    app.post('/api/quick/:id/decide', async (req, res) => {
+      const note = loadNote(req, res);
+      if (!note) return;
+      if (note.status !== 'pending_decision') return res.json(captureResponse(note)); // already decided (e.g. on another device)
+      const choice = ['yes', 'new', 'other'].includes(req.body?.choice) ? req.body.choice : 'new';
+      try {
+        rememberOrigin(req);
+        const confirmation = await smart().resolvePending(note, choice, choice === 'other' ? destOf(req.body) : null);
+        if (choice !== 'yes' && note.kind !== 'append' && markSummaryPending(note)) queueSummary(note.id);
+        res.json({ ...captureResponse(store.read(note.id)), confirmation: { ...confirmation, captureId: note.id, undoable: true } });
+      } catch (err) { fail(res, err); }
+    });
+
+    // POST /api/quick/:id/move { targetType, targetId } | { new: true }
+    app.post('/api/quick/:id/move', async (req, res) => {
+      const note = loadNote(req, res);
+      if (!note) return;
+      try {
+        rememberOrigin(req);
+        const confirmation = await smart().move(note, destOf(req.body));
+        if (req.body?.new && markSummaryPending(note)) queueSummary(note.id);
+        res.json({ ...captureResponse(store.read(note.id)), confirmation: { ...confirmation, captureId: note.id, undoable: true } });
+      } catch (err) { fail(res, err); }
+    });
+
+    // POST /api/quick/:id/merge { targetId, targetType? } — "Merge into…"
+    app.post('/api/quick/:id/merge', async (req, res) => {
+      const note = loadNote(req, res);
+      if (!note) return;
+      const target = smart().readTarget(req.body?.targetType || 'note', req.body?.targetId)
+        || ['errand', 'note', 'event', 'reminder'].map(t => smart().readTarget(t, req.body?.targetId)).find(Boolean);
+      if (!target || target.id === note.id) return res.status(404).json({ error: 'Choose another note' });
+      if (target.type === 'project') {
+        projects.addNote(target.id, note.id);
+        return res.json(store.read(note.id));
+      }
+      try {
+        const merged = smart().mergeInto(note, target);
+        if (markSummaryPending(merged)) { store.write(merged); queueSummary(merged.id); }
+        res.json({ source: store.read(note.id), target: store.read(target.id) });
+      } catch (err) { fail(res, err); }
+    });
+
+    // POST /api/quick/:id/unmerge — "Split back" one merged note
+    app.post('/api/quick/:id/unmerge', (req, res) => {
+      const note = loadNote(req, res);
+      if (!note) return;
+      const targetId = note.mergedInto?.id;
+      smart().unmerge(note);
+      if (targetId) {
+        const t = store.read(targetId);
+        if (t && markSummaryPending(t)) { store.write(t); queueSummary(t.id); }
+      }
+      res.json(store.read(note.id));
+    });
+
+    // POST /api/quick/combine { mainId, ids[], title } — keep mainId, fold the others in as dated updates
+    app.post('/api/quick/combine', async (req, res) => {
+      const { mainId, ids = [], title } = req.body || {};
+      const main = isQuickId(mainId) ? store.read(mainId) : null;
+      if (!main || main.undone || main.hidden) return res.status(404).json({ error: 'Main note not found' });
+      const others = [...new Set(ids)].filter(id => id !== mainId).map(id => isQuickId(id) && store.read(id))
+        .filter(n => n && !n.undone && !n.hidden);
+      if (!others.length) return res.status(400).json({ error: 'Pick at least two notes' });
+      const groupId = `cb_${Date.now().toString(36)}`;
+      const mainType = main.type === 'errand' ? 'errand' : ['event', 'reminder'].includes(main.type) ? main.type : 'note';
+      // Oldest first, so the updates read in order
+      others.sort((a, b) => (a.capturedAt || a.createdAt || '').localeCompare(b.capturedAt || b.createdAt || ''));
+      try {
+        others.forEach((o, i) => smart().mergeInto(o, { type: mainType, id: main.id },
+          { groupId, ...(i === 0 ? { titleBefore: main.title } : {}) }));
+        const merged = store.read(main.id);
+        if (typeof title === 'string' && title.trim()) merged.title = title.trim().slice(0, 120);
+        merged.combinedGroups = [...(merged.combinedGroups || []), { groupId, ids: others.map(o => o.id), at: new Date().toISOString() }];
+        markSummaryPending(merged);
+        finalize(merged);
+        queueSummary(merged.id);
+        if (merged.googleEventIds?.length) queueCalendarSync(merged.id, 0);
+        res.json({ note: store.read(main.id), groupId, combined: others.length + 1 });
+      } catch (err) { fail(res, err); }
+    });
+
+    // POST /api/quick/:id/split { groupId? } — undo a combine (all of its merges)
+    app.post('/api/quick/:id/split', (req, res) => {
+      const main = loadNote(req, res);
+      if (!main) return;
+      const groups = main.combinedGroups || [];
+      const group = groups.find(g => g.groupId === req.body?.groupId) || groups.at(-1);
+      if (!group) return res.status(409).json({ error: 'Nothing to split' });
+      const titleBefore = (main.audit || []).find(a => a.groupId === group.groupId && a.titleBefore !== undefined)?.titleBefore;
+      for (const id of group.ids) {
+        const n = store.read(id);
+        if (n?.mergedInto?.groupId === group.groupId) smart().unmerge(n);
+      }
+      const fresh = store.read(main.id);
+      if (titleBefore !== undefined) fresh.title = titleBefore;
+      fresh.combinedGroups = (fresh.combinedGroups || []).filter(g => g.groupId !== group.groupId);
+      markSummaryPending(fresh);
+      finalize(fresh);
+      queueSummary(fresh.id);
+      res.json({ note: store.read(main.id), restored: group.ids });
+    });
+
+    // POST /api/quick/combine/suggest { ids[] } — AI title for the combined note
+    app.post('/api/quick/combine/suggest', async (req, res) => {
+      const notes = (req.body?.ids || []).filter(isQuickId).map(id => store.read(id)).filter(Boolean);
+      if (notes.length < 2) return res.status(400).json({ error: 'Pick at least two notes' });
+      try {
+        res.json({ title: await suggestTitle(notes) });
+      } catch (err) {
+        res.json({ title: notes.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[0].title, error: err.message });
+      }
+    });
+
+
+    projects.register(app);
+
     // POST /api/quick/:id/undo — remove Google event(s) and link, keep history
     app.post('/api/quick/:id/undo', async (req, res) => {
       const { id } = req.params;
@@ -1297,6 +1591,15 @@ function createQuickCapture(deps) {
       const note = store.read(id);
       if (!note) return res.status(404).json({ error: 'Quick note not found' });
       if (note.undone) return res.json(note);
+
+      // Voice append / project change: reverse exactly what it did, then discard the capture
+      if (note.appliedTo && note.appendOrigin === 'voice') {
+        try {
+          await smart().undoAppend(note);
+        } catch (err) {
+          return res.status(500).json({ error: err.message });
+        }
+      }
 
       const ids = note.googleEventIds || [];
       if (ids.length && gcal.isConfigured()) {
@@ -1308,6 +1611,7 @@ function createQuickCapture(deps) {
           return res.status(502).json({ error: `Could not remove the Google Calendar event: ${err.message}` });
         }
       }
+      if (note.projectId) { projects.removeNote(note.projectId, note.id); note.projectId = null; }
       note.undoneLink       = note.linkedRecordingId || null;
       note.linkedRecordingId = null;
       note.undone           = true;
@@ -1341,10 +1645,10 @@ function createQuickCapture(deps) {
   }
 
   function countActive() {
-    return store.list().filter(n => !n.undone).length;
+    return store.list().filter(n => !n.undone && !n.hidden).length;
   }
 
-  return { register, start, unlinkRecording, relinkRecording, countActive };
+  return { register, start, unlinkRecording, relinkRecording, countActive, projects };
 }
 
 module.exports = {

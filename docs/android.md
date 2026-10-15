@@ -90,9 +90,58 @@ in addition to the existing development origins; everything else stays blocked.
 | **Home-screen widget** (resizable) | **1×1:** gold mic. Tap = start, tap again = stop + upload; doesn't open the app. **2×1 / 3×1:** mic + status line ("Last: Dentist · 2h ago" / "● 0:12 Tap to stop"). **4×2+:** header (tap → Inbox) with mic and a "pending" badge for offline recordings, the 5 most recent quick notes (tap one → it opens expanded in the Inbox; amber dot = needs review), a big Stop button with a live timer while recording, and "Uploading… → Processing… → result" after stopping. The list is cached, so it shows offline (with an "Offline" hint). It refreshes after every capture, when the app opens, and every 30 min with a network connection. |
 | **Quick Settings tile** "Quick Capture" | Same toggle; also from the lock screen |
 | **App shortcuts** (long-press the icon) | *Quick Capture* (starts recording) · *Inbox* |
-| **"Quick Record" launcher icon** | Opens the app and starts recording. Choose it for the Samsung side key: *Settings → Advanced features → Side button → Double press → Open app → Quick Record*. Hide the extra icon from your launcher if you don't want it in the app drawer. |
+| **"Quick Record" launcher icon** | Opens the app and starts recording. Opened again **while recording**, it stops and uploads instead (setting *Quick Record stops a recording*, default on). Choose it for the Samsung side key: *Settings → Advanced features → Side button → Double press → Open app → Quick Record*. |
+| **"Stop Recording" launcher icon** | No screen at all: stops and uploads if a recording is running, does nothing otherwise (never starts one). Icon: the app icon with a small stop square. For Samsung Routines or the side key (see *Stopping a recording*). |
+| **Volume down** | While recording: stops and uploads, also with the screen off. Volume up is ignored while recording. |
 | Intent `com.sanpan003.pocketarchive.START_RECORDING` | For automations (Bixby Routines, Tasker) |
 | Intent `com.sanpan003.pocketarchive.OPEN_INBOX` | Opens the Quick Capture inbox |
+
+## Stopping a recording
+
+A recording stops by itself after 4 s of silence or 2 minutes. To stop it yourself:
+
+| | |
+|---|---|
+| Volume down | Stops and uploads, with the screen on or off, in any app. A short buzz confirms it. Volume up does nothing while recording. Setting: Quick Capture → ⚙ → *Volume down stops recording* (default on). |
+| Quick Record again | Side key double press (if set to Quick Record) stops instead of starting. Setting: *Quick Record stops a recording* (default on). |
+| Stop Recording | The separate launcher entry. Nothing happens if nothing is recording. |
+| Notification / widget / tile | *Stop* as before. |
+
+How it works: while (and only while) recording, the recorder service holds a media session with a
+"remote" volume control, so Android sends the volume keys to it instead of changing the volume. It's
+released the moment recording stops, so the keys go back to normal and a stray press can never start a
+recording. With the app on screen, the activity handles the keys first (no double stop).
+
+**Samsung settings**
+
+- *Settings → Apps → Pocket Archive → Battery → Unrestricted*, so the recorder isn't paused with the screen off.
+- *Settings → Sounds and vibration → Volume → Use Volume keys for media* can stay either way; the
+  recording session takes the keys while it's active.
+- Side key: *Settings → Advanced features → Side button → Double press → Open app → Quick Record*
+  (starts, and stops when pressed again) or *Stop Recording* (stops only).
+- Routines (*Modes and Routines → Routines → +*): add the action *Apps → Open an app → Stop Recording*
+  (or *Quick Record*) to stop/start from any trigger.
+- Android has no way to hide a launcher entry from the app drawer and still offer it to the side key and
+  Routines, so *Quick Record* and *Stop Recording* both appear there. Put them in a folder if you like.
+
+## Smart append, projects & combining notes
+
+A new capture can be added to something that already exists instead of becoming a new note:
+*"Also need eggs and bread"* → *"+2 → Publix list"*; *"Move the dentist to 4 PM"* → the event changes;
+*"I want to add to Pocket Archive: …"* → a dated update on that project.
+
+| | |
+|---|---|
+| Sure (≥ 85 %) | Applied right away. Toast/notification/widget/watch: *Undo* (and *Move* on phone and web) for 30 s. |
+| Unsure (60–85 %) | *"Add to Publix list?"* → **Yes / New note / Other…** in the app, as notification actions, on the widget (Yes / New note) and on the watch (Yes / New). No answer in 2 minutes → saved as a new note with a *Possible match* chip and a one-tap *Merge*. |
+| Cancelling an event | Always asks (unless turned off and ≥ 90 % sure). |
+| Explicit "add to X" | Always appends. Several notes share that name and there's no project yet → a project is created with them (*"📁 Created project Pocket Archive with 4 notes · Undo"*). |
+| Projects | Sidebar → Projects: living AI summary, timeline of updates, rename/merge/delete (restorable from Trash). |
+| Cards | *Merge into…*, *Add to project…*, *Updated N×* chip with the update timeline. |
+| Select & combine | Inbox → *Select* (or long-press a card) → **Combine (N)** / Add to project… / Delete. Choose the main note and title; the others become dated updates with their audio and transcripts kept; checklists merge without duplicates. *Undo* or *Split back* later. |
+| Settings | Settings → *Smart append*: confidence slider, *Always ask before changing events*. |
+
+Everything is undone exactly from an audit log (items restored in place, events restored on Google Calendar).
 
 ## Errands & arrival reminders
 
@@ -121,7 +170,7 @@ A Wear OS companion app (`android/wear`, same package and signing key as the pho
 | Record | Big gold mic → recording screen with a red pulsing ring, timer and Stop. Stops after 4 s of silence or 2 min, like the phone. Short buzz on start, double buzz on stop. |
 | Quick Record | A second launcher entry that starts recording right away. Galaxy Watch: *Settings → Advanced features → Customize keys → Double press Home key → Quick Record*. |
 | Sending | The watch sends the audio to the phone over Bluetooth/Wi-Fi (Wearable Data Layer). The phone uploads it with its normal queue and retries. No phone nearby: *"Queued — will send when your phone is nearby"*. If the phone stays away 10+ minutes and the watch has its own Wi-Fi/LTE, the watch uploads directly with the phone's device token (stored encrypted on the watch). |
-| Result | The server's confirmation shows on the watch for 4 s (e.g. "🛒 Publix list · 3 items"), with a double buzz, or amber with a long buzz for needs-review. The phone's own notification then stays on the phone. |
+| Result | The server's confirmation shows on the watch for 4 s (e.g. "🛒 Publix list · 3 items"), with a double buzz, or amber with a long buzz for needs-review. The phone's own notification then stays on the phone. Smart append: *"+2 → Publix list"* with **Undo** (8 s), or *"Add to …?"* with **Yes / New** (30 s). |
 | Tile | Mic button, last note + time, "🛒 N open errands". |
 | Complication | Mic icon for any watch face (short text, small image, monochrome); tap to record. |
 | Recent / Errands | Swipe left from the record screen. Recent: tap a note for its AI summary (scroll with the bezel/crown). Errands: tap an item to check it off; works offline and syncs through the phone. |

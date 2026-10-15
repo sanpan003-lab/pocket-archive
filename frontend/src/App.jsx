@@ -14,6 +14,8 @@ import TrashPage from './pages/TrashPage';
 import CreateRecordingPage from './pages/CreateRecordingPage';
 import QuickCapturePage from './pages/QuickCapturePage';
 import QuickInboxPage from './pages/QuickInboxPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProjectDetailPage from './pages/ProjectDetailPage';
 import NativeBridge from './native/NativeBridge';
 import PermissionGate from './native/PermissionGate';
 
@@ -68,6 +70,8 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="quick"       element={<QuickCapturePage />} />
             <Route path="quick/inbox" element={<QuickInboxPage />} />
+            <Route path="projects"     element={<ProjectsPage />} />
+            <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="recordings/:id" element={<RecordingDetail />} />
             <Route path="search"    element={<SearchPage />} />
             <Route path="favorites" element={<FavoritesPage />} />

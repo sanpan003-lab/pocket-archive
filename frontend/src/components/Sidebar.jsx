@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  Mic2, LayoutDashboard, Search, Star, Settings,
+  Mic2, LayoutDashboard, Search, Star, Settings, FolderKanban,
   ChevronLeft, ChevronRight, Moon, Sun, RefreshCw, Check, AlertCircle,
   Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2, MonitorDown, X,
   Smartphone, Monitor, Share,
@@ -14,6 +14,7 @@ import { getStats, triggerSync, getSyncStatus } from '../lib/api';
 const TOP_NAV = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/quick',     icon: Mic,              label: 'Quick Capture'       },
+  { to: '/projects',  icon: FolderKanban,     label: 'Projects'            },
   { to: '/search',    icon: Search,           label: 'Search'              },
   { to: '/favorites', icon: Star,             label: 'Favorites'           },
 ];
