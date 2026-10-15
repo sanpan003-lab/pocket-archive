@@ -30,22 +30,27 @@ object ResultNotifier {
             put("confirmation", conf)
             put("fromQueue", fromQueue)
         }
+        WidgetState.result(ctx, "$icon $text", response.optJSONObject("note")?.optString("id")?.takeIf { it.isNotBlank() })
+        WidgetData.refreshAsync(ctx)
         if (QuickRecorderPlugin.deliverToApp("result", payload)) return
 
         post(ctx, "$icon $text", detail ?: if (fromQueue) "Sent from queue" else null, tone)
     }
 
     fun queued(ctx: Context, reason: String) {
+        WidgetState.result(ctx, "🕓 Queued — will send when online")
         if (QuickRecorderPlugin.deliverToApp("queued", JSObject().put("reason", reason))) return
         post(ctx, "🕓 Queued — will send when online", reason, "queued")
     }
 
     fun empty(ctx: Context) {
+        WidgetState.result(ctx, "🎙️ Didn't hear anything")
         if (QuickRecorderPlugin.deliverToApp("empty", JSObject())) return
         post(ctx, "🎙️ Didn't hear anything", "Nothing was saved", "review")
     }
 
     fun failed(ctx: Context, reason: String) {
+        WidgetState.result(ctx, "⚠️ Couldn't save voice note")
         if (QuickRecorderPlugin.deliverToApp("error", JSObject().put("message", reason))) return
         post(ctx, "⚠️ Couldn't save voice note", reason, "review")
     }

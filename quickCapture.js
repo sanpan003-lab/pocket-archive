@@ -797,6 +797,28 @@ function createQuickCapture(deps) {
       if (note.summaryStatus === 'pending') queueSummary(note.id);
     });
 
+    // GET /api/quick/recent?limit=5 — compact list for the Android home-screen widget
+    // (registered before /api/quick/:id so "recent" isn't treated as an id)
+    app.get('/api/quick/recent', (req, res) => {
+      try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 20);
+        const recent = store.list()
+          .filter(n => !n.undone)
+          .slice(0, limit)
+          .map(n => ({
+            id:            n.id,
+            title:         n.title,
+            type:          n.type,
+            createdAt:     n.capturedAt || n.createdAt,
+            needsReview:   n.status === 'needs_review',
+            summaryStatus: n.summaryStatus || null,
+          }));
+        res.json(recent);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     // GET /api/quick/:id — one quick note (used to poll summary progress)
     app.get('/api/quick/:id', (req, res) => {
       const { id } = req.params;

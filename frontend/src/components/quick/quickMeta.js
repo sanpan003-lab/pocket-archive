@@ -1,11 +1,14 @@
 import { CalendarClock, Bell, Link2, StickyNote } from 'lucide-react';
 
+// color = badge tint and the accent bar on inbox cards (needs review uses REVIEW_ACCENT)
 export const QUICK_TYPES = {
-  event:     { label: 'Event',       icon: CalendarClock, badge: 'badge-violet', color: '#8B5CF6' },
-  reminder:  { label: 'Reminder',    icon: Bell,          badge: 'badge-rose',   color: '#F43F5E' },
-  note_link: { label: 'Linked note', icon: Link2,         badge: 'badge-blue',   color: '#6366F1' },
-  note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-slate',  color: '#64748B' },
+  event:     { label: 'Event',       icon: CalendarClock, badge: 'badge-sky',    color: '#3B82F6' },
+  reminder:  { label: 'Reminder',    icon: Bell,          badge: 'badge-violet', color: '#8B5CF6' },
+  note_link: { label: 'Linked note', icon: Link2,         badge: 'badge-teal',   color: '#14B8A6' },
+  note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-gold',   color: '#F59E0B' },
 };
+
+export const REVIEW_ACCENT = '#F97316';
 
 export const TYPE_OPTIONS = Object.entries(QUICK_TYPES).map(([value, t]) => ({ value, label: t.label }));
 
@@ -104,4 +107,81 @@ export function confirmationFor(note) {
 export function toInputValue(value, allDay) {
   if (!value) return '';
   return allDay ? value.slice(0, 10) : (DATE_ONLY_RE.test(value) ? `${value}T09:00` : value.slice(0, 16));
+}
+
+// ── Inbox cards ───────────────────────────────────────────────────────────
+
+const normalize = text => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+// Words a summary heading adds without saying anything new
+const FILLER = new Set(['a', 'an', 'the', 'to', 'of', 'for', 'and', 'on', 'at', 'in', 'with', 'again',
+  'note', 'notes', 'quick', 'summary', 'update', 'reminder', 'event', 'appointment', 'task']);
+
+/** True when every (or nearly every) meaningful word of the heading is already in the title. */
+function sameTitle(heading, title) {
+  const h = normalize(heading);
+  const t = normalize(title);
+  if (!h || !t) return false;
+  if (h === t || t.includes(h) || h.includes(t)) return true;
+  const tw = t.split(' ');
+  // "pickup" matches "pick up"
+  const titleWords = new Set([...tw, ...tw.slice(1).map((w, i) => tw[i] + w)]);
+  const words = h.split(' ').filter(w => !FILLER.has(w));
+  if (!words.length) return true;
+  const shared = words.filter(w => titleWords.has(w) || [...titleWords].some(x => x.length > 3 && (x.endsWith(w) || w.endsWith(x)))).length;
+  return shared / words.length >= 0.6;
+}
+
+/** Drop a leading "# Heading" / "**Bold line**" that just repeats the card title. */
+export function stripTitleHeading(summary, title) {
+  if (!summary || !title) return summary;
+  const lines = summary.split('\n');
+  const first = lines.findIndex(l => l.trim());
+  if (first < 0) return summary;
+  const line = lines[first].trim();
+  const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/)?.[1]
+    ?? line.match(/^(?:\*\*|__)(.+?)(?:\*\*|__):?$/)?.[1];
+  if (!heading || !sameTitle(heading, title)) return summary;
+  return lines.slice(first + 1).join('\n').replace(/^\s*\n/, '');
+}
+
+/** Plain-text summary for the collapsed card (markdown and chart tags removed). */
+export function summaryPreview(note) {
+  const text = stripTitleHeading(note.summary || '', note.title)
+    .replace(/<pocket:[\s\S]*?<\/pocket:[^>]*>/g, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/[*_`~]+/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text;
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+/** Day header for a capture: "Today", "Yesterday", "Mon, Oct 12" (year added when not this year). */
+export function dayHeader(iso, now = new Date()) {
+  const day = startOfDay(iso);
+  const diff = Math.round((startOfDay(now) - day) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return day.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    ...(day.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
+export const dayKey = iso => startOfDay(iso).toDateString();
+
+/** Card time: "5 min ago" within a day, otherwise the clock time (the day header has the date). */
+export function cardTime(iso) {
+  if (!iso) return '';
+  if (Date.now() - new Date(iso).getTime() < 86400000) return timeAgo(iso);
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles, RotateCcw, ChevronDown } from 'lucide-react';
 import MarkdownRenderer from '../MarkdownRenderer';
 import { summarizeQuickNote } from '../../lib/api';
+import { stripTitleHeading } from './quickMeta';
 
 // Collapses long content to ~4 lines with a "Show more" toggle
 function Clamp({ clamp, children }) {
@@ -45,7 +46,8 @@ function Clamp({ clamp, children }) {
 /**
  * AI summary of a quick note.
  * pending → "Summarizing…" shimmer; failed → "Summary unavailable" + Retry;
- * done → markdown (clamped to ~4 lines when `clamp`).
+ * done → markdown (clamped to ~4 lines when `clamp`), without a leading
+ * heading that just repeats the note's title.
  */
 export default function QuickSummary({ note, clamp = false, onChanged }) {
   const [retrying, setRetrying] = useState(false);
@@ -98,7 +100,7 @@ export default function QuickSummary({ note, clamp = false, onChanged }) {
     <div className="my-2 break-words">
       <Clamp clamp={clamp} key={note.summaryUpdatedAt}>
         <div className="quick-summary">
-          <MarkdownRenderer content={note.summary} />
+          <MarkdownRenderer content={stripTitleHeading(note.summary, note.title)} />
         </div>
       </Clamp>
     </div>

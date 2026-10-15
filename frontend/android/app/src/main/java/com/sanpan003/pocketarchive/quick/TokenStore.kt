@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.sanpan003.pocketarchive.BuildConfig
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -78,7 +79,9 @@ object TokenStore {
         prefs(ctx).edit().putString(PREF_API_BASE, apiBase?.trimEnd('/')).apply()
     }
 
-    fun apiBase(ctx: Context): String? = prefs(ctx).getString(PREF_API_BASE, null)?.takeIf { it.isNotBlank() }
+    fun apiBase(ctx: Context): String? =
+        prefs(ctx).getString(PREF_API_BASE, null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.API_BASE.trimEnd('/').takeIf { it.isNotBlank() }
 
     /** "Sound & vibration" setting from the app (default on). */
     fun setFeedbackEnabled(ctx: Context, enabled: Boolean) {

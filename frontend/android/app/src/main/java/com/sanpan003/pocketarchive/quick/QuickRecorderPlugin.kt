@@ -78,6 +78,10 @@ class QuickRecorderPlugin : Plugin() {
     override fun handleOnResume() {
         appVisible = true
         deliver("state", stateJson())
+        if (QuickToggleWidget.hasWidgets(context)) {
+            WidgetRefreshWorker.schedulePeriodic(context)
+            WidgetData.refreshAsync(context)
+        }
     }
 
     override fun handleOnPause() { appVisible = false }
@@ -149,6 +153,7 @@ class QuickRecorderPlugin : Plugin() {
     fun setToken(call: PluginCall) {
         TokenStore.setToken(context, call.getString("token"))
         UploadWorker.retryAllNow(context) // anything waiting on sign-in goes now
+        WidgetData.refreshAsync(context)
         call.resolve()
     }
 
@@ -160,6 +165,7 @@ class QuickRecorderPlugin : Plugin() {
     @PluginMethod
     fun clearToken(call: PluginCall) {
         TokenStore.setToken(context, null)
+        WidgetData.clear(context) // don't keep note titles on the home screen after signing out
         call.resolve()
     }
 

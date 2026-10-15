@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:android": "vite build --mode android && cap sync android"
+    "build:android": "vite build --mode android && cap sync android && node scripts/android-config.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

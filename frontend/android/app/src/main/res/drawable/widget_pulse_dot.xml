@@ -1,0 +1,8 @@
+<animation-list xmlns:android="http://schemas.android.com/apk/res/android" android:oneshot="false">
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#FFEF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#CCEF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#99EF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#66EF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#99EF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+    <item android:duration="140"><shape android:shape="oval"><solid android:color="#CCEF4444"/><size android:width="12dp" android:height="12dp"/></shape></item>
+</animation-list>

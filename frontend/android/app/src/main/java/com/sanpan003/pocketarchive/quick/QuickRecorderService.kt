@@ -182,12 +182,13 @@ class QuickRecorderService : Service() {
 
     private fun upload(captured: File) {
         uploadsInFlight++
+        WidgetState.uploading(this)
         try {
             NotificationManagerCompat.from(this).notify(Notifications.ID_RECORDING, sendingNotification())
         } catch (_: SecurityException) { /* notifications off */ }
 
         io.execute {
-            when (val outcome = Uploader.upload(this, captured)) {
+            when (val outcome = Uploader.upload(this, captured) { WidgetState.processing(this) }) {
                 is UploadOutcome.Sent -> {
                     captured.delete()
                     ResultNotifier.deliver(this, outcome.response, fromQueue = false)

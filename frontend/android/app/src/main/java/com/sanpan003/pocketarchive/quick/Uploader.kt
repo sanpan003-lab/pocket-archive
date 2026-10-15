@@ -2,9 +2,12 @@ package com.sanpan003.pocketarchive.quick
 
 import android.content.Context
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.json.JSONException
 import org.json.JSONObject
@@ -30,7 +33,8 @@ object Uploader {
             .build()
     }
 
-    fun upload(ctx: Context, file: File): UploadOutcome {
+    /** [onSent] runs once the whole request body is written (the server is now transcribing). */
+    fun upload(ctx: Context, file: File, onSent: (() -> Unit)? = null): UploadOutcome {
         val apiBase = TokenStore.apiBase(ctx) ?: return UploadOutcome.Retry("Open the app once to finish setup")
         val token = TokenStore.token(ctx) ?: return UploadOutcome.Retry("Signed out — open the app to sign in")
         if (!file.exists() || file.length() == 0L) return UploadOutcome.Failed("Recording file is missing")
@@ -45,7 +49,7 @@ object Uploader {
         val request = Request.Builder()
             .url("$apiBase/api/quick/capture")
             .header("Authorization", "Bearer $token")
-            .post(body)
+            .post(if (onSent == null) body else NotifyingBody(body, onSent))
             .build()
 
         return try {
@@ -63,6 +67,16 @@ object Uploader {
             UploadOutcome.Retry("No connection")
         } catch (e: JSONException) {
             UploadOutcome.Retry("Unexpected server response")
+        }
+    }
+
+    private class NotifyingBody(private val delegate: RequestBody, private val onSent: () -> Unit) : RequestBody() {
+        override fun contentType(): MediaType? = delegate.contentType()
+        override fun contentLength(): Long = delegate.contentLength()
+        override fun writeTo(sink: BufferedSink) {
+            delegate.writeTo(sink)
+            sink.flush()
+            onSent()
         }
     }
 

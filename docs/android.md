@@ -8,6 +8,9 @@ shortcut. The web app is unchanged and keeps working as before.
 - **Package:** `com.sanpan003.pocketarchive` · **minSdk** 26 (Android 8) · **targetSdk** 37
 - **Server:** set at build time in `.env.android` (`VITE_API_BASE_URL`), e.g.
   `https://your-nas.example.com:8443`
+- **Screens load from the server** (Capacitor `server.url`), so deploying the web app
+  updates the app's UI too. A new APK is only needed for native changes. If the server
+  can't be reached, a built-in offline page with a Retry button is shown.
 
 ## Architecture
 
@@ -32,7 +35,10 @@ frontend/ (React, Vite)
             ├── PendingStore.kt            recordings waiting to upload (app-private storage)
             ├── ResultNotifier.kt          auto-dismissing result notification + vibration
             ├── TokenStore.kt              device token encrypted with an Android Keystore AES key
-            ├── QuickToggleWidget.kt       1×1 home-screen widget (tap = start/stop)
+            ├── QuickToggleWidget.kt       resizable home-screen widget (1×1 … 4×2+)
+            ├── WidgetData.kt              cached list of recent quick notes (GET /api/quick/recent)
+            ├── WidgetState.kt             Uploading → Processing → result line
+            ├── WidgetRefreshWorker.kt     refresh every 30 min (network only)
             ├── QuickCaptureTileService.kt Quick Settings tile (also on the lock screen)
             └── RecordTrampolineActivity.kt invisible activity used by widget/tile to start recording
 ```
@@ -81,7 +87,7 @@ in addition to the existing development origins; everything else stays blocked.
 | Entry point | What it does |
 |---|---|
 | App → Quick Capture | Big mic button (native recorder) |
-| **Home-screen widget** (1×1 gold mic) | Tap = start, tap again = stop + upload. Turns red/orange while recording. Doesn't open the app. |
+| **Home-screen widget** (resizable) | **1×1:** gold mic. Tap = start, tap again = stop + upload; doesn't open the app. **2×1 / 3×1:** mic + status line ("Last: Dentist · 2h ago" / "● 0:12 Tap to stop"). **4×2+:** header (tap → Inbox) with mic and a "pending" badge for offline recordings, the 5 most recent quick notes (tap one → it opens expanded in the Inbox; amber dot = needs review), a big Stop button with a live timer while recording, and "Uploading… → Processing… → result" after stopping. The list is cached, so it shows offline (with an "Offline" hint). It refreshes after every capture, when the app opens, and every 30 min with a network connection. |
 | **Quick Settings tile** "Quick Capture" | Same toggle; also from the lock screen |
 | **App shortcuts** (long-press the icon) | *Quick Capture* (starts recording) · *Inbox* |
 | **"Quick Record" launcher icon** | Opens the app and starts recording. Choose it for the Samsung side key: *Settings → Advanced features → Side button → Double press → Open app → Quick Record*. Hide the extra icon from your launcher if you don't want it in the app drawer. |
@@ -130,7 +136,7 @@ export ANDROID_HOME='C:\Users\sundi\AppData\Local\Android\Sdk'
    The plain web build (`npm run build`, used by `deploy-to-nas.bat`) does **not** read
    `.env.android` and keeps using `/api`.
 
-3. **Build the APK:**
+3. **Build the APK** (or just run `update-android.bat`, see "Releasing" below):
 
    ```bash
    cd android
@@ -160,6 +166,21 @@ export ANDROID_HOME='C:\Users\sundi\AppData\Local\Android\Sdk'
 
 Without `keystore.properties`, `assembleRelease` produces an unsigned APK.
 
+## Releasing
+
+`update-android.bat` in the frontend folder does everything:
+
+1. checks the keystore and `keystore.properties` exist (never creates a key)
+2. `npm run build:android` (bundles the app and points it at the server from `.env.android`)
+3. `gradlew assembleRelease`, which bumps `versionCode` +1 and the patch of `versionName`
+   (`android/app/version.properties`)
+4. verifies the signing certificate, copies the APK to `Documents\PocketArchive.apk`
+5. `adb install -r` on every connected phone (USB or Wi-Fi)
+
+**Wireless installs:** on the phone go to *Developer options → Wireless debugging →
+Pair device with pairing code*. On the PC run `adb pair <ip>:<pairing-port>` (enter the
+code), then `adb connect <ip>:<port>` using the port from the main Wireless debugging screen.
+
 ## Install
 
 1. Copy `PocketArchive.apk` to the phone (USB, Google Drive, email…).
@@ -167,7 +188,7 @@ Without `keystore.properties`, `assembleRelease` produces an unsigned APK.
 3. Open **Pocket Archive** → allow microphone and notifications → sign in with your
    Pocket Archive password.
 4. Optional:
-   - **Widget:** long-press the home screen → Widgets → Pocket Archive → *Quick Capture* (1×1).
+   - **Widget:** long-press the home screen → Widgets → Pocket Archive → *Quick Capture*. Long-press it and drag the handles to resize (1×1 up to 4×2 or larger).
    - **Tile:** pull down Quick Settings → edit (pencil) → drag *Quick Capture* into your tiles.
    - **Side key:** see "Quick Record" above.
 

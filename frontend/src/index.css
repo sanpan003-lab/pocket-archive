@@ -228,6 +228,47 @@
   .badge-rose   { background: rgba(244,63,94,0.12);  color: #E11D48; }
   .dark .badge-violet { background: rgba(139,92,246,0.24); color: #C4B5FD; }
   .dark .badge-rose   { background: rgba(244,63,94,0.22);  color: #FDA4AF; }
+  .badge-sky    { background: rgba(59,130,246,0.12); color: #2563EB; }
+  .badge-teal   { background: rgba(20,184,166,0.12); color: #0F766E; }
+  .badge-orange { background: rgba(249,115,22,0.12); color: #C2410C; }
+  .dark .badge-sky    { background: rgba(59,130,246,0.24); color: #93C5FD; }
+  .dark .badge-teal   { background: rgba(20,184,166,0.22); color: #5EEAD4; }
+  .dark .badge-orange { background: rgba(249,115,22,0.22); color: #FDBA74; }
+
+  /* ── Quick note card (Inbox) ──────────────────────────────────────────── */
+  .quick-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background: #FFFFFF;
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow: 0 1px 2px rgba(15,23,42,0.05), 0 4px 16px rgba(15,23,42,0.05);
+    transition: box-shadow .2s ease, border-color .2s ease;
+  }
+  .dark .quick-card {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.10);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.30);
+  }
+  .quick-card-accent { position: absolute; inset: 0 auto 0 0; width: 4px; }
+  .quick-card-highlight { box-shadow: 0 0 0 2px #F59E0B, 0 8px 28px rgba(245,158,11,0.25); }
+  .dark .quick-card-highlight { box-shadow: 0 0 0 2px #FBBF24, 0 8px 28px rgba(245,158,11,0.30); }
+  .quick-card-divider { border-top: 1px solid rgba(15,23,42,0.08); }
+  .dark .quick-card-divider { border-top-color: rgba(255,255,255,0.08); }
+  .quick-card-action {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    min-height: 3.25rem; padding: 6px 4px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 500; color: #475569;
+    transition: background .15s ease, color .15s ease;
+  }
+  .quick-card-action:hover { background: rgba(245,158,11,0.08); color: #0F172A; }
+  .quick-card-action:disabled { opacity: .5; }
+  .dark .quick-card-action { color: rgba(255,255,255,0.65); }
+  .dark .quick-card-action:hover { background: rgba(245,158,11,0.14); color: #FFFFFF; }
+  .quick-card-action.danger { color: #DC2626; }
+  .quick-card-action.danger:hover { background: rgba(239,68,68,0.08); }
+  .dark .quick-card-action.danger { color: #F87171; }
+  .dark .quick-card-action.danger:hover { background: rgba(239,68,68,0.14); }
 
   /* ── Quick note AI summary (compact markdown) ─────────────────────────── */
   .quick-summary > div > :first-child { margin-top: 0; }
