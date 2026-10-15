@@ -32,10 +32,19 @@ object ResultNotifier {
         }
         WidgetState.result(ctx, "$icon $text", response.optJSONObject("note")?.optString("id")?.takeIf { it.isNotBlank() })
         WidgetData.refreshAsync(ctx)
-        ErrandWorker.syncNow(ctx) // a new errand may need geofences
+        ErrandWorker.syncNow(ctx) // a new errand may need geofences (and the watch a fresh list)
+
+        // Recorded on the watch: show the result there. The phone's own
+        // notification then stays on the phone (no duplicate on the wrist).
+        val clientId = response.optJSONObject("note")?.optString("clientId")
+        val fromWatch = clientId?.startsWith(WearBridge.CLIENT_PREFIX) == true
+        val shownOnWatch = fromWatch && WearBridge.sendResult(
+            ctx, clientId,
+            conf ?: JSONObject().put("icon", icon).put("text", text).put("tone", tone),
+        )
         if (QuickRecorderPlugin.deliverToApp("result", payload)) return
 
-        post(ctx, "$icon $text", detail ?: if (fromQueue) "Sent from queue" else null, tone)
+        post(ctx, "$icon $text", detail ?: if (fromWatch) "From your watch" else if (fromQueue) "Sent from queue" else null, tone, localOnly = shownOnWatch)
     }
 
     fun queued(ctx: Context, reason: String) {
@@ -50,13 +59,17 @@ object ResultNotifier {
         post(ctx, "🎙️ Didn't hear anything", "Nothing was saved", "review")
     }
 
-    fun failed(ctx: Context, reason: String) {
+    fun failed(ctx: Context, reason: String, watchClientId: String? = null) {
         WidgetState.result(ctx, "⚠️ Couldn't save voice note")
+        val shownOnWatch = watchClientId != null && WearBridge.sendResult(
+            ctx, watchClientId,
+            JSONObject().put("icon", "⚠️").put("text", "Couldn't save voice note").put("tone", "review").put("detail", reason),
+        )
         if (QuickRecorderPlugin.deliverToApp("error", JSObject().put("message", reason))) return
-        post(ctx, "⚠️ Couldn't save voice note", reason, "review")
+        post(ctx, "⚠️ Couldn't save voice note", reason, "review", localOnly = shownOnWatch)
     }
 
-    private fun post(ctx: Context, title: String, text: String?, tone: String) {
+    private fun post(ctx: Context, title: String, text: String?, tone: String, localOnly: Boolean = false) {
         Notifications.ensureChannels(ctx)
         val success = tone == "success"
         val channel = when {
@@ -88,6 +101,7 @@ object ResultNotifier {
             .setAutoCancel(true)
             .setTimeoutAfter(TIMEOUT_MS)
             .setContentIntent(Notifications.openApp(ctx, "/quick/inbox"))
+            .setLocalOnly(localOnly) // already shown by the watch app
             .build()
 
         if (!Notifications.canPost(ctx)) {

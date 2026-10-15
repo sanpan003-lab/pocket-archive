@@ -55,7 +55,7 @@ inside the Android app (`android/`). The backend lives in
    update-android.bat
    ```
 
-   It:
+   It builds BOTH the phone app and the Galaxy Watch app (`android/wear`), then:
    - checks the keystore, `android\keystore.properties` and `.env.android` exist (it never creates them)
    - runs `npm run build:android`
    - runs `gradlew assembleRelease`, which **bumps the version automatically**
@@ -124,7 +124,40 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
   `cmd location providers add-test-provider gps|network`, then feed `set-test-provider-location` every few
   seconds for > 1 minute at a store. Reset the app-op and remove the providers afterwards.
 
+## Galaxy Watch (Wear OS) app — `android/wear`
+
+- Module `:wear` (Compose for Wear OS, Material 3, Tiles/ProtoLayout, complications). SAME
+  applicationId and SAME release key as the phone app — the Data Layer only connects matching apps.
+  minSdk 30. Compose libs stay on the AGP-8-compatible line (Wear Compose 1.6.x, BOM 2026.06.x):
+  newer ones need AGP 9.1, but Capacitor 8 pins AGP 8.13.
+- Protocol (`wear/.../Protocol.kt` ⇄ `app/.../quick/WearBridge.kt`, keep in sync):
+  - audio: ChannelClient `/pa/capture/<clientId>/<capturedAt>` → phone `WearListenerService.handOff`
+    → the EXISTING pipeline (UploadWorker); phone acks `/pa/capture-ack`
+  - results: phone `ResultNotifier` sees `note.clientId` starting with `watch-` → `/pa/result` to the
+    watch; the phone notification is then `setLocalOnly` (no duplicate on the wrist)
+  - state: DataItem `/pa/state` (recent notes + `GET /api/errands/open`), refreshed by `ErrandWorker`'s
+    sync (captures, app open, every 30 min)
+  - checklist/done from the watch: DataItems `/pa/toggle/<errand>/<item>`, `/pa/done/<errand>` → phone
+    PATCHes the server, then deletes the item (the watch treats deletion as confirmation)
+  - token: `/pa/token` (phone's device token, stored Keystore-encrypted on the watch) for the
+    direct-upload fallback after 10 min without the phone; revoking the phone stops the watch too
+  - arrival: `/pa/arrival` → the watch posts its own notification ("Open list" opens the watch
+    checklist); the phone's copy stays local, or bridges normally if the watch can't be reached
+- Testing without a paired watch: the Wear emulator can't pair with a phone emulator without the Wear OS
+  companion app + a Google account. Test each side on its own with a temporary `src/debug` receiver that
+  calls the real handlers (`WatchData.apply`, `WatchTokenStore.set`, `WearListenerService.handOff`,
+  `ErrandWorker.toggleItem`), and delete it afterwards.
+- Tile/complication on the emulator: `am broadcast -a com.google.android.wearable.app.DEBUG_SURFACE
+  --es operation add-tile --ecn component <pkg>/<TileService>`.
+
+### Installing on the watch (wireless debugging)
+
+1. Watch: Settings → About watch → Software → tap *Software version* 5× (Developer options).
+2. Developer options → **ADB debugging** on, **Wireless debugging** on → *Pair new device*.
+3. PC: `adb pair <watch-ip>:<pairing-port>` (code from the watch), then `adb connect <watch-ip>:<port>`.
+4. `update-android.bat` installs the watch APK on every connected watch (detected by
+   `ro.build.characteristics` = watch) and the phone APK on phones.
+
 ## Next up
 
-- Galaxy Watch 9 (Wear OS) app: record button, watch tile, watch-face complication, audio relayed via
-  phone, errand arrival lists on the watch.
+- ~~Galaxy Watch 9 (Wear OS) app~~ — done (see above).

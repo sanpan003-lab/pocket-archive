@@ -1,0 +1,104 @@
+apply plugin: 'com.android.application'
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
+
+// Pocket Archive for Galaxy Watch / Wear OS.
+// SAME applicationId and SAME signing key as the phone app — the Wearable
+// Data Layer only connects the two apps when both match.
+
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+// Watch app version (wear/version.properties). Release builds of the watch app
+// (":wear:assembleRelease", or a plain "assembleRelease") bump it.
+def versionFile = file('version.properties')
+def versionProps = new Properties()
+if (versionFile.exists()) versionFile.withInputStream { versionProps.load(it) }
+def isReleaseBuild = gradle.startParameter.taskNames.any { it ==~ /(?i).*(assemble|bundle|install)Release$/ && !it.startsWith(':app:') }
+if (isReleaseBuild) {
+    def code = (versionProps['VERSION_CODE'] ?: '1').toInteger() + 1
+    def parts = (versionProps['VERSION_NAME'] ?: '1.0.0').tokenize('.')
+    while (parts.size() < 3) parts << '0'
+    parts[2] = ((parts[2] as Integer) + 1).toString()
+    versionProps['VERSION_CODE'] = code.toString()
+    versionProps['VERSION_NAME'] = parts.join('.')
+    versionFile.withWriter { versionProps.store(it, 'Bumped automatically by release builds') }
+    logger.lifecycle("Pocket Archive watch version ${versionProps['VERSION_NAME']} (${versionProps['VERSION_CODE']})")
+}
+
+android {
+    namespace = "com.sanpan003.pocketarchive.wear"
+    compileSdk = rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "com.sanpan003.pocketarchive"
+        minSdkVersion 30
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode((versionProps['VERSION_CODE'] ?: '1').toInteger())
+        versionName(versionProps['VERSION_NAME'] ?: '1.0.0')
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreProps['storeFile']) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystoreProps['storeFile']) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    buildFeatures {
+        compose = true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
+dependencies {
+    def composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    implementation composeBom
+
+    // Compose for Wear OS (Material 3)
+    implementation "androidx.wear.compose:compose-material3:1.6.2"
+    implementation "androidx.wear.compose:compose-foundation:1.6.2"
+    implementation "androidx.wear.compose:compose-navigation:1.6.2"
+    implementation "androidx.activity:activity-compose:1.12.4"
+    implementation "androidx.fragment:fragment-ktx:$androidxFragmentVersion" // ActivityResult permission requests
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.10.0"
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.core:core-ktx:$androidxCoreVersion"
+    implementation "androidx.wear:wear:1.4.0"
+
+    // Tile + watch-face complication
+    implementation "androidx.wear.tiles:tiles:1.6.2"
+    implementation "androidx.wear.protolayout:protolayout:1.4.2"
+    implementation "androidx.wear.protolayout:protolayout-expression:1.4.2"
+    implementation "androidx.wear.watchface:watchface-complications-data-source-ktx:1.3.0"
+    implementation "androidx.concurrent:concurrent-futures-ktx:1.3.0"
+
+    // Phone link (Data Layer), queue + retries, direct upload fallback
+    implementation "com.google.android.gms:play-services-wearable:20.0.1"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0"
+    implementation "androidx.work:work-runtime-ktx:2.12.0"
+    implementation "com.squareup.okhttp3:okhttp:5.5.0"
+}

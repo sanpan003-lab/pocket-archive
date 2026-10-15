@@ -30,8 +30,9 @@ class UploadWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
             }
             is UploadOutcome.Retry -> Result.retry()
             is UploadOutcome.Failed -> {
+                val clientId = PendingStore.meta(file).clientId
                 file.delete()
-                ResultNotifier.failed(applicationContext, outcome.reason)
+                ResultNotifier.failed(applicationContext, outcome.reason, clientId.takeIf { it.startsWith(WearBridge.CLIENT_PREFIX) })
                 QuickRecorderPlugin.notifyPending(applicationContext)
                 Result.failure()
             }

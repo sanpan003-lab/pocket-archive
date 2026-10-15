@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pocket Archive</string>
+    <string name="quick_record">Quick Record</string>
+    <string name="tile_label">Quick Capture</string>
+    <string name="tile_description">Record a voice note; see your last note and open errands</string>
+    <string name="complication_label">Pocket Archive record</string>
+</resources>

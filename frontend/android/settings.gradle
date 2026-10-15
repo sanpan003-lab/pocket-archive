@@ -1,4 +1,6 @@
 include ':app'
+// Galaxy Watch / Wear OS app (same applicationId + signing key as the phone app)
+include ':wear'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

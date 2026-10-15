@@ -1022,11 +1022,13 @@ function createQuickCapture(deps) {
       if (note.summaryStatus === 'pending') queueSummary(note.id);
     });
 
-    // GET /api/quick/recent?limit=5 — compact list for the Android home-screen widget
+    // GET /api/quick/recent?limit=5[&summary=1] — compact list for the Android widget and the watch
+    // (summary=1 adds the AI summary, shortened, for the watch's note screen)
     // (registered before /api/quick/:id so "recent" isn't treated as an id)
     app.get('/api/quick/recent', (req, res) => {
       try {
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 20);
+        const withSummary = req.query.summary === '1';
         const recent = store.list()
           .filter(n => !n.undone)
           .slice(0, limit)
@@ -1041,6 +1043,9 @@ function createQuickCapture(deps) {
               itemsTotal: (n.items || []).length,
               itemsDone:  (n.items || []).filter(i => i.done).length,
               errandDone: !!n.errandDone,
+            } : {}),
+            ...(withSummary ? {
+              summary: n.summaryStatus === 'done' && n.summary ? String(n.summary).slice(0, 1500) : null,
             } : {}),
           }));
         res.json(recent);
@@ -1240,13 +1245,34 @@ function createQuickCapture(deps) {
             title:      n.title,
             placeName:  placeLabel(n),
             address:    n.place.address || null,
-            items:      (n.items || []).map(i => ({ text: i.text, done: !!i.done })),
+            items:      (n.items || []).map(i => ({ id: i.id, text: i.text, done: !!i.done })),
             itemsLeft:  (n.items || []).filter(i => !i.done).length,
             expiresOn:  arrivalExpiresOn(n, settings),
             branches:   n.place.branches.map(b => ({
               key: b.key, lat: b.lat, lng: b.lng, name: b.name || null, address: b.address || null,
               distanceM: Number.isFinite(b.distanceM) ? b.distanceM : null,
             })),
+          }));
+        res.json({ generatedAt: new Date().toISOString(), errands });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // GET /api/errands/open — every unfinished errand with its checklist (the watch's Errands screen)
+    app.get('/api/errands/open', (_req, res) => {
+      try {
+        const errands = store.list()
+          .filter(n => n.type === 'errand' && !n.undone && !n.errandDone)
+          .slice(0, 20)
+          .map(n => ({
+            id:        n.id,
+            title:     n.title,
+            placeName: placeLabel(n),
+            address:   n.place?.resolved ? n.place.address || null : null,
+            whenLabel: hasTime(n) ? shortWhen(n.start) : null,
+            arrival:   hasArrival(n),
+            items:     (n.items || []).map(i => ({ id: i.id, text: i.text, done: !!i.done })),
           }));
         res.json({ generatedAt: new Date().toISOString(), errands });
       } catch (err) {

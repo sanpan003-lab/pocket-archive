@@ -112,6 +112,26 @@ a reminder.
 Arrival reminders need location **"Allow all the time"**. The app explains this and asks when your first
 arrival errand exists. Until it's allowed, the Inbox shows a banner.
 
+## Galaxy Watch app
+
+A Wear OS companion app (`android/wear`, same package and signing key as the phone app).
+
+| | |
+|---|---|
+| Record | Big gold mic → recording screen with a red pulsing ring, timer and Stop. Stops after 4 s of silence or 2 min, like the phone. Short buzz on start, double buzz on stop. |
+| Quick Record | A second launcher entry that starts recording right away. Galaxy Watch: *Settings → Advanced features → Customize keys → Double press Home key → Quick Record*. |
+| Sending | The watch sends the audio to the phone over Bluetooth/Wi-Fi (Wearable Data Layer). The phone uploads it with its normal queue and retries. No phone nearby: *"Queued — will send when your phone is nearby"*. If the phone stays away 10+ minutes and the watch has its own Wi-Fi/LTE, the watch uploads directly with the phone's device token (stored encrypted on the watch). |
+| Result | The server's confirmation shows on the watch for 4 s (e.g. "🛒 Publix list · 3 items"), with a double buzz, or amber with a long buzz for needs-review. The phone's own notification then stays on the phone. |
+| Tile | Mic button, last note + time, "🛒 N open errands". |
+| Complication | Mic icon for any watch face (short text, small image, monochrome); tap to record. |
+| Recent / Errands | Swipe left from the record screen. Recent: tap a note for its AI summary (scroll with the bezel/crown). Errands: tap an item to check it off; works offline and syncs through the phone. |
+| Arrival | When the phone detects you at a store, the watch shows the list itself; *Open list* opens the checklist on the watch. |
+
+Revoking the phone in Settings → Devices also stops the watch (it uses the phone's token).
+Install: `update-android.bat` (see *Releasing*), or `adb -s <watch> install -r PocketArchiveWatch.apk`
+after pairing the watch for wireless debugging (Developer options → Wireless debugging → Pair new device;
+`adb pair <ip>:<pairing-port>`, then `adb connect <ip>:<port>`).
+
 ## Permissions
 
 | Permission | Why |

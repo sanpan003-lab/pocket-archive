@@ -24,7 +24,8 @@ if (envAndroid.exists()) {
 def versionFile = file('version.properties')
 def versionProps = new Properties()
 if (versionFile.exists()) versionFile.withInputStream { versionProps.load(it) }
-def isReleaseBuild = gradle.startParameter.taskNames.any { it ==~ /(?i).*(assemble|bundle|install)Release$/ }
+// (a release build of only the watch app, ":wear:…", doesn't bump the phone version)
+def isReleaseBuild = gradle.startParameter.taskNames.any { it ==~ /(?i).*(assemble|bundle|install)Release$/ && !it.startsWith(':wear:') }
 if (isReleaseBuild) {
     def code = (versionProps['VERSION_CODE'] ?: '1').toInteger() + 1
     def parts = (versionProps['VERSION_NAME'] ?: '1.0.0').tokenize('.')
@@ -104,6 +105,8 @@ dependencies {
     implementation "com.squareup.okhttp3:okhttp:5.5.0"
     // Errands: geofences for arrival reminders
     implementation "com.google.android.gms:play-services-location:21.3.0"
+    // Galaxy Watch app link (Data Layer)
+    implementation "com.google.android.gms:play-services-wearable:20.0.1"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

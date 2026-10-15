@@ -132,13 +132,15 @@ object ErrandSync {
     // ── Calls back to the server (from workers) ────────────────────────────
 
     /** POST and report: true = done (or will never work), false = retry later. */
-    fun post(ctx: Context, path: String, body: JSONObject = JSONObject()): Boolean {
+    fun post(ctx: Context, path: String, body: JSONObject = JSONObject()) = request(ctx, "POST", path, body)
+
+    fun request(ctx: Context, method: String, path: String, body: JSONObject = JSONObject()): Boolean {
         val apiBase = TokenStore.apiBase(ctx) ?: return true
         val token = TokenStore.token(ctx) ?: return true
         val request = Request.Builder()
             .url("$apiBase$path")
             .header("Authorization", "Bearer $token")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .method(method, body.toString().toRequestBody("application/json".toMediaType()))
             .build()
         return try {
             client.newCall(request).execute().use { r -> r.isSuccessful || r.code in 400..499 }

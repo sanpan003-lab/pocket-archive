@@ -163,6 +163,7 @@ class QuickRecorderPlugin : Plugin() {
         WidgetData.refreshAsync(context)
         ErrandWorker.schedulePeriodic(context)
         ErrandWorker.syncNow(context)
+        WearBridge.async { WearBridge.sendToken(context) } // the watch's direct-upload fallback
         call.resolve()
     }
 
@@ -177,6 +178,7 @@ class QuickRecorderPlugin : Plugin() {
         WidgetData.clear(context) // don't keep note titles on the home screen after signing out
         ErrandWorker.cancelAll(context)
         ErrandSync.clear(context)
+        WearBridge.clearToken(context) // signed out → the watch can't upload either
         call.resolve()
     }
 

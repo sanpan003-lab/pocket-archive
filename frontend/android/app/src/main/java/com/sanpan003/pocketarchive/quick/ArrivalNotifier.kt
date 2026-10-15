@@ -45,7 +45,11 @@ object ArrivalNotifier {
         val summary = open.joinToString(", ") { it.text }.ifBlank { errand.title }
         val id = notificationId(errand.id)
 
-        val notification = NotificationCompat.Builder(ctx, Notifications.CH_ARRIVAL)
+        // With the watch app installed, the watch shows its own notification (whose
+        // "Open list" opens the watch checklist), so this one stays on the phone.
+        // If the watch can't be reached, it's re-posted for normal bridging.
+        val watchApp = WearBridge.watchAppKnown(ctx)
+        fun build(localOnly: Boolean, quiet: Boolean) = NotificationCompat.Builder(ctx, Notifications.CH_ARRIVAL)
             .setSmallIcon(R.drawable.ic_stat_mic)
             .setColor(Notifications.GREEN)
             .setContentTitle(title)
@@ -66,6 +70,8 @@ object ArrivalNotifier {
             .addAction(0, "Open list", Notifications.openApp(ctx, "/quick/inbox?note=${errand.id}"))
             .addAction(0, "Done", action(ctx, ErrandActionReceiver.ACTION_DONE, errand.id, placeName))
             .addAction(0, "Snooze 1 hr", action(ctx, ErrandActionReceiver.ACTION_SNOOZE, errand.id, placeName))
+            .setLocalOnly(localOnly)
+            .setOnlyAlertOnce(quiet)
             .build()
 
         if (!Notifications.canPost(ctx)) {
@@ -73,9 +79,16 @@ object ArrivalNotifier {
             return
         }
         try {
-            NotificationManagerCompat.from(ctx).notify(id, notification)
+            NotificationManagerCompat.from(ctx).notify(id, build(localOnly = watchApp, quiet = false))
         } catch (e: SecurityException) {
             Log.w(TAG, "Notification permission missing", e)
+        }
+        if (watchApp) {
+            WearBridge.async {
+                if (!WearBridge.sendArrival(ctx, errand, placeName)) {
+                    runCatching { NotificationManagerCompat.from(ctx).notify(id, build(localOnly = false, quiet = true)) }
+                }
+            }
         }
     }
 
