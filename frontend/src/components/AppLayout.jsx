@@ -3,15 +3,18 @@ import { Outlet } from 'react-router-dom';
 import { ArrivalPermissionPrompt } from '../native/arrival';
 import { Menu, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
+import CreateMenu from './create/CreateMenu';
 import { useApp } from '../context/AppContext';
+import { useAppearance } from '../context/appearanceStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { startQueueFlusher } from '../lib/quickQueue';
 
 export default function AppLayout() {
   const {
-    sidebarOpen, darkMode, setDarkMode,
+    sidebarOpen,
     mobileMenuOpen, setMobileMenuOpen,
   } = useApp();
+  const { darkMode, setDarkMode } = useAppearance();
   const isMobile = useIsMobile();
 
   // Send Quick Capture recordings that were queued while offline
@@ -66,6 +69,7 @@ export default function AppLayout() {
         </div>
 
         <Outlet />
+        <CreateMenu />
         <ArrivalPermissionPrompt />
       </main>
     </div>

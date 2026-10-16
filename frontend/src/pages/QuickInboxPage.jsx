@@ -1,29 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Inbox, AlertCircle, CheckSquare, Combine, Trash2, X, FolderInput, Pin } from 'lucide-react';
 import {
-  Inbox, Pencil, Eye, Undo2, AlertCircle, Link2, Sparkles, ChevronDown, CheckCircle2, RotateCcw,
-  FolderKanban, Merge, Split, CheckSquare, Square, Combine, Trash2, X, FolderInput,
-} from 'lucide-react';
-import {
-  getQuickNotes, undoQuickNote, summarizeQuickNote, quickAudioUrl, setErrandDone,
-  mergeQuickNote, unmergeQuickNote, moveQuickNote, splitQuickNote, addNotesToProject, removeNoteFromProject, getProjects,
+  getQuickNotes, getQuickNote, undoQuickNote, restoreQuickNote, summarizeQuickNote, retryQuickNote, setErrandDone,
+  setQuickMeta, mergeQuickNote, unmergeQuickNote, moveQuickNote, splitQuickNote, addNotesToProject,
+  removeNoteFromProject, getProjects,
 } from '../lib/api';
-import AskPrompt from '../components/quick/AskPrompt';
-import UpdatesTimeline from '../components/quick/UpdatesTimeline';
 import TargetPicker from '../components/quick/TargetPicker';
 import CombineDialog from '../components/quick/CombineDialog';
 import QuickToast from '../components/quick/QuickToast';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
-import QuickSummary, { TranscriptToggle } from '../components/quick/QuickSummary';
-import QuickAudio from '../components/quick/QuickAudio';
-import ErrandPanel from '../components/quick/ErrandPanel';
+import NoteCard from '../components/quick/NoteCard';
+import NoteView from '../components/quick/NoteView';
+import { resolveOpenStyle } from '../components/quick/noteHelpers';
 import { ArrivalBanner } from '../native/arrival';
 import { syncErrands, useArrivalPermission } from '../native/errands';
-import {
-  QUICK_TYPES, REVIEW_ACCENT, describeWhen, summaryPreview, dayHeader, dayKey, cardTime,
-} from '../components/quick/quickMeta';
+import { QUICK_TYPES, dayHeader, dayKey } from '../components/quick/quickMeta';
 import { useSummaryPolling } from '../hooks/useSummaryPolling';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { useAppearance } from '../context/appearanceStore';
+import { setFabHidden, onQuickChanged } from '../lib/uiBus';
+import { shareNote } from '../lib/shareNote';
 
 const FILTERS = [
   { key: 'all',      label: 'All',          test: n => !n.undone },
@@ -33,241 +31,80 @@ const FILTERS = [
   { key: 'errand',   label: 'Errands',      test: n => !n.undone && n.type === 'errand' },
   { key: 'projects', label: 'Projects',     test: n => !n.undone && !!n.projectId },
   { key: 'notes',    label: 'Notes',        test: n => !n.undone && (n.type === 'note' || n.type === 'note_link') },
-  { key: 'undone',   label: 'Undone',       test: n => n.undone },
+  { key: 'undone',   label: 'Deleted',      test: n => n.undone },
 ];
 
 const capturedAt = n => n.capturedAt || n.createdAt;
+const stamp = () => Date.now(); // toast ids
+const TYPE_ORDER = ['event', 'reminder', 'errand', 'note_link', 'note'];
 
-/** Collapsed: what it is + a 3-line preview. Expanded: summary │ transcript + audio │ actions. */
-function QuickNoteCard({
-  note, expanded, highlighted, onToggle, onEdit, onUndo, undoing, onChanged, arrivalReady,
-  projectName, selectMode, selected, onSelect, onLongPress, onAction, onReload,
-}) {
-  const meta = QUICK_TYPES[note.type] || QUICK_TYPES.note;
-  const review = note.status === 'needs_review' && !note.undone;
-  const errand = note.type === 'errand';
-  const when = describeWhen(note);
-  const preview = note.summaryStatus === 'done' ? summaryPreview(note) : '';
-  const bodyId = `qn-body-${note.id}`;
-  const [regenerating, setRegenerating] = useState(false);
-  const [finishing, setFinishing] = useState(false);
-  const pressTimer = useRef(null);
-  const longPressed = useRef(false);
-  const pending = note.status === 'pending_decision' && note.pending;
-
-  // Long-press (touch) enters select mode with this note selected
-  const startPress = e => {
-    if (selectMode || e.pointerType === 'mouse') return;
-    longPressed.current = false;
-    pressTimer.current = setTimeout(() => { longPressed.current = true; onLongPress(note); navigator.vibrate?.(20); }, 500);
+function sortNotes(list, sort) {
+  const by = {
+    newest:  (a, b) => new Date(capturedAt(b)) - new Date(capturedAt(a)),
+    oldest:  (a, b) => new Date(capturedAt(a)) - new Date(capturedAt(b)),
+    updated: (a, b) => new Date(b.updatedAt || capturedAt(b)) - new Date(a.updatedAt || capturedAt(a)),
+    type:    (a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type) || new Date(capturedAt(b)) - new Date(capturedAt(a)),
   };
-  const cancelPress = () => clearTimeout(pressTimer.current);
+  return [...list].sort(by[sort] || by.newest);
+}
 
-  async function toggleDone() {
-    setFinishing(true);
-    try {
-      onChanged(await setErrandDone(note.id, !note.errandDone));
-      syncErrands(); // a finished errand stops arrival reminders
-    } catch { /* stays as is */ }
-    finally { setFinishing(false); }
+/** Pinned first (optional), then Today / Yesterday / dates — or by type */
+function buildSections(list, s) {
+  const sorted = sortNotes(list, s.sort);
+  const sections = [];
+  const pinned = s.pinnedSection ? sorted.filter(n => n.pinned && !n.undone) : [];
+  const rest = s.pinnedSection ? sorted.filter(n => !(n.pinned && !n.undone)) : sorted;
+  if (pinned.length) sections.push({ key: 'pinned', label: 'Pinned', notes: pinned });
+  if (s.sort === 'type') {
+    for (const t of TYPE_ORDER) {
+      const group = rest.filter(n => n.type === t);
+      if (group.length) sections.push({ key: `t-${t}`, label: QUICK_TYPES[t].label + (t === 'note' ? 's' : 's'), notes: group });
+    }
+  } else if (s.groupByDay) {
+    const at = n => (s.sort === 'updated' ? n.updatedAt || capturedAt(n) : capturedAt(n));
+    for (const n of rest) {
+      const key = dayKey(at(n));
+      if (sections.at(-1)?.key !== key) sections.push({ key, label: dayHeader(at(n)), notes: [] });
+      sections.at(-1).notes.push(n);
+    }
+  } else if (rest.length) {
+    sections.push({ key: 'all', label: pinned.length ? 'Others' : null, notes: rest });
   }
-
-  async function regenerate() {
-    setRegenerating(true);
-    try { onChanged(await summarizeQuickNote(note.id)); }
-    catch { /* QuickSummary shows the failed state on the next refresh */ }
-    finally { setRegenerating(false); }
-  }
-
-  return (
-    <article
-      id={`qn-${note.id}`}
-      className={`quick-card animate-fade-in min-w-0 scroll-mt-24 ${highlighted ? 'quick-card-highlight' : ''} ${note.undone ? 'opacity-60' : ''} ${errand && note.errandDone && !note.undone ? 'opacity-80' : ''} ${selected ? 'quick-card-highlight' : ''}`}
-      onPointerDown={startPress}
-      onPointerUp={cancelPress}
-      onPointerLeave={cancelPress}
-      onPointerCancel={cancelPress}
-      onContextMenu={e => { if (longPressed.current) e.preventDefault(); }}
-    >
-      <span className="quick-card-accent" style={{ background: review ? REVIEW_ACCENT : meta.color }} aria-hidden="true" />
-
-      {/* Header: tap anywhere to expand / collapse */}
-      <button
-        type="button"
-        className="w-full text-left pl-5 pr-4 pt-4 pb-3 sm:pl-6 sm:pr-5"
-        onClick={() => {
-          if (longPressed.current) { longPressed.current = false; return; }
-          if (selectMode) onSelect(note); else onToggle();
-        }}
-        aria-expanded={selectMode ? undefined : expanded}
-        aria-controls={selectMode ? undefined : bodyId}
-        aria-pressed={selectMode ? selected : undefined}
-        aria-label={selectMode ? `${selected ? 'Deselect' : 'Select'} ${note.title}` : undefined}
-      >
-        <div className="flex items-start gap-2">
-          {selectMode && (
-            selected
-              ? <CheckSquare size={22} className="shrink-0 text-gold-500 -ml-1 mt-0.5" aria-hidden="true" />
-              : <Square size={22} className="shrink-0 text-navy-300 dark:text-white/30 -ml-1 mt-0.5" aria-hidden="true" />
-          )}
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-            <span className={`badge ${meta.badge}`}><meta.icon size={11} /> {meta.label}</span>
-            {review && <span className="badge badge-orange">Needs review</span>}
-            {pending && <span className="badge badge-gold">Waiting for your answer</span>}
-            {note.undone && <span className="badge badge-slate">Undone</span>}
-            {projectName && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
-            {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
-            {note.actions?.length > 0 && !note.undone && (
-              <span className="text-xs text-navy-400 dark:text-white/45 truncate min-w-0 max-w-full">
-                {note.actions.join(' · ')}
-              </span>
-            )}
-          </div>
-          <span className="shrink-0 flex items-center gap-1 text-xs text-navy-400 dark:text-white/45 pt-1">
-            {cardTime(capturedAt(note))}
-            <ChevronDown size={16} className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
-          </span>
-        </div>
-
-        <p className="mt-2 font-semibold text-base text-navy-900 dark:text-white break-words">{note.title}</p>
-        {when && !errand && (
-          <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{when}{note.location ? ` · ${note.location}` : ''}</p>
-        )}
-
-        {!expanded && !errand && (
-          note.summaryStatus === 'pending' ? (
-            <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-gold-600 dark:text-gold-400">
-              <Sparkles size={12} className="animate-pulse" /> Summarizing…
-            </p>
-          ) : preview ? (
-            <p className="mt-2 text-sm leading-relaxed text-navy-700 dark:text-white/70 line-clamp-3 break-words">{preview}</p>
-          ) : note.transcript ? (
-            <p className="mt-2 text-sm italic leading-relaxed text-navy-500 dark:text-white/50 line-clamp-3 break-words">“{note.transcript}”</p>
-          ) : null
-        )}
-      </button>
-
-      {pending && !selectMode && (
-        <div className="pl-5 pr-4 pb-3 sm:pl-6 sm:pr-5"><AskPrompt note={note} compact onResolved={() => onReload()} /></div>
-      )}
-      {note.possibleMatch && !note.undone && !selectMode && (
-        <div className="pl-5 pr-4 pb-3 sm:pl-6 sm:pr-5 flex flex-wrap items-center gap-2">
-          <span className="badge badge-gold">Possible match: {note.possibleMatch.title}</span>
-          <button className="btn-ghost text-xs" onClick={() => onAction('mergePossible', note)}><Merge size={13} /> Merge</button>
-        </div>
-      )}
-
-      {/* Errand: place, chips and the checklist are always visible */}
-      {errand && <ErrandPanel note={note} onChanged={onChanged} arrivalReady={arrivalReady} />}
-
-      {expanded && (
-        <div id={bodyId} className="pl-5 pr-4 pb-2 sm:pl-6 sm:pr-5 animate-fade-in">
-          {/* Summary */}
-          {note.summaryStatus && note.summaryStatus !== 'none' && (
-            <section className={`pb-3 ${errand ? 'quick-card-divider pt-1' : ''}`}>
-              <QuickSummary note={note} onChanged={onChanged} />
-            </section>
-          )}
-
-          {(note.updates || []).length > 0 && (
-            <section className="quick-card-divider py-3"><UpdatesTimeline note={note} defaultOpen /></section>
-          )}
-
-          {/* Transcript + audio */}
-          {(note.transcript || note.error || note.linkedRecordingId || note.audioFile) && (
-            <section className="quick-card-divider py-3">
-              <TranscriptToggle transcript={note.transcript} />
-              {!note.transcript && note.error && (
-                <p className="text-xs text-amber-700 dark:text-amber-300 break-words">{note.error}</p>
-              )}
-              {note.linkedRecordingId && (
-                <Link
-                  to={`/recordings/${note.linkedRecordingId}`}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-700 dark:text-teal-300"
-                >
-                  <Link2 size={12} /> Open linked recording
-                </Link>
-              )}
-              {note.audioFile && <QuickAudio src={quickAudioUrl(note.id)} durationSec={note.durationSec} />}
-            </section>
-          )}
-
-          {/* Actions */}
-          <section className="quick-card-divider pt-2">
-            <div className="flex">
-              <button type="button" className="quick-card-action flex-1" onClick={() => onEdit(note)}>
-                {note.undone ? <Eye size={18} /> : <Pencil size={18} />}
-                {note.undone ? 'View' : 'Edit'}
-              </button>
-              {errand && !note.undone && (
-                <button type="button" className="quick-card-action flex-1" onClick={toggleDone} disabled={finishing}>
-                  {note.errandDone ? <RotateCcw size={18} /> : <CheckCircle2 size={18} />}
-                  {note.errandDone ? 'Reopen' : 'Mark done'}
-                </button>
-              )}
-              {!note.undone && note.transcript && (
-                <button
-                  type="button"
-                  className="quick-card-action flex-1"
-                  title="Regenerate the AI summary"
-                  onClick={regenerate}
-                  disabled={regenerating || note.summaryStatus === 'pending'}
-                >
-                  <Sparkles size={18} className={regenerating ? 'animate-pulse' : ''} />
-                  {regenerating ? 'Working…' : 'Summarize'}
-                </button>
-              )}
-              {!note.undone && (
-                <button type="button" className="quick-card-action danger flex-1" onClick={() => onUndo(note)} disabled={undoing}>
-                  <Undo2 size={18} />
-                  {undoing ? 'Undoing…' : 'Undo'}
-                </button>
-              )}
-            </div>
-            {!note.undone && (
-              <div className="flex">
-                <button type="button" className="quick-card-action flex-1" onClick={() => onAction('mergeInto', note)}>
-                  <Merge size={18} /> Merge into…
-                </button>
-                <button type="button" className="quick-card-action flex-1" onClick={() => onAction('addToProject', note)}>
-                  <FolderInput size={18} /> {note.projectId ? 'Move project…' : 'Add to project…'}
-                </button>
-                {(note.combinedGroups || []).length > 0 && (
-                  <button type="button" className="quick-card-action flex-1" onClick={() => onAction('split', note)}>
-                    <Split size={18} /> Split back
-                  </button>
-                )}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-    </article>
-  );
+  return sections;
 }
 
 export default function QuickInboxPage() {
+  const { settings } = useAppearance();
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { id: routeId } = useParams();               // /quick/:id opens one note
   const [notes, setNotes]     = useState([]);
+  const [extra, setExtra]     = useState(null);       // opened note that isn't in the list (hidden / brand new)
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
-  const [filter, setFilter]   = useState('all');
+  const [filter, setFilter]   = useState(() => (FILTERS.some(f => f.key === settings.behavior.defaultTab) ? settings.behavior.defaultTab : 'all'));
   const [editingId, setEditingId] = useState(null);
-  const [undoingId, setUndoingId] = useState(null);
   const [expanded, setExpanded]   = useState(() => new Set());
   const [highlightId, setHighlightId] = useState(null);
+  const [busy, setBusy] = useState(null);             // { id, kind }
   const [searchParams, setSearchParams] = useSearchParams();
-  const focusId = searchParams.get('note');
-  // ?move=<captureId> (widget / notification "Move"): pick where that capture should go instead
-  const moveId = searchParams.get('move');
+  const focusId = searchParams.get('note');           // legacy deep link (?note=) — widget, watch, old calendar links
+  const moveId = searchParams.get('move');            // widget / notification "Move"
   const reloadedFor = useRef(null);
   const arrival = useArrivalPermission();
   const [projectNames, setProjectNames] = useState({});
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
-  const [picker, setPicker] = useState(null);       // { mode: 'merge'|'project', ids }
+  const [picker, setPicker] = useState(null);         // { mode: 'merge'|'project', ids }
   const [combining, setCombining] = useState(false);
   const [toast, setToast] = useState(null);
   const dismissToast = useCallback(() => setToast(null), []);
+
+  const s = settings.inbox;
+  const inline = settings.opening.style === 'inline';
+  const openMode = resolveOpenStyle(settings.opening.style, isMobile);
+  const layout = s.layout;
 
   const load = useCallback(() => {
     getProjects().then(list => setProjectNames(Object.fromEntries(list.map(p => [p.id, p.name])))).catch(() => {});
@@ -278,11 +115,13 @@ export default function QuickInboxPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => onQuickChanged(() => load()), [load]);
   useSummaryPolling(notes, load);
+  useEffect(() => { setFabHidden(selectMode); return () => setFabHidden(false); }, [selectMode]);
 
-  // Deep link (?note=<id>, e.g. from the Android widget): expand, scroll to and highlight that note.
-  // Expanding happens while rendering (React's "adjust state on prop change" pattern)…
-  const focusNote = focusId && !loading ? notes.find(n => n.id === focusId) : null;
+  // ── Opening notes ────────────────────────────────────────────────────────
+  // Legacy ?note=<id>: open it (or, with "Expand in place", expand + scroll to it)
+  const focusNote = focusId && inline && !loading ? notes.find(n => n.id === focusId) : null;
   const [focusedId, setFocusedId] = useState(null);
   if (focusNote && focusedId !== focusId) {
     setFocusedId(focusId);
@@ -293,25 +132,76 @@ export default function QuickInboxPage() {
     setFocusedId(null);
   }
 
-  // …then scroll once the card is on screen, and drop ?note= from the URL
   useEffect(() => {
-    if (!focusId || loading) return;
+    if (!focusId) return;
+    if (!inline) { navigate(`/quick/${focusId}`, { replace: true }); return; }
+    if (loading) return;
     if (focusedId === focusId) {
       requestAnimationFrame(() => {
-        const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        document.getElementById(`qn-${focusId}`)?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+        document.getElementById(`qn-${focusId}`)?.scrollIntoView({ block: 'center' });
       });
       setSearchParams({}, { replace: true });
     } else if (!notes.some(n => n.id === focusId)) {
-      // Captured after this list was loaded? Reload once, then give up quietly
-      if (reloadedFor.current !== focusId) {
-        reloadedFor.current = focusId;
-        load();
-      } else {
-        setSearchParams({}, { replace: true });
-      }
+      if (reloadedFor.current !== focusId) { reloadedFor.current = focusId; load(); }
+      else setSearchParams({}, { replace: true });
     }
-  }, [focusId, focusedId, loading, notes, load, setSearchParams]);
+  }, [focusId, focusedId, inline, loading, notes, load, navigate, setSearchParams]);
+
+  // /quick/:id with "Expand in place" → expand it in the list instead
+  useEffect(() => {
+    if (routeId && inline) navigate(`/quick/inbox?note=${routeId}`, { replace: true });
+  }, [routeId, inline, navigate]);
+
+  const listNote = routeId ? notes.find(n => n.id === routeId) : null;
+  const openNote = routeId && !inline ? (listNote || (extra?.id === routeId ? extra : null)) : null;
+
+  // Not in the list (a voice update living inside another note, or just created): fetch it
+  useEffect(() => {
+    if (!routeId || inline || loading || listNote) return;
+    let cancelled = false;
+    getQuickNote(routeId)
+      .then(n => {
+        if (cancelled) return;
+        if (n.hidden && n.appliedTo?.id && n.appliedTo.type !== 'project' && n.appliedTo.type !== 'recording') {
+          navigate(`/quick/${n.appliedTo.id}`, { replace: true, state: location.state });
+        } else setExtra(n);
+      })
+      .catch(() => { if (!cancelled) { setError('That note could not be found'); navigate('/quick/inbox', { replace: true }); } });
+    return () => { cancelled = true; };
+  }, [routeId, inline, loading, listNote, navigate, location.state]);
+
+  const counts = useMemo(
+    () => Object.fromEntries(FILTERS.map(f => [f.key, notes.filter(f.test).length])),
+    [notes],
+  );
+  const visible = useMemo(() => notes.filter(FILTERS.find(f => f.key === filter).test), [notes, filter]);
+  const sections = useMemo(() => buildSections(visible, s), [visible, s]);
+  const order = useMemo(() => sections.flatMap(sec => sec.notes.map(n => n.id)), [sections]);
+
+  function open(note, rect) {
+    if (inline) { toggle(note.id); return; }
+    const origin = rect ? {
+      x: Math.round((rect.left + rect.width / 2 - window.innerWidth / 2) * 0.35),
+      y: Math.round((rect.top + rect.height / 2 - window.innerHeight / 2) * 0.35),
+    } : null;
+    navigate(`/quick/${note.id}`, { state: { fromList: true, origin } });
+  }
+
+  const closeNote = useCallback(() => {
+    const id = routeId;
+    if (location.state?.fromList) navigate(-1);
+    else navigate('/quick/inbox', { replace: true });
+    setHighlightId(id);
+    requestAnimationFrame(() => document.getElementById(`qn-${id}`)?.scrollIntoView({ block: 'nearest' }));
+  }, [routeId, location.state, navigate]);
+
+  const idx = routeId ? order.indexOf(routeId) : -1;
+  const goTo = useCallback(i => {
+    const id = order[i];
+    if (id) navigate(`/quick/${id}`, { replace: true, state: { ...(location.state || {}), origin: null } });
+  }, [order, navigate, location.state]);
+  const onPrev = idx > 0 ? () => goTo(idx - 1) : null;
+  const onNext = idx >= 0 && idx < order.length - 1 ? () => goTo(idx + 1) : null;
 
   useEffect(() => {
     if (!highlightId) return;
@@ -319,43 +209,30 @@ export default function QuickInboxPage() {
     return () => clearTimeout(t);
   }, [highlightId]);
 
-  // The editor always shows the latest copy (summaries update while it's open)
-  const editing = editingId ? notes.find(n => n.id === editingId) : null;
+  const editing = editingId ? notes.find(n => n.id === editingId) || (extra?.id === editingId ? extra : null) : null;
 
-  const counts = useMemo(
-    () => Object.fromEntries(FILTERS.map(f => [f.key, notes.filter(f.test).length])),
-    [notes],
-  );
-  const visible = useMemo(() => notes.filter(FILTERS.find(f => f.key === filter).test), [notes, filter]);
-
-  // "Today", "Yesterday", then dates. Sorted by when it was recorded: a note
-  // queued offline can reach the server days after it was captured.
-  const groups = useMemo(() => {
-    const out = [];
-    const sorted = [...visible].sort((a, b) => new Date(capturedAt(b)) - new Date(capturedAt(a)));
-    for (const note of sorted) {
-      const key = dayKey(capturedAt(note));
-      if (out.at(-1)?.key !== key) out.push({ key, label: dayHeader(capturedAt(note)), notes: [] });
-      out.at(-1).notes.push(note);
-    }
-    return out;
-  }, [visible]);
-
-  // ── Select mode, Merge into…, Add to project…, Combine ───────────────────
+  // ── Actions ──────────────────────────────────────────────────────────────
   const undoToast = (icon, text, undo) => setToast({
-    id: Date.now(), icon, text, tone: 'success', duration: 30000,
+    id: stamp(), icon, text, tone: 'success', duration: 30000,
     actions: [{ label: 'Undo', onClick: async () => { try { await undo(); } finally { load(); } } }],
   });
   const fail = err => setError(err.response?.data?.error || err.message || 'Something went wrong');
 
-  function enterSelect(note) {
-    setSelectMode(true);
-    setSelected(new Set(note ? [note.id] : []));
+  function replace(updated) {
+    setNotes(list => (list.some(n => n.id === updated.id) ? list.map(n => (n.id === updated.id ? updated : n)) : list));
+    setExtra(x => (x?.id === updated.id ? updated : x));
   }
-  function exitSelect() {
-    setSelectMode(false);
-    setSelected(new Set());
+
+  function toggle(id) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
+
+  function enterSelect(note) { setSelectMode(true); setSelected(new Set(note ? [note.id] : [])); }
+  function exitSelect() { setSelectMode(false); setSelected(new Set()); }
   function toggleSelected(note) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -364,26 +241,62 @@ export default function QuickInboxPage() {
     });
   }
 
-  async function onAction(kind, note) {
-    try {
-      if (kind === 'mergeInto') setPicker({ mode: 'merge', ids: [note.id] });
-      else if (kind === 'addToProject') setPicker({ mode: 'project', ids: [note.id] });
-      else if (kind === 'mergePossible') {
-        const m = note.possibleMatch;
-        if (m.type === 'project') {
-          await addNotesToProject(m.id, [note.id]);
-          undoToast('📁', `Added to ${m.title}`, () => removeNoteFromProject(m.id, note.id));
-        } else {
-          await mergeQuickNote(note.id, { targetType: m.type, targetId: m.id });
-          undoToast('🔗', `Merged into ${m.title}`, () => unmergeQuickNote(note.id));
-        }
-        load();
-      } else if (kind === 'split') {
-        await splitQuickNote(note.id);
-        setToast({ id: Date.now(), icon: '✂️', text: 'Split back into separate notes', tone: 'success' });
-        load();
-      }
-    } catch (err) { fail(err); }
+  async function run(note, kind, fn) {
+    setBusy({ id: note.id, kind });
+    try { await fn(); } catch (err) { fail(err); } finally { setBusy(null); }
+  }
+
+  async function onAction(kind, note, arg) {
+    switch (kind) {
+      case 'edit': setEditingId(note.id); return;
+      case 'mergeInto': setPicker({ mode: 'merge', ids: [note.id] }); return;
+      case 'addToProject': setPicker({ mode: 'project', ids: [note.id] }); return;
+      case 'pin':
+        return run(note, kind, async () => replace(await setQuickMeta(note.id, { pinned: !note.pinned })));
+      case 'color':
+        return run(note, kind, async () => replace(await setQuickMeta(note.id, { color: arg })));
+      case 'share':
+        return run(note, kind, async () => {
+          const r = await shareNote(note);
+          if (r === 'copied') setToast({ id: stamp(), icon: '📋', text: 'Copied to the clipboard', tone: 'success' });
+        });
+      case 'delete':
+        if (!window.confirm(`Delete “${note.title}”? Calendar events it created are removed. You can restore it from “Deleted”.`)) return;
+        return run(note, kind, async () => {
+          replace(await undoQuickNote(note.id));
+          setToast({
+            id: stamp(), icon: '🗑️', text: 'Note deleted', tone: 'queued', duration: 30000,
+            actions: [{ label: 'Undo', onClick: async () => { try { replace(await restoreQuickNote(note.id)); } catch (err) { fail(err); } } }],
+          });
+        });
+      case 'restore':
+        return run(note, kind, async () => { replace(await restoreQuickNote(note.id)); setToast({ id: stamp(), icon: '↩️', text: 'Restored', tone: 'success' }); });
+      case 'summarize':
+        return run(note, kind, async () => replace(await summarizeQuickNote(note.id)));
+      case 'retry':
+        return run(note, kind, async () => { const r = await retryQuickNote(note.id); replace(r.note || r); load(); });
+      case 'done':
+        return run(note, kind, async () => { replace(await setErrandDone(note.id, !note.errandDone)); syncErrands(); });
+      case 'split':
+        return run(note, kind, async () => {
+          await splitQuickNote(note.id);
+          setToast({ id: stamp(), icon: '✂️', text: 'Split back into separate notes', tone: 'success' });
+          load();
+        });
+      case 'mergePossible':
+        return run(note, kind, async () => {
+          const m = note.possibleMatch;
+          if (m.type === 'project') {
+            await addNotesToProject(m.id, [note.id]);
+            undoToast('📁', `Added to ${m.title}`, () => removeNoteFromProject(m.id, note.id));
+          } else {
+            await mergeQuickNote(note.id, { targetType: m.type, targetId: m.id });
+            undoToast('🔗', `Merged into ${m.title}`, () => unmergeQuickNote(note.id));
+          }
+          load();
+        });
+      default:
+    }
   }
 
   async function picked(dest) {
@@ -402,6 +315,7 @@ export default function QuickInboxPage() {
       } else {
         await mergeQuickNote(ids[0], { targetType: dest.targetType, targetId: dest.targetId });
         undoToast('🔗', `Merged into ${dest.title}`, () => unmergeQuickNote(ids[0]));
+        if (routeId === ids[0]) navigate(`/quick/${dest.targetId}`, { replace: true, state: location.state });
       }
       exitSelect();
       load();
@@ -410,10 +324,13 @@ export default function QuickInboxPage() {
 
   async function deleteSelected() {
     const ids = [...selected];
-    if (!window.confirm(`Undo ${ids.length} capture${ids.length === 1 ? '' : 's'}? Calendar events they created are removed.`)) return;
+    if (!window.confirm(`Delete ${ids.length} note${ids.length === 1 ? '' : 's'}? Calendar events they created are removed.`)) return;
     try {
       for (const id of ids) await undoQuickNote(id);
-      setToast({ id: Date.now(), icon: '🗑️', text: `Removed ${ids.length} note${ids.length === 1 ? '' : 's'}`, detail: 'Find them under “Undone”', tone: 'queued' });
+      setToast({
+        id: stamp(), icon: '🗑️', text: `Deleted ${ids.length} note${ids.length === 1 ? '' : 's'}`, tone: 'queued', duration: 30000,
+        actions: [{ label: 'Undo', onClick: async () => { try { for (const id of ids) await restoreQuickNote(id); } finally { load(); } } }],
+      });
       exitSelect();
       load();
     } catch (err) { fail(err); }
@@ -423,7 +340,7 @@ export default function QuickInboxPage() {
     setCombining(false);
     exitSelect();
     undoToast('🔗', `Combined ${result.combined} notes`, () => splitQuickNote(result.note.id, result.groupId));
-    setExpanded(prev => new Set(prev).add(result.note.id));
+    if (inline) setExpanded(prev => new Set(prev).add(result.note.id));
     load();
   }
 
@@ -432,39 +349,75 @@ export default function QuickInboxPage() {
     setSearchParams({}, { replace: true });
     try {
       const r = await moveQuickNote(id, dest.new ? { new: true } : { targetType: dest.targetType, targetId: dest.targetId });
-      setToast({ id: Date.now(), icon: r.confirmation?.icon || '↪️', text: r.confirmation?.text || 'Moved', tone: 'success' });
+      setToast({ id: stamp(), icon: r.confirmation?.icon || '↪️', text: r.confirmation?.text || 'Moved', tone: 'success' });
       load();
     } catch (err) { fail(err); }
   }
 
   const selectedNotes = notes.filter(n => selected.has(n.id));
+  const side = openNote && openMode === 'side';
+  const width = side ? 'max-w-7xl' : layout === 'grid' ? 'max-w-6xl' : 'max-w-3xl';
 
-  function replace(updated) {
-    setNotes(list => list.map(n => (n.id === updated.id ? updated : n)));
-  }
+  const cardProps = note => ({
+    note, layout, inline,
+    expanded: expanded.has(note.id),
+    highlighted: highlightId === note.id || (side && note.id === routeId),
+    projectName: note.projectId ? projectNames[note.projectId] : null,
+    selectMode, selected: selected.has(note.id),
+    onOpen: open, onSelect: toggleSelected, onLongPress: enterSelect, onAction,
+    onChanged: replace, onReload: load, arrivalReady: arrival.ready,
+    busy: busy?.id === note.id ? busy.kind : null,
+  });
 
-  function toggle(id) {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const list = loading ? (
+    <div className={layout === 'grid' ? 'note-masonry' : 'flex flex-col gap-4'}>
+      {[0, 1, 2].map(i => <div key={i} className="quick-card h-28 animate-pulse" />)}
+    </div>
+  ) : visible.length === 0 ? (
+    <div className="glass-card p-10 text-center">
+      <Inbox size={30} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
+      <p className="text-sm text-navy-600 dark:text-white/50">
+        {filter === 'review' ? 'Nothing needs review.' : filter === 'undone' ? 'Nothing deleted.' : 'No notes here yet.'}
+      </p>
+      <Link to="/quick" className="inline-block mt-3 text-sm font-semibold text-gold-600 dark:text-gold-400">
+        Record a quick note →
+      </Link>
+    </div>
+  ) : (
+    <div className="flex flex-col gap-6">
+      {sections.map(sec => (
+        <section key={sec.key} aria-label={sec.label || 'Notes'}>
+          {sec.label && (
+            <h2 className="mb-2.5 px-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-navy-400 dark:text-white/40">
+              {sec.key === 'pinned' && <Pin size={12} className="fill-current" />}{sec.label}
+            </h2>
+          )}
+          {layout === 'grid' && !inline ? (
+            <div className="note-masonry" style={side ? { columns: 2 } : undefined}>
+              {sec.notes.map(note => <NoteCard key={note.id} {...cardProps(note)} />)}
+            </div>
+          ) : (
+            <div className={`flex flex-col ${layout === 'compact' && !inline ? 'gap-1.5' : settings.theme.density === 'compact' ? 'gap-2.5' : 'gap-4'}`}>
+              {sec.notes.map(note => <NoteCard key={note.id} {...cardProps(note)} />)}
+            </div>
+          )}
+        </section>
+      ))}
+    </div>
+  );
 
-  async function handleUndo(note) {
-    setUndoingId(note.id);
-    try {
-      replace(await undoQuickNote(note.id));
-    } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Undo failed');
-    } finally {
-      setUndoingId(null);
-    }
-  }
+  const viewProps = openNote && {
+    note: openNote,
+    projectName: openNote.projectId ? projectNames[openNote.projectId] : null,
+    style: settings.opening.style,
+    onClose: closeNote, onPrev, onNext, onAction, onChanged: replace, onReload: load,
+    busy: busy?.id === openNote.id ? busy.kind : null,
+    arrivalReady: arrival.ready,
+    origin: location.state?.origin || null,
+  };
 
   return (
-    <div className={`p-4 sm:p-6 max-w-3xl mx-auto ${selectMode ? 'pb-32' : ''}`}>
+    <div className={`p-4 sm:p-6 ${width} mx-auto ${selectMode ? 'pb-32' : 'pb-28'}`}>
       <QuickToast toast={toast} onDismiss={dismissToast} />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Quick Capture</h1>
@@ -474,16 +427,10 @@ export default function QuickInboxPage() {
       <div className="overflow-x-auto -mx-1 px-1 mb-4">
         <div className="tab-bar w-max">
           {FILTERS.map(f => (
-            <button
-              key={f.key}
-              className={`tab-item shrink-0 ${filter === f.key ? 'active' : ''}`}
-              onClick={() => setFilter(f.key)}
-            >
+            <button key={f.key} className={`tab-item shrink-0 ${filter === f.key ? 'active' : ''}`} onClick={() => setFilter(f.key)}>
               {f.label}
               {counts[f.key] > 0 && f.key !== 'all' && (
-                <span className={`ml-1.5 text-[10px] font-bold ${f.key === 'review' ? 'text-gold-600 dark:text-gold-400' : 'opacity-60'}`}>
-                  {counts[f.key]}
-                </span>
+                <span className={`ml-1.5 text-[10px] font-bold ${f.key === 'review' ? 'text-gold-600 dark:text-gold-400' : 'opacity-60'}`}>{counts[f.key]}</span>
               )}
             </button>
           ))}
@@ -507,54 +454,14 @@ export default function QuickInboxPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="flex flex-col gap-4">
-          {[0, 1, 2].map(i => <div key={i} className="quick-card h-28 animate-pulse" />)}
+      {side ? (
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-6 items-start">
+          <div className="min-w-0">{list}</div>
+          <NoteView {...viewProps} />
         </div>
-      ) : visible.length === 0 ? (
-        <div className="glass-card p-10 text-center">
-          <Inbox size={30} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
-          <p className="text-sm text-navy-600 dark:text-white/50">
-            {filter === 'review' ? 'Nothing needs review.' : 'No captures here yet.'}
-          </p>
-          <Link to="/quick" className="inline-block mt-3 text-sm font-semibold text-gold-600 dark:text-gold-400">
-            Record a quick note →
-          </Link>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {groups.map(group => (
-            <section key={group.key} aria-label={group.label}>
-              <h2 className="mb-2.5 px-1 text-xs font-semibold uppercase tracking-wider text-navy-400 dark:text-white/40">
-                {group.label}
-              </h2>
-              <div className="flex flex-col gap-4">
-                {group.notes.map(note => (
-                  <QuickNoteCard
-                    key={note.id}
-                    note={note}
-                    expanded={expanded.has(note.id)}
-                    highlighted={highlightId === note.id}
-                    onToggle={() => toggle(note.id)}
-                    onEdit={n => setEditingId(n.id)}
-                    onUndo={handleUndo}
-                    undoing={undoingId === note.id}
-                    onChanged={replace}
-                    arrivalReady={arrival.ready}
-                    projectName={note.projectId ? projectNames[note.projectId] : null}
-                    selectMode={selectMode}
-                    selected={selected.has(note.id)}
-                    onSelect={toggleSelected}
-                    onLongPress={enterSelect}
-                    onAction={onAction}
-                    onReload={load}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+      ) : list}
+
+      {openNote && !side && <NoteView {...viewProps} />}
 
       {/* Selection bar */}
       {selectMode && (
@@ -595,11 +502,7 @@ export default function QuickInboxPage() {
       {combining && <CombineDialog notes={selectedNotes} onClose={() => setCombining(false)} onDone={combined} />}
 
       {editing && (
-        <QuickNoteEditor
-          note={editing}
-          onClose={() => setEditingId(null)}
-          onChanged={replace}
-        />
+        <QuickNoteEditor note={editing} onClose={() => setEditingId(null)} onChanged={replace} />
       )}
     </div>
   );

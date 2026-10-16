@@ -501,7 +501,7 @@ function bearerToken(req) {
 }
 
 // Media URLs the Android app loads in <audio>/links (no Authorization header possible)
-const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/audio|recordings\/[^/]+\/attachments\/[^/]+)$/;
+const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/(audio|media)|recordings\/[^/]+\/attachments\/[^/]+)$/;
 
 function requireAuth(req, res, next) {
   // Android app: "Authorization: Bearer <device token>"
@@ -607,6 +607,30 @@ const places = createPlaces({
   cacheFile: path.join(path.dirname(CONFIG_PATH), 'places-cache.json'),
 });
 places.register(app);
+
+// ── Appearance & layout settings (shared across devices; per-device overrides stay on the device) ──
+const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'behavior'];
+app.get('/api/appearance', (_req, res) => {
+  res.json(getConfig().appearance || {});
+});
+app.put('/api/appearance', (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Expected an object' });
+  if (JSON.stringify(body).length > 20000) return res.status(413).json({ error: 'Settings too large' });
+  const clean = {};
+  for (const g of APPEARANCE_GROUPS) {
+    const v = body[g];
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      clean[g] = Object.fromEntries(Object.entries(v)
+        .filter(([k, x]) => /^[a-zA-Z]{1,40}$/.test(k) && ['string', 'boolean', 'number'].includes(typeof x))
+        .map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 40) : x]));
+    }
+  }
+  const config = getConfig();
+  config.appearance = { ...(config.appearance || {}), ...clean, updatedAt: new Date().toISOString() };
+  saveConfig(config);
+  res.json(config.appearance);
+});
 
 // ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
 const quick = createQuickCapture({

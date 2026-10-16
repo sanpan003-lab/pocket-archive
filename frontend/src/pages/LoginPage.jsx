@@ -70,7 +70,7 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gold-gradient flex items-center justify-center shadow-gold mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-brand-gradient flex items-center justify-center shadow-brand mb-4">
             <Mic2 size={26} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-navy-900 dark:text-white tracking-tight">Pocket Archive</h1>

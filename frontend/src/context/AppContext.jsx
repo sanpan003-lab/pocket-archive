@@ -3,6 +3,7 @@ import {
   authStatus, authLogin, authLogout, deviceLogin, revokeCurrentDevice, fetchMediaToken,
 } from '../lib/api';
 import { isInstalledApp } from '../lib/pwa';
+import { AppearanceProvider } from './AppearanceContext';
 import { isNative } from '../lib/platform';
 import {
   saveDeviceToken, clearDeviceToken, startMediaTokens, deviceName,
@@ -40,7 +41,6 @@ function useLocalStorage(key, defaultValue) {
 export function AppProvider({ children }) {
   const [favorites, setFavorites]     = useLocalStorage('pa_favorites', []);
   const [viewMode, setViewMode]       = useLocalStorage('pocket:viewMode', 'list');
-  const [darkMode, setDarkMode]       = useLocalStorage('pa_darkMode', false);
   const [sidebarOpen, setSidebarOpen] = useLocalStorage('pa_sidebarOpen', true);
   const [syncVersion, setSyncVersion]         = useState(0);
   const triggerRefresh = useCallback(() => setSyncVersion(v => v + 1), []);
@@ -51,10 +51,6 @@ export function AppProvider({ children }) {
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth]   = useState(true);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
-  }, [darkMode]);
 
   // Check session on mount
   useEffect(() => {
@@ -121,14 +117,14 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       favorites, toggleFavorite,
       viewMode, setViewMode,
-      darkMode, setDarkMode,
       sidebarOpen, setSidebarOpen,
       syncVersion, triggerRefresh,
       isAuthenticated, isCheckingAuth,
       login, logout,
       mobileMenuOpen, setMobileMenuOpen,
     }}>
-      {children}
+      {/* Theme, accent, layout… (shared settings load once signed in) */}
+      <AppearanceProvider authenticated={isAuthenticated}>{children}</AppearanceProvider>
     </AppContext.Provider>
   );
 }

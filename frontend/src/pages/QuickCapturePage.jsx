@@ -313,6 +313,21 @@ export default function QuickCapturePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per launch
   }, [searchParams]);
 
+  // "+" menu → Voice: ?voice=1 (from another page) or an event (already here) — a tap, so prompting is fine
+  const tapRef = useRef(null);
+  useEffect(() => { tapRef.current = handleTap; });
+  useEffect(() => {
+    const start = () => { if (!recorder.recording && phaseRef.current !== 'processing') tapRef.current?.(); };
+    window.addEventListener('pa:start-voice', start);
+    return () => window.removeEventListener('pa:start-voice', start);
+  }, [recorder.recording]);
+  useEffect(() => {
+    if (searchParams.get('voice') !== '1') return;
+    setSearchParams({}, { replace: true });
+    if (supported) tapRef.current?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ?voice=1
+  }, [searchParams]);
+
   async function handleUndo() {
     if (!result) return;
     setUndoing(true);
@@ -467,7 +482,7 @@ export default function QuickCapturePage() {
               {result.appendConfirmation?.detail && <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{result.appendConfirmation.detail}</p>}
               <div className="flex flex-wrap gap-3 mt-2">
                 <Link
-                  to={result.appliedTo.type === 'project' ? `/projects/${result.appliedTo.id}` : `/quick/inbox?note=${result.appliedTo.id}`}
+                  to={result.appliedTo.type === 'project' ? `/projects/${result.appliedTo.id}` : `/quick/${result.appliedTo.id}`}
                   className="text-xs font-medium text-gold-600 dark:text-gold-400"
                 >
                   Open {result.appliedTo.title} →
@@ -495,8 +510,8 @@ export default function QuickCapturePage() {
                   {result.items?.length > 0 && `: ${result.items.map(i => i.text).join(', ')}`}
                 </p>
               )}
-              <Link to={result.type === 'errand' ? `/quick/inbox?note=${result.id}` : '/quick/inbox'} className="inline-block mt-2 text-xs font-medium text-gold-600 dark:text-gold-400">
-                Open inbox →
+              <Link to={`/quick/${result.id}`} className="inline-block mt-2 text-xs font-medium text-gold-600 dark:text-gold-400">
+                Open note →
               </Link>
             </div>
           )}

@@ -3,7 +3,11 @@
 // (checklists at a store, with arrival reminders on Android), notes linked
 // to a recording, or standalone notes. Everything is undoable.
 //
-// Storage: ARCHIVE/07_Quick_Notes/{id}.json + 07_Quick_Notes/audio/{id}.{ext}
+// Also typed notes, checklists, photos and drawings (the "+" create menu): the
+// same classify → smart append → errands/calendar → summary pipeline, minus
+// transcription (photos: Gemini reads them first).
+//
+// Storage: ARCHIVE/07_Quick_Notes/{id}.json + audio/{id}.{ext} + media/{id}.{ext}
 
 const fs     = require('fs');
 const path   = require('path');
@@ -25,6 +29,15 @@ const AUDIO_TYPES = {
   'audio/m4a': 'm4a', 'audio/aac': 'aac', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
   'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/flac': 'flac',
 };
+const IMAGE_TYPES = {
+  'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+  'image/heic': 'heic', 'image/heif': 'heif', 'image/gif': 'gif',
+};
+const IMAGE_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', gif: 'image/gif' };
+const MEDIA_LIMIT = 20 * 1024 * 1024;
+const NOTE_COLORS = ['default', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink'];
+const SOURCES = ['voice', 'text', 'list', 'image', 'drawing'];
+
 // MIME types Gemini accepts for each stored extension (it lists m4a, not mp4)
 const GEMINI_MIME = {
   webm: 'audio/webm', ogg: 'audio/ogg', m4a: 'audio/m4a', aac: 'audio/aac',
@@ -114,11 +127,13 @@ const FIELD_GROUPS = [
 function createStore(archivePath) {
   const dir      = path.join(archivePath, '07_Quick_Notes');
   const audioDir = path.join(dir, 'audio');
+  const mediaDir = path.join(dir, 'media');
 
   const fileFor = id => path.join(dir, `${id}.json`);
 
   function ensureDirs() {
     fs.mkdirSync(audioDir, { recursive: true });
+    fs.mkdirSync(mediaDir, { recursive: true });
   }
 
   function read(id) {
@@ -157,7 +172,7 @@ function createStore(archivePath) {
     return notes;
   }
 
-  return { dir, audioDir, read, write, list, ensureDirs };
+  return { dir, audioDir, mediaDir, read, write, list, ensureDirs };
 }
 
 function newId() {
@@ -216,6 +231,52 @@ async function transcribe(audioPath, ext) {
     } catch (err) {
       lastErr = err;
       console.warn(`[quick] Gemini ${model} failed: ${err.message}`);
+    }
+  }
+  throw lastErr;
+}
+
+// ── Gemini: read a photo / drawing ─────────────────────────────────────────
+
+const IMAGE_PROMPTS = {
+  organize:
+    'You read photos saved into a personal notes app (receipts, whiteboards, labels, documents, screenshots, ' +
+    'handwritten notes, objects). Output plain text in two parts:\n' +
+    'Text:\n<every readable word, verbatim, keeping line breaks and numbers; "(none)" if there is no text>\n\n' +
+    'Description:\n<one or two sentences on what the photo shows; for a receipt: store, date, total; ' +
+    'for a whiteboard or list: what it is about>.\nNo other commentary.',
+  handwriting:
+    'This is a hand drawing or handwritten note. Output only the handwritten text, verbatim, keeping line breaks. ' +
+    'If there is no readable writing, output one short sentence describing the drawing, starting with "Drawing:".',
+};
+
+async function readImage(filePath, ext, mode = 'organize') {
+  if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
+  const { GoogleGenAI } = await import('@google/genai');
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const image = { type: 'image', data: fs.readFileSync(filePath, { encoding: 'base64' }), mime_type: IMAGE_MIME[ext] || 'image/jpeg' };
+  const models = [...new Set([
+    process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
+  ])];
+  let lastErr;
+  for (const [i, model] of models.entries()) {
+    const isLast = i === models.length - 1;
+    try {
+      const interaction = await client.interactions.create({
+        model,
+        system_instruction: IMAGE_PROMPTS[mode] || IMAGE_PROMPTS.organize,
+        input: [{ type: 'text', text: mode === 'handwriting' ? 'Read the handwriting.' : 'Read this photo.' }, image],
+      }, {
+        timeout_ms: 30000,
+        retries: isLast
+          ? { strategy: 'attempt-count-backoff', maxRetries: 1, retryConnectionErrors: true }
+          : { strategy: 'none' },
+      });
+      return (interaction.output_text || '').trim();
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[quick] Gemini image ${model} failed: ${err.message}`);
     }
   }
   throw lastErr;
@@ -410,7 +471,7 @@ async function summarize(note) {
   const updates = (note.updates || []).length
     ? `\n\n<updates>\n${note.updates.map(u => `[${describeNow(new Date(u.at)).human}] ${u.text}`).join('\n')}\n</updates>\n(Updates added later, oldest first — fold them into one summary; newer information wins.)`
     : '';
-  const itemsNow = note.type === 'errand' && (note.items || []).length
+  const itemsNow = (note.type === 'errand' || note.format === 'list') && (note.items || []).length
     ? `\n\n<checklist>\n${note.items.map(i => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n')}\n</checklist>`
     : '';
 
@@ -421,8 +482,9 @@ async function summarize(note) {
     messages: [{
       role: 'user',
       content:
-        `Captured: ${ctx.human} (${TIMEZONE})\n\n` +
-        `<transcript>\n${note.transcript || note.content || ''}\n</transcript>${edited}${updates}${itemsNow}`,
+        `Captured: ${ctx.human} (${TIMEZONE})${note.source && note.source !== 'voice' ? ` · typed in the app (${note.source}), not spoken` : ''}\n\n` +
+        `<transcript>\n${note.transcript || note.content || ''}\n</transcript>${edited}${updates}${itemsNow}` +
+        (note.mediaText ? `\n\n<from_${note.media?.kind || 'image'}>\n${note.mediaText}\n</from_${note.media?.kind || 'image'}>` : ''),
     }],
     output_config: { effort: 'medium' },
     // Retry on a fallback model if the primary model declines the request
@@ -656,7 +718,7 @@ function rememberOrigin(req) {
 }
 function noteLink(note) {
   const base = (process.env.PUBLIC_URL || seenOrigin || '').replace(/\/+$/, '');
-  return base ? `${base}/quick/inbox?note=${encodeURIComponent(note.id)}` : null;
+  return base ? `${base}/quick/${encodeURIComponent(note.id)}` : null;
 }
 
 async function syncGoogle(note) {
@@ -740,6 +802,8 @@ function confirmationFor(note, recordingTitle) {
     const placeProblem = hasArrival(note) && note.place && !note.place.resolved ? note.place.error : null;
     return { icon: '🛒', text, tone: placeProblem ? 'review' : tone, detail: detail || placeProblem || null };
   }
+  const saved = { text: ['📝', 'Note saved'], list: ['☑️', 'List saved'], image: ['🖼️', 'Photo saved'], drawing: ['✏️', 'Drawing saved'] }[note.source];
+  if (saved) return { icon: saved[0], text: saved[1], tone, detail };
   return { icon: '📝', text: 'Quick note saved', tone, detail };
 }
 
@@ -867,6 +931,29 @@ function createQuickCapture(deps) {
     },
   });
 
+  const mediaUpload = multer({
+    storage: multer.memoryStorage(),
+    limits:  { fileSize: MEDIA_LIMIT },
+    fileFilter: (_req, file, cb) => {
+      const base = (file.mimetype || '').split(';')[0].trim().toLowerCase();
+      if (IMAGE_TYPES[base]) cb(null, true);
+      else cb(Object.assign(new Error(`Unsupported image type: ${file.mimetype}`), { status: 400 }));
+    },
+  });
+
+  const cleanText = (v, max) => (typeof v === 'string' ? v.replace(/\r\n/g, '\n').trim().slice(0, max) : '');
+  const cleanList = list => (Array.isArray(list) ? list : [])
+    .map(x => (x && typeof x === 'object' ? x.text : x)).map(cleanItemText).filter(Boolean).slice(0, 100);
+  const doneTexts = list => (Array.isArray(list) ? list : [])
+    .filter(x => x && typeof x === 'object' && x.done).map(x => cleanItemText(x.text)).filter(Boolean);
+  /** Items ticked off while writing the list stay ticked */
+  const applyTypedDone = note => {
+    const done = new Set((note.typed?.done || []).map(t => t.toLowerCase()));
+    if (done.size) note.items = (note.items || []).map(i => (done.has(i.text.toLowerCase()) ? { ...i, done: true } : i));
+  };
+  const wantsAi = v => !(v === false || v === 'false' || v === '0');
+  const pickColor = c => (NOTE_COLORS.includes(c) && c !== 'default' ? c : null);
+
   // Capture/retry response: note + spoken text + short confirmation (for notifications)
   function captureResponse(note) {
     const title = note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null;
@@ -937,7 +1024,7 @@ function createQuickCapture(deps) {
   let summaryRunning = false;
 
   function markSummaryPending(note) {
-    if (note.transcript || note.content || (note.updates || []).length) {
+    if (note.transcript || note.content || note.mediaText || (note.items || []).length || (note.updates || []).length) {
       Object.assign(note, { summaryStatus: 'pending', summaryError: null });
     } else {
       Object.assign(note, { summaryStatus: 'failed', summaryError: 'No transcript to summarize' });
@@ -958,7 +1045,7 @@ function createQuickCapture(deps) {
       while (summaryQueue.length) {
         const id = summaryQueue.shift();
         const note = store.read(id);
-        if (!note || note.undone || note.kind === 'append' || !(note.transcript || note.content || (note.updates || []).length)) continue;
+        if (!note || note.undone || note.kind === 'append' || !(note.transcript || note.content || note.mediaText || (note.items || []).length || (note.updates || []).length)) continue;
         try {
           const summary = await summarize(note);
           updateGroup(id, { summary, summaryStatus: 'done', summaryError: null }, 'summaryUpdatedAt');
@@ -976,7 +1063,8 @@ function createQuickCapture(deps) {
   // Notes with no summary yet (or left "pending" by a restart)
   function backfillSummaries() {
     const todo = store.list().filter(n =>
-      !n.undone && n.transcript && (!n.summaryStatus || n.summaryStatus === 'pending'));
+      !n.undone && n.kind !== 'append' && (n.transcript || (n.typed && n.aiOrganize && (n.content || n.mediaText || (n.items || []).length)))
+      && (!n.summaryStatus || n.summaryStatus === 'pending'));
     if (!todo.length) return;
     console.log(`[quick] Queueing summaries for ${todo.length} quick note(s)`);
     for (const n of todo.reverse()) { // oldest first
@@ -1040,6 +1128,86 @@ function createQuickCapture(deps) {
     return finalize(note);
   }
 
+  /**
+   * Typed note / list / photo: the voice pipeline without transcription.
+   * What the user typed wins over the classifier's rewrite (title, body, items).
+   */
+  async function runTextPipeline(note, now) {
+    const typed = note.typed || {};
+    const text = [
+      typed.title ? `Title: ${typed.title}` : null,
+      typed.body || null,
+      typed.items?.length ? `List:\n${typed.items.map(t => `- ${t}`).join('\n')}` : null,
+      note.mediaText ? `(From an attached ${note.media?.kind || 'photo'})\n${note.mediaText}` : null,
+    ].filter(Boolean).join('\n\n');
+    try {
+      if (!text.trim()) throw new Error('Nothing to organize');
+      const recordings = deps.getRecentRecordings(100);
+      const cls = await classify({ transcript: text, now, recordings, candidates: smart().candidates(now) });
+      // A typed checklist added to a list: the typed items are the items to add
+      if (typed.items?.length && cls.action === 'append' && !(cls.addItems || []).length) cls.addItems = typed.items;
+      note.classification = cls;
+      applyFields(note, cls, deps);
+      if (typed.title) note.title = typed.title;
+      if (typed.body) note.content = typed.body;
+      else if (note.source === 'image' || note.source === 'list') note.content = typed.caption || '';
+      if (typed.items?.length) {
+        note.items = normalizeItems(typed.items, note.type === 'errand' ? note.items : []);
+        applyTypedDone(note);
+        if (note.type !== 'errand') note.format = 'list';
+      }
+      note.spokenConfirmation = String(cls.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
+      await routeIntent(note, cls, now);
+    } catch (err) {
+      console.warn(`[quick] Organizing typed note ${note.id} failed: ${err.message}`);
+      note.error = `AI organize failed: ${err.message}`;
+    }
+    if (!note.classification) {
+      saveAsTyped(note);
+      note.status = 'needs_review';
+      note.spokenConfirmation = 'Saved, but the AI couldn\'t organize it — check your inbox.';
+    }
+    await syncGoogle(note);
+    if (note.kind !== 'append') markSummaryPending(note);
+    return finalize(note);
+  }
+
+  /** "Let AI organize" off (or AI failed): keep exactly what was typed. */
+  function saveAsTyped(note) {
+    const typed = note.typed || {};
+    const firstLine = String(typed.body || typed.caption || '').split('\n').map(l => l.trim()).find(Boolean) || '';
+    note.type = 'note';
+    note.title = typed.title || firstLine.slice(0, 60) || typed.items?.[0]
+      || { list: 'List', image: 'Photo', drawing: 'Drawing' }[note.source] || 'Note';
+    note.content = typed.body || typed.caption || '';
+    if (typed.items?.length) {
+      note.format = 'list';
+      note.items = normalizeItems(typed.items, note.items || []);
+      applyTypedDone(note);
+    }
+    note.spokenConfirmation = `Saved: ${note.title}`;
+    return note;
+  }
+
+  /** Shared skeleton for every capture */
+  function blankNote(id, now, extra = {}) {
+    return {
+      id, clientId: null,
+      createdAt:  new Date().toISOString(),
+      capturedAt: now.toISOString(),
+      audioFile:  null,
+      transcript: null,
+      classification: null,
+      type: 'note', status: 'ok', title: 'Quick note', content: '',
+      start: null, end: null, allDay: false, location: null, dueDate: null,
+      linkedRecordingId: null, linkConfidence: null,
+      googleEventIds: [], googleSync: null, googleError: null,
+      actions: [], spokenConfirmation: null, error: null,
+      undone: false, undoneAt: null,
+      ...extra,
+    };
+  }
+
   /** Smart append: apply / ask / create (+ projects) for a freshly classified capture. */
   async function routeIntent(note, cls, now) {
     const decision = smart().decide(note, cls);
@@ -1082,6 +1250,15 @@ function createQuickCapture(deps) {
   }
 
   function register(app) {
+    function loadNoteRoute(req, res) {
+      const { id } = req.params;
+      if (!isQuickId(id)) { res.status(400).json({ error: 'Invalid quick note ID' }); return null; }
+      const note = store.read(id);
+      if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
+      if (note.undone) { res.status(409).json({ error: 'This note was deleted' }); return null; }
+      return note;
+    }
+
     // GET /api/quick — newest first; optional ?recordingId=&status=
     app.get('/api/quick', (req, res) => {
       try {
@@ -1093,6 +1270,99 @@ function createQuickCapture(deps) {
         if (req.query.status)      notes = notes.filter(n => n.status === req.query.status);
         res.json(notes);
       } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // POST /api/quick/text — { title?, body?, items?[], aiOrganize = true, clientId?, color? }
+    // A typed note (body) or checklist (items) through the same pipeline as voice.
+    app.post('/api/quick/text', async (req, res) => {
+      const b = req.body || {};
+      const title = cleanText(b.title, 120);
+      const body  = cleanText(b.body, 20000);
+      const items = cleanList(b.items);
+      if (!title && !body && !items.length) return res.status(400).json({ error: 'Write something first' });
+      rememberOrigin(req);
+      const clientId = typeof b.clientId === 'string' ? b.clientId.slice(0, 64) : null;
+      if (clientId) {
+        const existing = store.list().find(n => n.clientId === clientId);
+        if (existing) return res.json(captureResponse(existing));
+      }
+      const now = referenceTime(b.capturedAt);
+      const note = blankNote(newId(), now, {
+        clientId,
+        source: items.length ? 'list' : 'text',
+        typed: { title, body, items, done: doneTexts(b.items) },
+        aiOrganize: wantsAi(b.aiOrganize),
+        color: pickColor(b.color),
+        pinned: b.pinned === true,
+      });
+      try {
+        if (note.aiOrganize) await runTextPipeline(note, now);
+        else { saveAsTyped(note); note.summaryStatus = 'none'; finalize(note); }
+        res.json(captureResponse(note));
+        if (note.summaryStatus === 'pending') queueSummary(note.id);
+      } catch (err) {
+        console.error('/quick/text error:', err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // POST /api/quick/media — multipart: file (image ≤ 20 MB), kind 'image'|'drawing', caption?, title?, aiOrganize?, clientId?
+    app.post('/api/quick/media', (req, res, next) => {
+      mediaUpload.single('file')(req, res, err => {
+        if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : (err.status || 400)).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Images can be up to 20 MB' : err.message });
+        next();
+      });
+    }, async (req, res) => {
+      if (!req.file?.buffer?.length) return res.status(400).json({ error: 'An image is required' });
+      rememberOrigin(req);
+      const b = req.body || {};
+      const clientId = typeof b.clientId === 'string' ? b.clientId.slice(0, 64) : null;
+      if (clientId) {
+        const existing = store.list().find(n => n.clientId === clientId);
+        if (existing) return res.json(captureResponse(existing));
+      }
+      const kind = b.kind === 'drawing' ? 'drawing' : 'image';
+      const ext  = IMAGE_TYPES[req.file.mimetype.split(';')[0].trim().toLowerCase()] || 'jpg';
+      const id   = newId();
+      const now  = referenceTime(b.capturedAt);
+      const caption = cleanText(b.caption, 4000);
+      const note = blankNote(id, now, {
+        clientId,
+        source: kind,
+        typed: { title: cleanText(b.title, 120), caption, body: '', items: [] },
+        aiOrganize: kind === 'image' && wantsAi(b.aiOrganize),
+        media: { kind, file: `${id}.${ext}`, ext, mime: IMAGE_MIME[ext], bytes: req.file.size },
+        color: pickColor(b.color),
+      });
+      try {
+        store.ensureDirs();
+        fs.writeFileSync(path.join(store.mediaDir, note.media.file), req.file.buffer);
+        store.write(note);
+      } catch (err) {
+        console.error('/quick/media save error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+      try {
+        if (note.aiOrganize) {
+          try {
+            note.mediaText = await readImage(path.join(store.mediaDir, note.media.file), ext, 'organize');
+          } catch (err) {
+            console.warn(`[quick] Reading photo ${id} failed: ${err.message}`);
+            note.error = `Reading the photo failed: ${err.message}`;
+          }
+          await runTextPipeline(note, now);
+        } else {
+          saveAsTyped(note);
+          note.content = caption;
+          note.summaryStatus = 'none';
+          finalize(note);
+        }
+        res.json(captureResponse(note));
+        if (note.summaryStatus === 'pending') queueSummary(note.id);
+      } catch (err) {
+        console.error('/quick/media error:', err);
         res.status(500).json({ error: err.message });
       }
     });
@@ -1131,6 +1401,7 @@ function createQuickCapture(deps) {
           createdAt:  new Date().toISOString(),
           capturedAt: now.toISOString(),
           audioFile:  `${id}.${ext}`,
+          source:     'voice',
           transcript: null,
           classification: null,
           type: 'note', status: 'ok', title: 'Quick note', content: '',
@@ -1212,6 +1483,29 @@ function createQuickCapture(deps) {
       res.json(out);
     });
 
+    // GET /api/quick/search?q= — quick notes for the Search page (titles, text, lists, photo text, updates)
+    app.get('/api/quick/search', (req, res) => {
+      const q = String(req.query.q || '').trim().toLowerCase();
+      if (q.length < 2) return res.json([]);
+      const out = [];
+      for (const n of store.list()) {
+        if (n.undone || n.hidden) continue;
+        const fields = [n.title, n.content, n.transcript, n.summary, n.mediaText,
+          (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n')];
+        const hit = fields.find(f => f && String(f).toLowerCase().includes(q));
+        if (!hit) continue;
+        const raw = String(hit);
+        const i = raw.toLowerCase().indexOf(q);
+        out.push({
+          id: n.id, title: n.title, type: n.type, source: n.source || 'voice', format: n.format || null,
+          capturedAt: n.capturedAt || n.createdAt, projectId: n.projectId || null, hasMedia: !!n.media,
+          snippet: raw === n.title ? '' : raw.slice(Math.max(0, i - 60), i + 140).replace(/\s+/g, ' ').trim(),
+        });
+        if (out.length >= 50) break;
+      }
+      res.json(out);
+    });
+
     app.get('/api/quick/settings', (_req, res) => res.json(smart().settings()));
     app.put('/api/quick/settings', (req, res) => {
       try { res.json(smart().saveSettings(req.body || {})); } catch (err) { fail(res, err); }
@@ -1233,7 +1527,9 @@ function createQuickCapture(deps) {
       const note = store.read(id);
       if (!note) return res.status(404).json({ error: 'Quick note not found' });
       if (note.undone) return res.status(409).json({ error: 'This capture was undone' });
-      if (!note.transcript) return res.status(409).json({ error: 'There is no transcript to summarize' });
+      if (!note.transcript && !note.content && !note.mediaText && !(note.items || []).length) {
+        return res.status(409).json({ error: 'There is nothing to summarize' });
+      }
 
       markSummaryPending(note);
       const saved = store.write(note);
@@ -1252,9 +1548,19 @@ function createQuickCapture(deps) {
       if (note.status !== 'needs_review') return res.status(409).json({ error: 'Only captures that need review can be retried' });
 
       try {
-        Object.assign(note, { transcript: null, classification: null, error: null, status: 'ok' });
         const captured = new Date(note.capturedAt || note.createdAt);
-        await runPipeline(note, isNaN(captured) ? new Date() : captured);
+        const at = isNaN(captured) ? new Date() : captured;
+        if (note.typed && note.source !== 'voice') {
+          Object.assign(note, { classification: null, error: null, status: 'ok' });
+          if (note.source === 'image' && note.media && !note.mediaText) {
+            try { note.mediaText = await readImage(path.join(store.mediaDir, note.media.file), note.media.ext, 'organize'); }
+            catch (err) { note.error = `Reading the photo failed: ${err.message}`; }
+          }
+          await runTextPipeline(note, at);
+        } else {
+          Object.assign(note, { transcript: null, classification: null, error: null, status: 'ok' });
+          await runPipeline(note, at);
+        }
         res.json(captureResponse(note));
         if (note.summaryStatus === 'pending') queueSummary(note.id);
       } catch (err) {
@@ -1272,6 +1578,71 @@ function createQuickCapture(deps) {
       const file = path.join(store.audioDir, path.basename(note.audioFile));
       if (!fs.existsSync(file)) return res.status(404).json({ error: 'Audio not found' });
       res.sendFile(path.resolve(file));
+    });
+
+    // GET /api/quick/:id/media — the photo / drawing
+    app.get('/api/quick/:id/media', (req, res) => {
+      const { id } = req.params;
+      if (!isQuickId(id)) return res.status(400).json({ error: 'Invalid quick note ID' });
+      const note = store.read(id);
+      if (!note?.media?.file) return res.status(404).json({ error: 'Image not found' });
+      const file = path.join(store.mediaDir, path.basename(note.media.file));
+      if (!fs.existsSync(file)) return res.status(404).json({ error: 'Image not found' });
+      res.set('Cache-Control', 'private, max-age=86400');
+      res.sendFile(path.resolve(file));
+    });
+
+    // POST /api/quick/:id/handwriting — "Convert handwriting" (Gemini) for a drawing or photo
+    app.post('/api/quick/:id/handwriting', async (req, res) => {
+      const note = loadNoteRoute(req, res);
+      if (!note) return;
+      if (!note.media?.file) return res.status(409).json({ error: 'This note has no drawing' });
+      try {
+        const text = await readImage(path.join(store.mediaDir, note.media.file), note.media.ext, 'handwriting');
+        const fresh = store.read(note.id);
+        fresh.mediaText = text;
+        fresh.handwritingAt = new Date().toISOString();
+        if (fresh.title === 'Drawing' && text && !/^drawing:/i.test(text)) fresh.title = text.split('\n')[0].slice(0, 60);
+        const resum = markSummaryPending(fresh);
+        res.json(finalize(fresh));
+        if (resum) queueSummary(fresh.id);
+      } catch (err) {
+        res.status(502).json({ error: `Couldn't read the handwriting: ${err.message}` });
+      }
+    });
+
+    // PATCH /api/quick/:id/meta — { pinned?, color? } (no AI, no calendar)
+    app.patch('/api/quick/:id/meta', (req, res) => {
+      const note = loadNoteRoute(req, res);
+      if (!note) return;
+      const b = req.body || {};
+      if (typeof b.pinned === 'boolean') { note.pinned = b.pinned; note.pinnedAt = b.pinned ? new Date().toISOString() : null; }
+      if (b.color !== undefined) {
+        if (!NOTE_COLORS.includes(b.color)) return res.status(400).json({ error: `color must be one of: ${NOTE_COLORS.join(', ')}` });
+        note.color = pickColor(b.color);
+      }
+      res.json(store.write(note));
+    });
+
+    // POST /api/quick/:id/restore — bring back a deleted (undone) note, with its calendar event
+    app.post('/api/quick/:id/restore', async (req, res) => {
+      const { id } = req.params;
+      if (!isQuickId(id)) return res.status(400).json({ error: 'Invalid quick note ID' });
+      const note = store.read(id);
+      if (!note) return res.status(404).json({ error: 'Quick note not found' });
+      if (!note.undone) return res.json(note);
+      if (note.kind === 'append' || note.appendOrigin === 'voice' && note.hidden) {
+        return res.status(409).json({ error: 'This update was undone; record or type it again' });
+      }
+      note.undone = false;
+      note.undoneAt = null;
+      note.hidden = false;
+      if (note.undoneLink && deps.recordingExists(note.undoneLink)) note.linkedRecordingId = note.undoneLink;
+      note.undoneLink = null;
+      note.actions = (note.actions || []).filter(a => a !== 'Undone');
+      rememberOrigin(req);
+      await syncGoogle(note);
+      res.json(finalize(note));
     });
 
     // PUT /api/quick/:id — edit title/content/type/dates/link; updates Google
@@ -1319,6 +1690,9 @@ function createQuickCapture(deps) {
             : note.placeSpec,
           trigger:           pick('trigger'),
         }, deps);
+        if (note.format === 'list' && note.type !== 'errand' && Array.isArray(body.items)) {
+          note.items = normalizeItems(body.items, note.items);
+        }
         rememberOrigin(req);
         // New errand (type changed): apply the arrival setting; otherwise keep the chosen trigger
         await prepareErrand(note, { auto: wasType !== 'errand' && body.trigger === undefined });
@@ -1345,7 +1719,7 @@ function createQuickCapture(deps) {
       const note = store.read(id);
       if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
       if (note.undone) { res.status(409).json({ error: 'This capture was undone' }); return null; }
-      if (note.type !== 'errand') { res.status(409).json({ error: 'Only errands have a checklist' }); return null; }
+      if (note.type !== 'errand' && note.format !== 'list') { res.status(409).json({ error: 'Only lists and errands have a checklist' }); return null; }
       return note;
     }
 
@@ -1372,8 +1746,14 @@ function createQuickCapture(deps) {
         }
       } else if (action === 'remove') {
         items.splice(idx, 1);
+      } else if (action === 'reorder') {
+        const order = Array.isArray(req.body.order) ? req.body.order : [];
+        const byId = new Map(items.map(i => [i.id, i]));
+        const sorted = order.map(id => byId.get(id)).filter(Boolean);
+        if (sorted.length !== items.length) return res.status(400).json({ error: 'order must list every item id' });
+        items.splice(0, items.length, ...sorted);
       } else {
-        return res.status(400).json({ error: 'action must be toggle, add, edit or remove' });
+        return res.status(400).json({ error: 'action must be toggle, add, edit, remove or reorder' });
       }
 
       note.items = items;

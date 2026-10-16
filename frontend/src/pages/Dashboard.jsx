@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { getRecordings, getStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
+import { useAppearance } from '../context/appearanceStore';
 import TimelineView, { TimelineSkeletonRows } from '../components/TimelineView';
 
 // ── Stat Card ────────────────────────────────────────────────────────────────
@@ -104,7 +105,8 @@ const STAT_COLORS = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { favorites, toggleFavorite, viewMode, setViewMode, darkMode, syncVersion } = useApp();
+  const { favorites, toggleFavorite, viewMode, setViewMode, syncVersion } = useApp();
+  const { darkMode } = useAppearance();
 
   const [recordings, setRecordings] = useState([]);
   const [stats, setStats]           = useState(null);

@@ -24,7 +24,7 @@ export default function QuickToast({ toast, onDismiss, duration = 4000 }) {
   const actions = toast.actions || [];
 
   return (
-    <div className="fixed inset-x-0 top-16 md:top-5 z-[150] flex justify-center px-4 pointer-events-none">
+    <div className="fixed inset-x-0 top-16 md:top-5 z-[250] flex justify-center px-4 pointer-events-none">
       <div
         key={toast.id}
         role="status"

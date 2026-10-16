@@ -8,6 +8,7 @@ import { getStats, getHealth, changePassword, getDevices, revokeDevice } from '.
 import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
+import AppearanceSettings from '../components/AppearanceSettings';
 
 function shortDate(iso) {
   return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -181,6 +182,8 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Settings</h1>
         <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Archive configuration and backend status</p>
       </div>
+
+      <AppearanceSettings />
 
       {/* ── Backend status ──────────────────────────────────────────────────── */}
       <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">

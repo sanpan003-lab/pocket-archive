@@ -6,7 +6,7 @@ export const QUICK_TYPES = {
   reminder:  { label: 'Reminder',    icon: Bell,          badge: 'badge-violet', color: '#8B5CF6' },
   errand:    { label: 'Errand',      icon: ShoppingCart,  badge: 'badge-green',  color: '#10B981', emoji: '🛒' },
   note_link: { label: 'Linked note', icon: Link2,         badge: 'badge-teal',   color: '#14B8A6' },
-  note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-gold',   color: '#F59E0B' },
+  note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-gold',   color: 'rgb(var(--accent-500))' },
 };
 
 export const REVIEW_ACCENT = '#F97316';
@@ -119,6 +119,8 @@ export function confirmationFor(note) {
     const placeProblem = errandHasArrival(note) && note.place && !note.place.resolved ? note.place.error : null;
     return { icon: '🛒', text, tone: placeProblem ? 'review' : tone, detail: detail || placeProblem || null };
   }
+  const saved = { text: ['📝', 'Note saved'], list: ['☑️', 'List saved'], image: ['🖼️', 'Photo saved'], drawing: ['✏️', 'Drawing saved'] }[note.source];
+  if (saved) return { icon: saved[0], text: saved[1], tone, detail };
   return { icon: '📝', text: 'Quick note saved', tone, detail };
 }
 

@@ -83,7 +83,7 @@ export default function QuickSummary({ note, clamp = false, onChanged }) {
     return (
       <div className="my-2 flex flex-wrap items-center gap-2">
         <p className="text-xs text-navy-500 dark:text-white/50">Summary unavailable</p>
-        {note.transcript && !note.undone && (
+        {(note.transcript || note.content || note.mediaText || (note.items || []).length > 0) && !note.undone && (
           <button className="btn-ghost text-xs py-1" onClick={retry} disabled={retrying}>
             <RotateCcw size={12} className={retrying ? 'animate-spin' : ''} />
             {retrying ? 'Retrying…' : 'Retry'}

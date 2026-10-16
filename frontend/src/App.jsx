@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
+import { useAppearance } from './context/appearanceStore';
 import { returnPath } from './lib/returnPath';
 import AppLayout from './components/AppLayout';
 import Dashboard from './pages/Dashboard';
@@ -47,6 +49,19 @@ function LoginRoute() {
   return <LoginPage />;
 }
 
+// Settings → Behavior → "Default screen": only when the app was opened on "/", once
+const OPENED_ON_HOME = window.location.pathname === '/';
+let launchHandled = false;
+const DEFAULT_SCREENS = { quick: '/quick', inbox: '/quick/inbox', projects: '/projects' };
+
+function Home() {
+  const { settings } = useAppearance();
+  const target = OPENED_ON_HOME && !launchHandled ? DEFAULT_SCREENS[settings.behavior.defaultScreen] : null;
+  useEffect(() => { launchHandled = true; }, []);
+  if (target) return <Navigate to={target} replace />;
+  return <Dashboard />;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -67,9 +82,11 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route index element={<Home />} />
             <Route path="quick"       element={<QuickCapturePage />} />
             <Route path="quick/inbox" element={<QuickInboxPage />} />
+            {/* One note, opened over the inbox (deep links, widget, Back button) */}
+            <Route path="quick/:id"   element={<QuickInboxPage />} />
             <Route path="projects"     element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="recordings/:id" element={<RecordingDetail />} />

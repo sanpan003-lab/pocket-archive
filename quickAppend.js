@@ -22,6 +22,8 @@ const sameItem = (a, b) => {
   const x = itemKey(a), y = itemKey(b);
   return x === y || (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x)));
 };
+/** Errands and typed checklists both have items */
+const hasList = n => n.type === 'errand' || n.format === 'list';
 const plain = md => String(md || '').replace(/<[^>]+>/g, ' ').replace(/[#*_`>|-]+/g, ' ').replace(/\s+/g, ' ').trim();
 const oneLine = (n, max = 110) => plain(n.summary || n.content || n.transcript || '').slice(0, max);
 const uid = p => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -164,7 +166,7 @@ function createAppender(ctx) {
     const eventChange = isEventLike(target) && (action === 'cancel' || (action === 'update' && Object.values(payload.changes).some(v => v)));
 
     // Everything to add is already on the list: nothing would change, so no need to ask
-    const noOp = target.type === 'errand' && action === 'append' && payload.addItems.length && !payload.removeItems.length &&
+    const noOp = target.note && hasList(target.note) && action === 'append' && payload.addItems.length && !payload.removeItems.length &&
       payload.addItems.every(t => (target.note.items || []).some(i => sameItem(i.text, t)));
 
     let mode;
@@ -218,6 +220,8 @@ function createAppender(ctx) {
       text: text || capture.content || capture.transcript || '',
       transcript: capture.transcript || null,
       hasAudio: !!capture.audioFile,
+      media: capture.media ? { kind: capture.media.kind } : null,
+      mediaText: capture.mediaText || null,
       linkedRecordingId: capture.linkedRecordingId || null,
     };
     target.updates = [...(target.updates || []), update];
@@ -289,7 +293,7 @@ function createAppender(ctx) {
         n.cancelledAt = new Date().toISOString();
         entry.after = { cancelled: true, cancelledAt: n.cancelledAt };
         icon = '🗑️'; text = `Cancelled ${n.title}`; resultLine = `✕ ${n.title}`;
-      } else if (n.type === 'errand' && (payload.addItems.length || payload.removeItems.length)) {
+      } else if (hasList(n) && (payload.addItems.length || payload.removeItems.length)) {
         const { added, already } = addItems(n, payload.addItems);
         const { removed, missing } = removeItems(n, payload.removeItems);
         entry.kind = 'items';
@@ -461,8 +465,9 @@ function createAppender(ctx) {
     if (!target || target.id === capture.id) throw Object.assign(new Error('Target not found'), { status: 404 });
     // Moving onto a list: the capture's own items become the items to add
     const p = { ...payload, action: payload.action === 'cancel' ? 'append' : payload.action };
-    if (target.type === 'errand' && !p.addItems.length && capture.items?.length) p.addItems = capture.items.map(i => i.text);
-    if (target.type !== 'errand') { p.addItems = []; p.removeItems = []; }
+    const listTarget = target.type === 'errand' || (target.note && hasList(target.note));
+    if (listTarget && !p.addItems.length && capture.items?.length) p.addItems = capture.items.map(i => i.text);
+    if (!listTarget) { p.addItems = []; p.removeItems = []; }
     if (!p.appendText) p.appendText = capture.content || capture.transcript || '';
     return apply(capture, target, p, { origin: 'voice' });
   }
@@ -530,7 +535,7 @@ function createAppender(ctx) {
     const n = store.read(target.id);
     const entry = { captureId: src.id, kind: 'merge', origin: 'merge', groupId };
     if (titleBefore !== undefined) entry.titleBefore = titleBefore;
-    if (n.type === 'errand' && src.items?.length) {
+    if (hasList(n) && src.items?.length) {
       const { added, already } = addItems(n, src.items.map(i => i.text));
       // Keep checked state of merged items
       for (const a of added) {

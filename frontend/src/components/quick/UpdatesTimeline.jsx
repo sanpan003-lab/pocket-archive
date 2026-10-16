@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, History, Link2 } from 'lucide-react';
-import { quickAudioUrl } from '../../lib/api';
+import { quickAudioUrl, quickMediaUrl } from '../../lib/api';
 import QuickAudio from './QuickAudio';
 import { TranscriptToggle } from './QuickSummary';
 
@@ -38,6 +38,13 @@ export default function UpdatesTimeline({ note, defaultOpen = false }) {
                   <Link2 size={12} /> Linked recording
                 </Link>
               )}
+              {u.media && (
+                <a href={quickMediaUrl(u.captureId)} target="_blank" rel="noopener noreferrer" className="block mt-1.5">
+                  <img src={quickMediaUrl(u.captureId)} alt={u.media.kind === 'drawing' ? 'Drawing' : 'Photo'} loading="lazy"
+                    className={`max-h-48 rounded-xl border border-navy-100 dark:border-white/10 ${u.media.kind === 'drawing' ? 'bg-white' : ''}`} />
+                </a>
+              )}
+              {u.mediaText && u.mediaText !== u.text && <p className="mt-1 text-xs text-navy-500 dark:text-white/55 whitespace-pre-line line-clamp-6">{u.mediaText}</p>}
               {u.hasAudio && <QuickAudio src={quickAudioUrl(u.captureId)} />}
             </li>
           ))}

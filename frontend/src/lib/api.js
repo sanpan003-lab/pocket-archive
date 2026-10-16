@@ -98,6 +98,23 @@ export const retryQuickNote     = id => http.post(`/quick/${id}/retry`).then(r =
 export const getQuickNote       = id => http.get(`/quick/${id}`).then(r => r.data);
 export const summarizeQuickNote = id => http.post(`/quick/${id}/summarize`).then(r => r.data);
 export const quickAudioUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/audio`);
+export const quickMediaUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/media`);
+export const restoreQuickNote   = id => http.post(`/quick/${id}/restore`).then(r => r.data);
+export const setQuickMeta       = (id, meta) => http.patch(`/quick/${id}/meta`, meta).then(r => r.data);
+export const searchQuickNotes   = q => http.get('/quick/search', { params: { q } }).then(r => r.data);
+export const convertHandwriting = id => http.post(`/quick/${id}/handwriting`, null, { timeout: 90000 }).then(r => r.data);
+
+// "+" create menu: typed note / checklist, photo / drawing (same AI pipeline as voice)
+export const createTextNote     = data => http.post('/quick/text', data, { timeout: 120000 }).then(r => r.data);
+export const createMediaNote    = (formData, onProgress) => http.post('/quick/media', formData, {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: 180000,
+  onUploadProgress: e => onProgress?.(e.total ? Math.round((e.loaded * 100) / e.total) : 0),
+}).then(r => r.data);
+
+// Appearance & layout (shared across devices)
+export const getAppearance      = () => http.get('/appearance').then(r => r.data);
+export const saveAppearance     = groups => http.put('/appearance', groups).then(r => r.data);
 
 // Smart append: answers, Move, Merge into, Combine, settings
 export const decideQuickNote    = (id, choice, dest = {}) => http.post(`/quick/${id}/decide`, { choice, ...dest }).then(r => r.data);

@@ -7,6 +7,7 @@ import {
   Smartphone, Monitor, Share,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAppearance } from '../context/appearanceStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { getStats, triggerSync, getSyncStatus } from '../lib/api';
 
@@ -110,10 +111,10 @@ function useSyncButton(triggerRefresh) {
 export default function Sidebar() {
   const {
     sidebarOpen, setSidebarOpen,
-    darkMode, setDarkMode,
     triggerRefresh, logout,
     mobileMenuOpen, setMobileMenuOpen,
   } = useApp();
+  const { darkMode, setDarkMode } = useAppearance();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
@@ -157,7 +158,7 @@ export default function Sidebar() {
     >
       {/* ── Branding ───────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-5 shrink-0">
-        <div className="w-8 h-8 rounded-xl bg-gold-gradient flex items-center justify-center shrink-0 shadow-gold">
+        <div className="w-8 h-8 rounded-xl bg-brand-gradient flex items-center justify-center shrink-0 shadow-brand">
           <Mic2 size={16} className="text-white" />
         </div>
         {showLabels && (

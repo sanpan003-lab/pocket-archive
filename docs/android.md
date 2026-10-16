@@ -86,7 +86,7 @@ in addition to the existing development origins; everything else stays blocked.
 
 | Entry point | What it does |
 |---|---|
-| App → Quick Capture | Big mic button (native recorder) |
+| App → Quick Capture | Big mic button (native recorder); the **+** menu adds text, list, photo and drawing notes |
 | **Home-screen widget** (resizable) | **1×1:** gold mic. Tap = start, tap again = stop + upload; doesn't open the app. **2×1 / 3×1:** mic + status line ("Last: Dentist · 2h ago" / "● 0:12 Tap to stop"). **4×2+:** header (tap → Inbox) with mic and a "pending" badge for offline recordings, the 5 most recent quick notes (tap one → it opens expanded in the Inbox; amber dot = needs review), a big Stop button with a live timer while recording, and "Uploading… → Processing… → result" after stopping. The list is cached, so it shows offline (with an "Offline" hint). It refreshes after every capture, when the app opens, and every 30 min with a network connection. |
 | **Quick Settings tile** "Quick Capture" | Same toggle; also from the lock screen |
 | **App shortcuts** (long-press the icon) | *Quick Capture* (starts recording) · *Inbox* |
@@ -123,6 +123,32 @@ recording. With the app on screen, the activity handles the keys first (no doubl
   (or *Quick Record*) to stop/start from any trigger.
 - Android has no way to hide a launcher entry from the app drawer and still offer it to the side key and
   Routines, so *Quick Record* and *Stop Recording* both appear there. Put them in a folder if you like.
+
+## Create menu, opening notes, appearance
+
+The gold **+** button (Quick Capture, Inbox, Projects — or everywhere, in Settings) opens:
+
+| | |
+|---|---|
+| Voice | The recorder, as before. |
+| Text | Title + note (markdown). |
+| List | Checklist: type + Enter adds, drag the handle to reorder, tick items off. |
+| Image | *Take photo* (the phone's camera app) or *From gallery* (Android's photo picker — the app only sees the photo you pick; no storage permission). Optional caption. |
+| Drawing | Full screen: pen, highlighter, eraser, 6 colors, 3 sizes, undo/redo, clear. *Convert handwriting* in the note turns writing into text. |
+
+**✨ Let AI organize** (on by default) sends typed notes and photos through the same AI as voice notes:
+lists, reminders, calendar events, adding to an existing list or project (with Undo / Move / "Add to …?"),
+and a summary. Photos are read by Gemini first (receipts, whiteboards, labels), so their text is
+searchable. Off = saved exactly as typed.
+
+Tapping a note opens just that note — floating card (wide screens), bottom sheet that expands to full
+screen (phones), full screen, side panel, or expand in place (Settings → *Appearance & layout*). The
+Android Back button closes it; swipe left/right for the previous/next note. Widget and watch links open
+the note the same way.
+
+*Appearance & layout* also has the Inbox layout (Keep-style grid, list, compact), card preview, pinned
+notes, sort, card style, note colors, theme (System/Light/Dark/Black), accent color, text size, density,
+animations, default screen and haptics. Each group can apply to all devices or just this phone.
 
 ## Smart append, projects & combining notes
 

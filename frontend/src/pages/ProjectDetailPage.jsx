@@ -143,7 +143,7 @@ export default function ProjectDetailPage() {
                     {(n.updates || []).length > 0 && <span className="badge badge-slate">Updated {n.updates.length}×</span>}
                     <span className="ml-auto text-xs text-navy-400 dark:text-white/45">{cardTime(n.capturedAt || n.createdAt)}</span>
                   </div>
-                  <Link to={`/quick/inbox?note=${n.id}`} className="font-semibold text-navy-900 dark:text-white break-words hover:underline">{n.title}</Link>
+                  <Link to={`/quick/${n.id}`} className="font-semibold text-navy-900 dark:text-white break-words hover:underline">{n.title}</Link>
                   {n.summaryStatus === 'done' && n.summary && (
                     <p className="text-sm text-navy-700 dark:text-white/70 mt-1 line-clamp-3 break-words">{summaryPreview(n)}</p>
                   )}

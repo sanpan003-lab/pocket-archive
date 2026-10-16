@@ -16,7 +16,9 @@
   "dependencies": {
     "@capacitor/android": "^8.5.3",
     "@capacitor/app": "^8.1.2",
+    "@capacitor/camera": "8.2.4",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/share": "8.0.2",
     "axios": "^1.15.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.12.0",

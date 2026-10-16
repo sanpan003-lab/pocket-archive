@@ -36,16 +36,41 @@ inside the Android app (`android/`). The backend lives in
 
 ## Android release procedure
 
-1. Make sure the web part is deployed if it changed: run `deploy-to-nas.bat`, copy the
-   backend to the NAS, and rebuild the container (the app loads its screens from there).
-   Copy the backend with exactly these exclusions (the NAS keeps its own secrets and config;
-   `.git-old-backup` is the backend folder's retired git history and must never be copied):
+1. Make sure the web part is deployed if it changed (the app loads its screens from the NAS).
+   **The NAS builds the web app itself:** `docker-compose.yml` uses `backend/Dockerfile` with
+   context `Z:\pocket-archive`, which runs `npm run build` on **`Z:\pocket-archive\frontend`**
+   and serves that (not `public/` from `deploy-to-nas.bat`). So every web deploy needs BOTH copies
+   below, then a NAS rebuild. If Docker logs `CACHED COPY frontend/`, the source didn't reach the NAS.
 
-   ```bat
-   robocopy C:\Users\sundi\Documents\pocket-archive-backend Z:\pocket-archive /E ^
-     /XD node_modules .git .git-old-backup ^
-     /XF .env docker-compose.yml config.json *service-account*.json
-   ```
+   a. Run `deploy-to-nas.bat`: builds, fills the backend's `public/`, and syncs the frontend source to
+      `Z:\pocket-archive\frontend` (step c below, built in since 2026-10-16).
+
+   b. Backend, with exactly these exclusions (the NAS keeps its own secrets and config;
+      `.git-old-backup` is the backend folder's retired git history and must never be copied).
+      Its own `frontend\` folder is an old copy and is excluded: robocopy also copies *older*
+      files, so it would overwrite the real frontend on the NAS:
+
+      ```bat
+      robocopy C:\Users\sundi\Documents\pocket-archive-backend Z:\pocket-archive /E ^
+        /XD node_modules .git .git-old-backup C:\Users\sundi\Documents\pocket-archive-backend\frontend ^
+        /XF .env docker-compose.yml config.json *service-account*.json
+      ```
+
+      Copy changed root backend files into `pocket-archive-backend\backend\` first; the image
+      runs `backend/` (`COPY backend/ ./`), not the root files.
+
+   c. Frontend source (this folder) into the NAS build folder — `deploy-to-nas.bat` does this; by hand:
+      `/MIR` removes deleted files; excluded folders are left alone on the NAS:
+
+      ```bat
+      robocopy C:\Users\sundi\Documents\pocket-archive Z:\pocket-archive\frontend /MIR ^
+        /XD node_modules dist android .git ^
+        /XF .env.android C:\Users\sundi\Documents\pocket-archive\branding\preview.png
+      ```
+
+      Check: `src\pages` on Z: has the newest pages, e.g. `dir Z:\pocket-archive\frontend\src\pages`.
+
+   d. Rebuild on the NAS: `docker-compose up -d --build` in `/volume1/docker/pocket-archive`.
 
    All commits go to `C:\Users\sundi\Documents\pocket-archive-monorepo`; the backend
    folder has no git history of its own.
@@ -195,6 +220,34 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
   late). Test the session routing with another app in front (`input keyevent 25` after HOME); keys that
   aren't consumed by a window take the same MediaSessionService path as screen-off keys on a phone.
   `adb emu event send` needs the console auth token. Recordings stop after 4 s of silence, so press quickly.
+
+## Create menu, note view, appearance (2026-10-16)
+
+- **"+" create menu** (`components/create/`): `CreateMenu` (speed dial, shown on /quick, /quick/inbox,
+  /projects or everywhere), `NoteComposer` (text + markdown, or checklist with drag reorder),
+  `ImageComposer` (web file inputs; app: `native/camera.js` → `@capacitor/camera`, system camera
+  intent + photo picker, no extra Android permissions), `DrawingComposer` (canvas → PNG).
+- Backend (`quickCapture.js`): `POST /api/quick/text` {title, body | items, aiOrganize, color, pinned}
+  and `POST /api/quick/media` (multer, ≤ 20 MB, kind image|drawing) → `runTextPipeline` = the voice
+  pipeline without transcription (classify → smart append → errands/calendar → summary). What was typed
+  wins over the classifier (title, body, items). `aiOrganize: false` → `saveAsTyped`, no summary.
+  Notes carry `source` (voice|text|list|image|drawing), `typed`, `format: 'list'` (checklist on a
+  plain note — PATCH /items works for these too, incl. `reorder`), `media {kind,file}`, `mediaText`
+  (Gemini `readImage`: photo text/description or handwriting via `POST /:id/handwriting`).
+  Files: `07_Quick_Notes/media/`. `GET /:id/media` (media token works in the app).
+  Also `PATCH /:id/meta` {pinned, color}, `POST /:id/restore`, `GET /api/quick/search`.
+- **Note view**: route `/quick/:id` renders the inbox with `NoteView` on top (styles card | full |
+  sheet | side; `auto` = card ≥ 768px, sheet on phones). Legacy `/quick/inbox?note=` redirects there
+  (widget/watch/calendar links). Prev/next (swipe, ←/→) use the inbox's current order. "Expand in place"
+  keeps the old in-card behavior. Shared pieces: `NoteContent`, `NoteToolbar`, `noteHelpers.js`.
+- **Appearance** (`lib/appearance.js`, `context/AppearanceContext.jsx` + `appearanceStore.js`):
+  groups opening / inbox / look / theme / behavior; shared on the server (`GET/PUT /api/appearance`,
+  `config.appearance`), per-group "This device" overrides in localStorage (`pa_appearance`).
+  Applied as `<html data-theme data-accent data-textsize data-density data-motion data-cardstyle>`.
+  Tailwind `gold-*` = `--accent-*` CSS variables (rgb triplets), so every gold utility follows the accent;
+  the logo uses `bg-brand-gradient` and stays gold. The old `pa_darkMode` is migrated once.
+- Tests (scratchpad, not in git): `create-e2e.cjs` (real AI), `fftools/create-ui.cjs` (every opening
+  style × phone/desktop, layouts, composers, settings), `voice-default.cjs`.
 
 ## Next up
 
