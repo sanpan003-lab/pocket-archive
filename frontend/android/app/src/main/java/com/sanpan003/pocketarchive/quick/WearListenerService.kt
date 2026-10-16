@@ -89,6 +89,7 @@ class WearListenerService : WearableListenerService() {
                     val parts = path.removePrefix("${WearBridge.DATA_TOGGLE}/").split('/')
                     if (parts.size == 2) ErrandWorker.toggleItem(this, parts[0], parts[1], map.getBoolean("done"), item.uri.toString())
                 }
+                path == WatchRecSync.DATA_FROM_WATCH -> WatchRecSync.fromWatch(this, map.getString("json") ?: "")
                 path.startsWith("${WearBridge.DATA_DONE}/") -> {
                     val id = path.removePrefix("${WearBridge.DATA_DONE}/")
                     ErrandStore.markLocallyDone(this, id)

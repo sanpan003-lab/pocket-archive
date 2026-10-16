@@ -7,6 +7,9 @@
 
     <string name="quick_record_label">Quick Record</string>
     <string name="stop_record_label">Stop Recording</string>
+    <string name="volume_shortcuts_label">Pocket Archive volume shortcuts</string>
+    <string name="volume_shortcuts_summary">Double-press volume up to record, double-press volume down to stop</string>
+    <string name="volume_shortcuts_description">Lets Pocket Archive notice a quick double-press of the volume keys: double-press volume up starts a voice note, double-press volume down stops it. Single presses always change the volume as usual. Pocket Archive only looks at the volume keys and never reads the screen or what you type. Works while the screen is on and unlocked. Turn it off any time in Pocket Archive → Settings → Recording &amp; shortcuts.</string>
     <string name="widget_label">Quick Capture</string>
     <string name="widget_description">Tap to record a voice note, tap again to save it</string>
     <string name="tile_label">Quick Capture</string>

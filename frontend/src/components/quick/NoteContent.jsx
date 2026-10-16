@@ -9,6 +9,8 @@ import QuickAudio from './QuickAudio';
 import UpdatesTimeline from './UpdatesTimeline';
 import ErrandPanel from './ErrandPanel';
 import { hasChecklist, isTyped } from './noteHelpers';
+import GeoPlacePrompt from '../places/GeoPlacePrompt';
+import NoteMap from '../places/NoteMap';
 
 
 /** The photo or drawing, with "Convert handwriting" and the text Gemini read from it */
@@ -68,6 +70,8 @@ export default function NoteContent({ note, onChanged, projectName, arrivalReady
 
   return (
     <div className="min-w-0">
+      <GeoPlacePrompt note={note} onChanged={onChanged} />
+      <NoteMap note={note} />
       <NoteMedia note={note} onChanged={onChanged} />
 
       {/* What the user typed (markdown) */}

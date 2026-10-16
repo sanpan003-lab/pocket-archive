@@ -31,6 +31,15 @@ export const APPEARANCE_DEFAULTS = {
     density: 'comfortable', // comfortable | compact
     motion: 'system',       // system | full | reduced | off
   },
+  toolbar: {
+    order: '',              // comma-separated action ids ('' = default order)
+    hidden: '',             // comma-separated action ids shown only in "⋯ More"
+  },
+  capture: {
+    micSize: 'medium',      // small | medium | large
+    waveform: 'neon',       // neon | gold | bars
+    afterDone: 'capture',   // capture | inbox
+  },
   behavior: {
     defaultScreen: 'dashboard', // dashboard | quick | inbox | projects
     defaultTab: 'all',
@@ -99,6 +108,9 @@ export const OPTIONS = {
     ['errand', 'Errands'], ['projects', 'Projects'], ['notes', 'Notes'],
   ],
   createButton: [['capture', 'Quick Capture, Inbox & Projects'], ['everywhere', 'Everywhere']],
+  micSize: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']],
+  waveform: [['neon', 'Neon'], ['gold', 'Gold'], ['bars', 'Minimal bars']],
+  afterDone: [['capture', 'Capture screen'], ['inbox', 'Inbox']],
 };
 
 export const ACCENT_SWATCH = { gold: '#F59E0B', blue: '#3B82F6', teal: '#14B8A6', purple: '#8B5CF6', rose: '#F43F5E' };

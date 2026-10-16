@@ -139,13 +139,14 @@ private fun PermissionScreen(onAllow: () -> Unit) {
 
 @Composable
 private fun HomePager(onNote: (String) -> Unit, onErrand: (String) -> Unit) {
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 4 })
     HorizontalPagerScaffold(pagerState = pagerState) {
         HorizontalPager(state = pagerState) { page ->
             when (page) {
                 0 -> RecordScreen()
                 1 -> RecentScreen(onNote)
-                else -> ErrandsScreen(onErrand)
+                2 -> ErrandsScreen(onErrand)
+                else -> SettingsScreen()
             }
         }
     }
@@ -303,6 +304,66 @@ private fun RecentScreen(onNote: (String) -> Unit) {
             }
         }
     }
+}
+
+/** While recording: same options as the phone (synced both ways), plus how to set up the Home key. */
+@Composable
+private fun SettingsScreen() {
+    val ctx = LocalContext.current
+    val s by WatchPrefs.settings.collectAsState()
+    LaunchedEffect(Unit) { WatchPrefs.get(ctx) }
+    val state = rememberScalingLazyListState()
+    fun <T> next(list: List<T>, cur: T) = list[(list.indexOf(cur) + 1) % list.size]
+    val reopenLabel = mapOf("stop" to "Stop & save", "ignore" to "Ignore", "new" to "Start a new note")
+    ScreenScaffold(scrollState = state) {
+        ScalingLazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
+            item { ListHeader { Text("Recording", color = Gold) } }
+            item {
+                SettingButton("Quick Record while recording", reopenLabel[s.quickRecordWhileRecording] ?: "") {
+                    WatchPrefs.edit(ctx) { it.copy(quickRecordWhileRecording = next(listOf("stop", "ignore", "new"), it.quickRecordWhileRecording)) }
+                }
+            }
+            item {
+                SettingButton("Auto-stop after silence", if (s.silenceSec == 0) "Off" else "${s.silenceSec} s") {
+                    WatchPrefs.edit(ctx) { it.copy(silenceSec = next(WatchPrefs.SILENCE, it.silenceSec)) }
+                }
+            }
+            item {
+                SettingButton("Maximum length", "${s.maxMinutes} min") {
+                    WatchPrefs.edit(ctx) { it.copy(maxMinutes = next(WatchPrefs.MAX, it.maxMinutes)) }
+                }
+            }
+            item {
+                SettingButton("Start/stop vibration", if (s.feedback == "none") "Off" else "On") {
+                    WatchPrefs.edit(ctx) { it.copy(feedback = if (it.feedback == "none") "vibrate" else "none") }
+                }
+            }
+            item {
+                SettingButton("Countdown before start", if (s.countdown) "On" else "Off") {
+                    WatchPrefs.edit(ctx) { it.copy(countdown = !it.countdown) }
+                }
+            }
+            item { ListHeader { Text("Home key", color = Gold) } }
+            item {
+                Text(
+                    "Settings → Advanced features → Customize keys → Double press → Quick Record. Press it again while recording to stop.",
+                    fontSize = 12.sp, color = Color.White.copy(alpha = 0.75f), textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingButton(label: String, value: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.filledTonalButtonColors(),
+        label = { Text(label, maxLines = 2) },
+        secondaryLabel = { Text(value, color = Gold) },
+    )
 }
 
 /** AI summary, scrollable with the rotating bezel / crown. */

@@ -15,11 +15,23 @@ class GeofenceReceiver : BroadcastReceiver() {
         if (event.hasError()) {
             Log.w("Errands", "Geofence error: ${GeofenceStatusCodes.getStatusCodeString(event.errorCode)}")
             // Geofences are dropped when location is switched off; re-arm on the next sync
-            if (event.errorCode == GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE) ErrandWorker.syncNow(ctx)
+            if (event.errorCode == GeofenceStatusCodes.GEOFENCE_NOT_AVAILABLE) {
+                ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE).edit().clear().apply() // force a re-arm
+                ErrandWorker.syncNow(ctx)
+            }
             return
         }
         val transition = event.geofenceTransition
-        if (transition != Geofence.GEOFENCE_TRANSITION_DWELL && transition != Geofence.GEOFENCE_TRANSITION_ENTER) return
-        event.triggeringGeofences?.forEach { ArrivalNotifier.onArrive(ctx, it.requestId) }
+        val name = when (transition) {
+            Geofence.GEOFENCE_TRANSITION_DWELL -> "arrive"
+            Geofence.GEOFENCE_TRANSITION_ENTER -> "enter"
+            Geofence.GEOFENCE_TRANSITION_EXIT -> "leave"
+            else -> return
+        }
+        event.triggeringGeofences?.forEach {
+            ErrandStore.recordEvent(ctx, name, it.requestId)
+            Log.i("Errands", "Geofence $name: ${it.requestId}")
+            ArrivalNotifier.onArrive(ctx, it.requestId, leaving = transition == Geofence.GEOFENCE_TRANSITION_EXIT)
+        }
     }
 }

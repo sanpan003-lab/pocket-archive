@@ -334,12 +334,17 @@ const CLASSIFICATION_SCHEMA = {
     appendText:         { type: 'string' },
     alsoProjectId:      { type: 'string' },
     newProjectName:     { type: 'string' },
+    // Location reminders for any place ("when I get home", "when I leave work")
+    geoWhen:            { type: 'string', enum: ['', 'arrive', 'leave'] },
+    geoPlace:           { type: 'string' },
+    geoPlaceId:         { type: 'string' },
   },
   required: [
     'type', 'title', 'start', 'end', 'allDay', 'location', 'dueDate',
     'linkedRecordingId', 'linkConfidence', 'items', 'place', 'trigger', 'content', 'spokenConfirmation',
     'action', 'targetId', 'targetType', 'targetName', 'explicitTarget', 'confidence',
     'addItems', 'removeItems', 'changes', 'appendText', 'alsoProjectId', 'newProjectName',
+    'geoWhen', 'geoPlace', 'geoPlaceId',
   ],
   additionalProperties: false,
 };
@@ -393,9 +398,16 @@ You also get CANDIDATES: open errands with their items, active projects, quick n
 - newProjectName: when the memo starts/creates a project ("start a project called kitchen backsplash" → "Kitchen backsplash"); action "create"; "" otherwise.
 - alsoProjectId: when a NEW note clearly belongs to an active project but is its own thing (e.g. a reminder for that project); otherwise "".
 - Always also fill the create fields (type, title, content, …) as if the memo were new, so it can be kept as its own note if the user prefers.
-- spokenConfirmation for appends describes the change ("Added eggs and bread to your Publix list").`;
+- spokenConfirmation for appends describes the change ("Added eggs and bread to your Publix list").
 
-async function classify({ transcript, now, recordings, candidates = '' }) {
+Location reminders (any place, not just stores):
+- When the memo ties a reminder, note or list to arriving at or leaving a PERSONAL place — home, work, school, the gym, someone's house, a named place that isn't a store to shop at ("remind me to put clothes in the dryer when I get home", "when I leave work call mom", "next time I'm at the gym, book a trainer", "when I get to my son's school, ask about the field trip") — set geoWhen "arrive" (get to / get home / arrive / next time I'm at / once I'm at) or "leave" (leave / leaving / head out of / when I'm done at), and geoPlace to the place as spoken ("home", "work", "my son's school", "the gym").
+- geoPlaceId: the id from PLACES when the place is clearly one of them (home → "home"; work → the work place; aliases count); otherwise "".
+- Use type "reminder" for a task ("put clothes in the dryer"), "note" for information, "errand" only for things to buy at a store. A shopping trip to a store keeps using errand place/trigger as above (not geoWhen), except when leaving ("when I leave Publix …"), which uses geoWhen "leave".
+- A location reminder with no time has dueDate null; don't invent a date. geoWhen "" and geoPlace "" / geoPlaceId "" when there's no place trigger.
+- spokenConfirmation for location reminders: "I'll remind you when you get home: put clothes in the dryer".`;
+
+async function classify({ transcript, now, recordings, candidates = '', places = '' }) {
   if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
@@ -415,6 +427,7 @@ async function classify({ transcript, now, recordings, candidates = '' }) {
         `Current date/time: ${ctx.human} (${ctx.iso})\nTimezone: ${TIMEZONE}\n\n` +
         `Recent recordings (id | date | title):\n${recentList}\n\n` +
         `CANDIDATES\n${candidates || '(none)'}\n\n` +
+        `PLACES (id | name | aliases)\n${places || '(none)'}\n\n` +
         `<transcript>\n${transcript}\n</transcript>`,
     }],
     output_config: {
@@ -580,6 +593,16 @@ function applyFields(note, fields, { recordingExists }) {
     note.allDay  = !due || DATE_ONLY_RE.test(due);
   }
 
+  // Location reminder (resolved to a place by prepareGeo)
+  const geoWhen = fields.geoWhen === 'arrive' || fields.geoWhen === 'leave' ? fields.geoWhen : null;
+  const geoPlace = String(fields.geoPlace || '').trim().slice(0, 80);
+  if (geoWhen && geoPlace) {
+    const same = note.geo && note.geo.when === geoWhen && note.geo.query === geoPlace;
+    note.geo = same ? note.geo : { when: geoWhen, query: geoPlace, placeIdHint: String(fields.geoPlaceId || '').trim() || null, status: 'pending' };
+  } else if (fields.geoWhen !== undefined) {
+    note.geo = null;
+  }
+
   if (type === 'note_link') {
     const id = fields.linkedRecordingId;
     const confident = fields.linkConfidence === undefined || fields.linkConfidence >= LINK_MIN_CONFIDENCE;
@@ -627,6 +650,12 @@ const hasTime    = note => note.trigger !== 'arrival' && !!note.start;
 function arrivalExpiresOn(note, settings) {
   const from = note.arrival?.triggeredOn || note.arrival?.activeFrom;
   return from ? addDays(from, settings.arrivalExpiryDays) : null;
+}
+
+/** A note with an active location reminder (arrive / leave a personal place) */
+function isActiveGeo(note) {
+  return !!note.geo && note.geo.status === 'active' && !note.undone && !note.hidden && !note.cancelled &&
+    note.status !== 'pending_decision' && Number.isFinite(note.geo.lat) && Number.isFinite(note.geo.lng);
 }
 
 function isActiveArrival(note, settings, today = todayNY()) {
@@ -776,6 +805,12 @@ function shortWhen(value) {
 function confirmationFor(note, recordingTitle) {
   if (note.appendConfirmation) return { ...note.appendConfirmation, captureId: note.id };
   if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
+  if (note.geo) {
+    const verb = note.geo.when === 'leave' ? 'when you leave' : 'when you get to';
+    const where = note.geo.placeId === 'home' ? (note.geo.when === 'leave' ? 'when you leave home' : 'when you get home') : `${verb} ${note.geo.name || note.geo.query}`;
+    if (note.geo.status === 'needs_place') return { icon: '📍', text: `Where is “${note.geo.query}”?`, tone: 'review', detail: `Open the note to set the place — ${note.title}` };
+    return { icon: '📍', text: `Reminder ${where}: ${note.title}`, tone: 'success' };
+  }
   const calendarFailed = note.googleSync === 'failed';
   const tone = calendarFailed ? 'review' : 'success';
   const detail = calendarFailed ? "Google Calendar didn't update" : null;
@@ -894,6 +929,20 @@ function createQuickCapture(deps) {
     note.arrival = hasArrival(note)
       ? { activeFrom: note.start ? note.start.slice(0, 10) : todayNY(now), triggeredOn: note.arrival?.triggeredOn || null }
       : null;
+    return note;
+  }
+
+  /** Location reminder → a known place (home / saved) or "needs_place" (ask "Where is …?") */
+  function prepareGeo(note, now = new Date()) {
+    if (!note.geo) return note;
+    if (note.geo.status === 'done') return note;
+    const p = places?.personalPlace(note.geo.query, note.geo.placeIdHint);
+    if (p) {
+      note.geo = { ...note.geo, ...p, status: 'active', activeFrom: note.geo.activeFrom || todayNY(now), error: null };
+    } else {
+      note.geo = { ...note.geo, status: 'needs_place', placeId: null, lat: null, lng: null,
+        error: note.geo.placeIdHint === 'home' || /^(?:(?:my|our|the) )?(?:home|house)$/i.test(String(note.geo.query || '').trim()) ? 'Set your home location in Settings → Places & errands' : null };
+    }
     return note;
   }
 
@@ -1100,7 +1149,7 @@ function createQuickCapture(deps) {
     if (note.transcript) {
       try {
         const recordings = deps.getRecentRecordings(100);
-        note.classification = await classify({ transcript: note.transcript, now, recordings, candidates: smart().candidates(now) });
+        note.classification = await classify({ transcript: note.transcript, now, recordings, candidates: smart().candidates(now), places: places?.placesForPrompt() || '' });
         applyFields(note, note.classification, deps);
         note.spokenConfirmation = String(note.classification.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
         await routeIntent(note, note.classification, now);
@@ -1143,7 +1192,7 @@ function createQuickCapture(deps) {
     try {
       if (!text.trim()) throw new Error('Nothing to organize');
       const recordings = deps.getRecentRecordings(100);
-      const cls = await classify({ transcript: text, now, recordings, candidates: smart().candidates(now) });
+      const cls = await classify({ transcript: text, now, recordings, candidates: smart().candidates(now), places: places?.placesForPrompt() || '' });
       // A typed checklist added to a list: the typed items are the items to add
       if (typed.items?.length && cls.action === 'append' && !(cls.addItems || []).length) cls.addItems = typed.items;
       note.classification = cls;
@@ -1222,10 +1271,12 @@ function createQuickCapture(deps) {
     }
     if (decision.mode === 'ask') {
       await prepareErrand(note, { now });   // ready in case the answer is "New note"
+      prepareGeo(note, now);
       smart().markPending(note, decision);
       return;
     }
     await prepareErrand(note, { now });
+    prepareGeo(note, now);
     // New project by voice ("start a project called …"), or a note for an existing project
     const name = String(cls.newProjectName || '').trim();
     if (name) {
@@ -1719,7 +1770,9 @@ function createQuickCapture(deps) {
       const note = store.read(id);
       if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
       if (note.undone) { res.status(409).json({ error: 'This capture was undone' }); return null; }
-      if (note.type !== 'errand' && note.format !== 'list') { res.status(409).json({ error: 'Only lists and errands have a checklist' }); return null; }
+      if (note.type !== 'errand' && note.format !== 'list' && !(note.geo && req.path.match(/\/(done|triggered)$/))) {
+        res.status(409).json({ error: 'Only lists and errands have a checklist' }); return null;
+      }
       return note;
     }
 
@@ -1769,6 +1822,13 @@ function createQuickCapture(deps) {
     app.post('/api/quick/:id/done', (req, res) => {
       const note = loadErrand(req, res);
       if (!note) return;
+      if (note.geo && note.type !== 'errand' && note.format !== 'list') {
+        // Location reminder done (from the notification / watch): stop the geofence
+        const done = req.body?.done !== false;
+        note.geo = { ...note.geo, status: done ? 'done' : (Number.isFinite(note.geo.lat) ? 'active' : 'needs_place'), doneAt: done ? new Date().toISOString() : null };
+        note.reminderDone = done;
+        return res.json(finalize(note));
+      }
       setErrandDone(note, req.body?.done !== false);
       rememberOrigin(req);
       res.json(finalize(note));
@@ -1781,6 +1841,21 @@ function createQuickCapture(deps) {
       try {
         const settings = errandSettings();
         const today = todayNY();
+        const geo = store.list().filter(isActiveGeo).map(n => ({
+          id:        n.id,
+          kind:      'reminder',
+          when:      n.geo.when,                    // arrive | leave
+          title:     n.title,
+          text:      String(n.content || n.title || '').slice(0, 300),
+          placeName: n.geo.name,
+          address:   n.geo.address || null,
+          radiusM:   n.geo.radiusM || 150,
+          items:     (n.items || []).map(i => ({ id: i.id, text: i.text, done: !!i.done })),
+          itemsLeft: (n.items || []).filter(i => !i.done).length,
+          expiresOn: null,
+          branches:  [{ key: `${n.geo.when === 'leave' ? 'lv' : 'ar'}:${n.geo.placeId || 'p'}:${n.geo.lat.toFixed(5)},${n.geo.lng.toFixed(5)}`,
+            lat: n.geo.lat, lng: n.geo.lng, name: n.geo.name, address: n.geo.address || null, distanceM: 0 }],
+        }));
         const errands = store.list()
           .filter(n => isActiveArrival(n, settings, today))
           .map(n => ({
@@ -1796,10 +1871,62 @@ function createQuickCapture(deps) {
               distanceM: Number.isFinite(b.distanceM) ? b.distanceM : null,
             })),
           }));
-        res.json({ generatedAt: new Date().toISOString(), errands });
+        res.json({ generatedAt: new Date().toISOString(), errands: [...geo, ...errands] });
       } catch (err) {
         res.status(500).json({ error: err.message });
       }
+    });
+
+    // GET /api/location-reminders — Settings → Location reminders (all states, newest first)
+    app.get('/api/location-reminders', (_req, res) => {
+      const settings = errandSettings();
+      const today = todayNY();
+      const out = [];
+      for (const n of store.list()) {
+        if (n.undone || n.hidden) continue;
+        if (n.geo) {
+          out.push({ id: n.id, title: n.title, type: n.type, when: n.geo.when, place: n.geo.name || n.geo.query, query: n.geo.query,
+            placeId: n.geo.placeId || null, address: n.geo.address || null, lat: n.geo.lat ?? null, lng: n.geo.lng ?? null,
+            radiusM: n.geo.radiusM || null, status: n.geo.status, error: n.geo.error || null, triggeredAt: n.geo.triggeredAt || null,
+            capturedAt: n.capturedAt || n.createdAt });
+        } else if (n.type === 'errand' && hasArrival(n) && !n.errandDone) {
+          const active = isActiveArrival(n, settings, today);
+          out.push({ id: n.id, title: n.title, type: 'errand', when: 'arrive', place: placeLabel(n), query: placeLabel(n),
+            placeId: n.place?.savedPlaceId || null, address: n.place?.address || null, lat: n.place?.lat ?? null, lng: n.place?.lng ?? null,
+            stores: n.place?.branches?.length || 0, radiusM: 150, status: active ? 'active' : (n.place?.resolved ? 'expired' : 'needs_place'),
+            error: n.place?.error || null, triggeredAt: n.arrival?.triggeredOn || null, capturedAt: n.capturedAt || n.createdAt });
+        }
+      }
+      res.json(out.slice(0, 100));
+    });
+
+    // POST /api/quick/:id/geo-place — answer "Where is <place>?":
+    //   { placeId } (home / a saved place) or { name?, address, lat, lng, save = true } (new place, spoken words as alias)
+    //   { when } to switch arrive/leave; { remove: true } to drop the location reminder
+    app.post('/api/quick/:id/geo-place', (req, res) => {
+      const note = loadNoteRoute(req, res);
+      if (!note) return;
+      const b = req.body || {};
+      if (!note.geo && !b.query) return res.status(409).json({ error: 'This note has no location reminder' });
+      if (b.remove) { note.geo = null; return res.json(finalize(note)); }
+      const geo = { ...(note.geo || { when: b.when === 'leave' ? 'leave' : 'arrive', query: String(b.query).slice(0, 80) }) };
+      if (b.when === 'arrive' || b.when === 'leave') geo.when = b.when;
+      let p = null;
+      if (b.placeId) {
+        p = places?.personalPlace('', b.placeId);
+        if (!p) return res.status(404).json({ error: b.placeId === 'home' ? 'Set your home location first' : 'Place not found' });
+      } else if (Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lng))) {
+        const saved = places?.savePlace({
+          name: String(b.name || geo.query).trim(), address: b.address || null, lat: b.lat, lng: b.lng,
+          aliases: [geo.query], kind: /\b(work|office)\b/i.test(geo.query) ? 'work' : 'other',
+        });
+        if (!saved || saved.error) return res.status(400).json({ error: saved?.error || 'Could not save the place' });
+        p = places.personalPlace('', saved.id);
+      } else {
+        return res.status(400).json({ error: 'Pick a place' });
+      }
+      note.geo = { ...geo, ...p, status: 'active', activeFrom: geo.activeFrom || todayNY(), error: null, placeIdHint: null };
+      res.json(finalize(note));
     });
 
     // GET /api/errands/open — every unfinished errand with its checklist (the watch's Errands screen)
@@ -1829,6 +1956,7 @@ function createQuickCapture(deps) {
       const note = loadErrand(req, res);
       if (!note) return;
       if (note.arrival) note.arrival = { ...note.arrival, triggeredOn: todayNY() };
+      if (note.geo) note.geo = { ...note.geo, triggeredAt: new Date().toISOString(), triggerCount: (note.geo.triggerCount || 0) + 1 };
       res.json({ success: true, expiresOn: arrivalExpiresOn(note, errandSettings()) });
       store.write(note);
     });
@@ -2036,6 +2164,6 @@ module.exports = {
   // exported for tests
   _internal: {
     applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
-    normalizeItems, isActiveArrival, arrivalExpiresOn, errandDescription,
+    normalizeItems, isActiveArrival, arrivalExpiresOn, errandDescription, isActiveGeo,
   },
 };

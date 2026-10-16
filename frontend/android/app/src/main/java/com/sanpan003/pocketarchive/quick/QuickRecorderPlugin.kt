@@ -16,6 +16,7 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
+import org.json.JSONObject
 
 /**
  * Bridge between the web app and the native recorder, secure token storage,
@@ -55,6 +56,20 @@ class QuickRecorderPlugin : Plugin() {
         fun notifyPending(ctx: Context) {
             instance?.deliver("pending", JSObject().put("count", PendingStore.count(ctx)))
         }
+
+        /** Settings → Recording & shortcuts → Test: volume keys are reported, not used */
+        @Volatile var keyTestActive = false
+            private set
+
+        fun reportKey(keyCode: Int, long: Boolean) {
+            val key = if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP) "volumeUp" else "volumeDown"
+            main.post {
+                instance?.deliver("keyTest", JSObject()
+                    .put("key", key).put("long", long)
+                    .put("recording", RecorderState.recording)
+                    .put("at", System.currentTimeMillis()))
+            }
+        }
     }
 
     private val stateListener: (Boolean) -> Unit = { recording ->
@@ -63,7 +78,7 @@ class QuickRecorderPlugin : Plugin() {
     private var lastLevelAt = 0L
     private val levelListener: (Double) -> Unit = { level ->
         val now = System.currentTimeMillis()
-        if (appVisible && now - lastLevelAt > 150) {
+        if (appVisible && now - lastLevelAt >= 45) { // ~20/s for the capture screen waveform
             lastLevelAt = now
             deliver("level", JSObject().put("level", level))
         }
@@ -91,7 +106,10 @@ class QuickRecorderPlugin : Plugin() {
         if (TokenStore.token(context) != null) ErrandWorker.syncNow(context)
     }
 
-    override fun handleOnPause() { appVisible = false }
+    override fun handleOnPause() {
+        appVisible = false
+        keyTestActive = false // never keep the keys once the screen is left
+    }
 
     override fun handleOnDestroy() {
         RecorderState.removeStateListener(stateListener)
@@ -133,7 +151,7 @@ class QuickRecorderPlugin : Plugin() {
             "signin" -> return call.reject("Sign in first", "NO_TOKEN")
             "mic" -> return call.reject("Microphone permission denied", "MIC_DENIED")
         }
-        QuickActions.start(context)
+        QuickActions.start(context, "app")
         call.resolve(stateJson().put("recording", true))
     }
 
@@ -233,6 +251,53 @@ class QuickRecorderPlugin : Plugin() {
         call.resolve(locationJson())
     }
 
+    /** Settings → Location reminders: permissions, armed geofences, last event, cached reminders */
+    @PluginMethod
+    fun getLocationStatus(call: PluginCall) {
+        val pm = context.getSystemService(android.os.PowerManager::class.java)
+        val coarseOnly = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        val reminders = org.json.JSONArray().apply {
+            ErrandStore.errands(context).forEach { e ->
+                put(JSONObject().put("id", e.id).put("kind", e.kind).put("when", e.whenAt).put("place", e.placeName)
+                    .put("fences", e.branches.size).put("locallyDone", ErrandStore.isLocallyDone(context, e.id))
+                    .put("snoozedUntil", ErrandStore.snoozedUntil(context, e.id)))
+            }
+        }
+        val o = JSONObject()
+            .put("location", locationJson())
+            .put("precise", !coarseOnly)
+            .put("notifications", if (Build.VERSION.SDK_INT < 33) "granted" else getPermissionState("notifications").toString())
+            .put("batteryUnrestricted", pm?.isIgnoringBatteryOptimizations(context.packageName) == true)
+            .put("locationOn", runCatching { context.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled == true }.getOrDefault(true))
+            .put("armed", ErrandStore.armedInfo(context))
+            .put("lastEvent", ErrandStore.lastEvent(context) ?: JSONObject.NULL)
+            .put("reminders", reminders)
+        call.resolve(JSObject.fromJSONObject(o))
+    }
+
+    /** "Test this reminder": show its notification now, as if you had arrived / left */
+    @PluginMethod
+    fun testLocationReminder(call: PluginCall) {
+        val id = call.getString("id") ?: return call.reject("id is required")
+        Thread {
+            ErrandSync.syncBlocking(context) // latest list first
+            val e = ErrandStore.errand(context, id)
+            if (e == null) call.reject("This reminder isn't armed on the phone yet (check the place and permissions)")
+            else {
+                ErrandStore.recordEvent(context, "test-${e.whenAt}", e.branches.firstOrNull()?.key ?: "")
+                ArrivalNotifier.show(context, e, e.placeName)
+                call.resolve(JSObject().put("shown", true))
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun requestNotifications(call: PluginCall) {
+        if (Build.VERSION.SDK_INT < 33) return call.resolve(permissionsJson())
+        requestPermissionForAlias("notifications", call, "permissionsResult")
+    }
+
     /** Errand list changed in the app (checked items, done, new errand): refresh geofences. */
     @PluginMethod
     fun syncErrands(call: PluginCall) {
@@ -259,6 +324,60 @@ class QuickRecorderPlugin : Plugin() {
 
     @PermissionCallback
     private fun permissionsResult(call: PluginCall) = call.resolve(permissionsJson())
+
+    // ── Settings → Recording & shortcuts (this phone only) ─────────────────
+
+    private fun recorderJson() = JSObject.fromJSONObject(JSONObject()
+        .put("settings", RecorderPrefs.get(context).toJson())
+        .put("watch", WatchRecSync.get(context))
+        .put("status", ShortcutSetup.status(context)))
+
+    @PluginMethod
+    fun getRecorderSettings(call: PluginCall) = call.resolve(recorderJson())
+
+    @PluginMethod
+    fun setRecorderSettings(call: PluginCall) {
+        val patch = call.getObject("settings")
+        if (patch != null) {
+            val s = RecorderPrefs.update(context, patch)
+            // Turning a double-press shortcut off while nothing else uses it: stop the service too
+            if (!s.doublePressUpStart && !s.doublePressDownStop) VolumeShortcutService.instance?.turnOff()
+        }
+        call.getObject("watch")?.let { WatchRecSync.update(context, it) }
+        call.resolve(recorderJson())
+    }
+
+    @PluginMethod
+    fun setKeyTest(call: PluginCall) {
+        keyTestActive = call.getBoolean("enabled", false) == true
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun openShortcutSetup(call: PluginCall) {
+        val target = call.getString("target") ?: return call.reject("target is required")
+        call.resolve(JSObject().put("opened", ShortcutSetup.open(context, target)))
+    }
+
+    @PluginMethod
+    fun addShortcut(call: PluginCall) {
+        val kind = call.getString("kind")
+        when (kind) {
+            "widget" -> call.resolve(JSObject().put("requested", ShortcutSetup.pinWidget(context)))
+            "quickRecord" -> call.resolve(JSObject().put("requested", ShortcutSetup.pinQuickRecord(context)))
+            "tile" -> ShortcutSetup.addTile(context) { call.resolve(JSObject().put("result", it)) }
+            else -> call.reject("Unknown shortcut")
+        }
+    }
+
+    /** "Turn off" the double-press shortcuts: the service disables itself (Android 7+) */
+    @PluginMethod
+    fun turnOffVolumeShortcuts(call: PluginCall) {
+        RecorderPrefs.update(context, JSONObject().put("doublePressUpStart", false).put("doublePressDownStop", false))
+        val svc = VolumeShortcutService.instance
+        if (svc != null) svc.turnOff() else if (VolumeShortcutService.isEnabled(context)) ShortcutSetup.open(context, "accessibility")
+        call.resolve(recorderJson())
+    }
 
     @PluginMethod
     fun openAppSettings(call: PluginCall) {

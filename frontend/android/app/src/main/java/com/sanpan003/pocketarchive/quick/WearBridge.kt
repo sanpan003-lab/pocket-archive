@@ -106,6 +106,10 @@ object WearBridge {
             .put("title", errand.title)
             .put("placeName", placeName ?: errand.placeName)
             .put("items", JSONArray().apply { errand.items.forEach { put(JSONObject().put("text", it.text).put("done", it.done)) } })
+            .put("kind", errand.kind)
+            .put("when", errand.whenAt)
+            .put("text", errand.text)
+            .put("headline", if (errand.isReminder) ArrivalNotifier.reminderHeadline(errand, placeName ?: errand.placeName) else null)
         return send(ctx, watches(ctx), MSG_ARRIVAL, payload.toString().toByteArray())
     }
 

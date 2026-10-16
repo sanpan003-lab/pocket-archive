@@ -19,10 +19,11 @@ object ArrivalNotifier {
 
     fun notificationId(errandId: String) = 3000 + (errandId.hashCode() and 0xFFFF)
 
-    /** Geofence DWELL at a store (key = geofence request id). */
-    fun onArrive(ctx: Context, key: String) {
+    /** Geofence DWELL (arrive) or EXIT (leave) (key = geofence request id). */
+    fun onArrive(ctx: Context, key: String, leaving: Boolean = false) {
         val now = System.currentTimeMillis()
         for (errand in ErrandStore.armed(ctx)) {
+            if (errand.leaving != leaving) continue
             val branch = errand.branches.firstOrNull { it.key == key } ?: continue
             if (ErrandStore.snoozedUntil(ctx, errand.id) > now) continue
             if (now - ErrandStore.lastFired(ctx, errand.id, key) < REFIRE_MS) continue
@@ -32,17 +33,31 @@ object ArrivalNotifier {
         }
     }
 
+    /** "🏠 You're home" / "🚪 Leaving Work" / "📍 You're at the gym" */
+    fun reminderHeadline(errand: ErrandStore.Errand, placeName: String?): String {
+        val where = placeName ?: "there"
+        val home = where.equals("Home", ignoreCase = true)
+        return when {
+            errand.leaving && home -> "🚪 Leaving home"
+            errand.leaving -> "🚪 Leaving $where"
+            home -> "🏠 You're home"
+            else -> "📍 You're at $where"
+        }
+    }
+
     fun show(ctx: Context, errand: ErrandStore.Errand, placeName: String?) {
         Notifications.ensureChannels(ctx)
         val open = errand.openItems
         val where = placeName ?: errand.title
-        val title = when (open.size) {
-            0 -> "🛒 You're at $where"
-            1 -> "🛒 You're at $where — 1 item"
+        val title = when {
+            errand.isReminder -> "${reminderHeadline(errand, placeName)} — ${errand.title}"
+            open.isEmpty() -> "🛒 You're at $where"
+            open.size == 1 -> "🛒 You're at $where — 1 item"
             else -> "🛒 You're at $where — ${open.size} items"
         }
-        val list = (open.ifEmpty { errand.items }).joinToString("\n") { "${if (it.done) "☑" else "☐"} ${it.text}" }
-        val summary = open.joinToString(", ") { it.text }.ifBlank { errand.title }
+        val itemsText = (open.ifEmpty { errand.items }).joinToString("\n") { "${if (it.done) "☑" else "☐"} ${it.text}" }
+        val list = if (errand.isReminder) listOfNotNull(errand.text?.takeIf { it != errand.title }, itemsText.ifBlank { null }).joinToString("\n\n").ifBlank { errand.title } else itemsText
+        val summary = if (errand.isReminder) (errand.text ?: errand.title) else open.joinToString(", ") { it.text }.ifBlank { errand.title }
         val id = notificationId(errand.id)
 
         // With the watch app installed, the watch shows its own notification (whose
@@ -62,12 +77,12 @@ object ArrivalNotifier {
                 NotificationCompat.Builder(ctx, Notifications.CH_ARRIVAL)
                     .setSmallIcon(R.drawable.ic_stat_mic)
                     .setColor(Notifications.GREEN)
-                    .setContentTitle("🛒 Errand list for this store")
+                    .setContentTitle(if (errand.isReminder) "📍 Location reminder" else "🛒 Errand list for this store")
                     .build(),
             )
             .setAutoCancel(true)
-            .setContentIntent(Notifications.openApp(ctx, "/quick/inbox?note=${errand.id}"))
-            .addAction(0, "Open list", Notifications.openApp(ctx, "/quick/inbox?note=${errand.id}"))
+            .setContentIntent(Notifications.openApp(ctx, "/quick/${errand.id}"))
+            .addAction(0, if (errand.isReminder) "Open" else "Open list", Notifications.openApp(ctx, "/quick/${errand.id}"))
             .addAction(0, "Done", action(ctx, ErrandActionReceiver.ACTION_DONE, errand.id, placeName))
             .addAction(0, "Snooze 1 hr", action(ctx, ErrandActionReceiver.ACTION_SNOOZE, errand.id, placeName))
             .setLocalOnly(localOnly)

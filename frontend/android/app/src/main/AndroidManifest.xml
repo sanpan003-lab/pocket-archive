@@ -94,6 +94,22 @@
             android:launchMode="singleInstance"
             android:showWhenLocked="true" />
 
+        <!-- Optional double-press volume shortcuts (off until the user turns it on in Android's Accessibility settings) -->
+        <service
+            android:name=".quick.VolumeShortcutService"
+            android:label="@string/volume_shortcuts_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/volume_shortcuts" />
+        </service>
+
+        <receiver android:name=".quick.DiscardUndoReceiver" android:exported="false" />
+
         <service
             android:name=".quick.QuickRecorderService"
             android:exported="false"

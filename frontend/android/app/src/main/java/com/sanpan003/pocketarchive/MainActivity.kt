@@ -7,8 +7,11 @@ import com.getcapacitor.BridgeActivity
 import com.sanpan003.pocketarchive.quick.Notifications
 import com.sanpan003.pocketarchive.quick.QuickActions
 import com.sanpan003.pocketarchive.quick.QuickRecorderPlugin
+import com.sanpan003.pocketarchive.quick.RecorderGuard
+import com.sanpan003.pocketarchive.quick.RecorderKeys
+import com.sanpan003.pocketarchive.quick.RecorderPrefs
 import com.sanpan003.pocketarchive.quick.RecorderState
-import com.sanpan003.pocketarchive.quick.TokenStore
+import com.sanpan003.pocketarchive.quick.DiscardStore
 
 class MainActivity : BridgeActivity() {
 
@@ -20,6 +23,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(QuickRecorderPlugin::class.java)
         super.onCreate(savedInstanceState)
         Notifications.ensureChannels(this)
+        DiscardStore.cleanup(this)
         if (savedInstanceState == null) handleLaunch(intent)
     }
 
@@ -33,30 +37,40 @@ class MainActivity : BridgeActivity() {
         super.onResume()
         if (startRecordingOnResume) {
             startRecordingOnResume = false
-            QuickActions.start(this) // if not possible yet, /quick shows sign-in / permission
+            QuickActions.start(this, "quick-record") // if not possible yet, /quick shows sign-in / permission
         }
     }
 
     /**
-     * With the app on screen the volume keys reach the activity first:
-     * down stops & uploads, up is ignored while recording. Otherwise the
-     * recorder's media session handles them (screen off, other apps).
+     * With the app on screen the volume keys reach the activity first.
+     * Settings → Recording & shortcuts → Test: report keys instead of acting.
+     * While recording: what the key does comes from RecorderKeys (stop / discard / ignore);
+     * otherwise the media session handles them (screen off, other apps).
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (RecorderState.recording && TokenStore.volumeStop(this)) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    if (event.repeatCount == 0) QuickActions.stop(this)
-                    swallowKeyUp = keyCode
-                    return true
-                }
-                KeyEvent.KEYCODE_VOLUME_UP -> {
-                    swallowKeyUp = keyCode
-                    return true
-                }
+        val volume = keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP
+        if (volume && QuickRecorderPlugin.keyTestActive) {
+            if (event.repeatCount == 0) {
+                event.startTracking()
+                QuickRecorderPlugin.reportKey(keyCode, long = false)
             }
+            swallowKeyUp = keyCode
+            return true
+        }
+        if (volume && RecorderState.recording && RecorderPrefs.get(this).capturesKeys) {
+            RecorderKeys.onKey(this, if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) RecorderKeys.Key.UP else RecorderKeys.Key.DOWN)
+            swallowKeyUp = keyCode
+            return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
+        if (QuickRecorderPlugin.keyTestActive && (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP)) {
+            QuickRecorderPlugin.reportKey(keyCode, long = true)
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
     }
 
     /** The matching key-up of a press handled above (no volume change, no click sound). */
@@ -73,13 +87,28 @@ class MainActivity : BridgeActivity() {
         // "Quick Record" launcher alias (e.g. Samsung side key → open app) behaves like START_RECORDING,
         // and stops a running recording instead when that setting is on
         val isQuickRecordAlias = intent.component?.className?.endsWith(".QuickRecordLauncher") == true
+        val wantsRecording = intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias
         when {
-            isQuickRecordAlias && RecorderState.recording && TokenStore.launcherToggle(this) -> {
+            wantsRecording && RecorderState.recording -> {
                 startRecordingOnResume = false
-                QuickActions.stop(this)
+                QuickRecorderPlugin.navigate("/quick")
+                // The press that started this recording (routine echo): nothing to do
+                if (android.os.SystemClock.elapsedRealtime() - RecorderGuard.lastStartAt < RecorderGuard.STOP_KEY_GRACE_MS) {
+                    RecorderGuard.note("Quick Record launch right after the start ignored (same press)")
+                    return
+                }
+                when (RecorderPrefs.get(this).quickRecordWhileRecording) {
+                    RecorderPrefs.STOP -> { RecorderGuard.note("Quick Record while recording → stop & save"); QuickActions.stop(this) }
+                    RecorderPrefs.NEW -> { RecorderGuard.note("Quick Record while recording → new note"); QuickActions.restart(this) }
+                    else -> RecorderGuard.note("Quick Record while recording ignored (setting)")
+                }
+            }
+            wantsRecording && RecorderGuard.isEchoOfStop(this) -> {
+                // Volume up stopped it in the app and the same press opened Quick Record: don't start again
+                RecorderGuard.note("Quick Record launch right after a stop ignored (same press)")
                 QuickRecorderPlugin.navigate("/quick")
             }
-            intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias -> {
+            wantsRecording -> {
                 QuickRecorderPlugin.navigate("/quick")
                 startRecordingOnResume = true
             }

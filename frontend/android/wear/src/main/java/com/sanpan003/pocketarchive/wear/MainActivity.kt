@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WatchData.load(this)
+        WatchPrefs.get(this)
         WatchNotifications.ensureChannels(this)
         CaptureQueue.recoverOrphans(this)
         WatchState.refreshQueue(this)
@@ -76,8 +77,18 @@ class MainActivity : ComponentActivity() {
         intent ?: return
         val quickRecord = intent.component?.className?.endsWith(".QuickRecord") == true
         if (quickRecord || intent.getBooleanExtra(EXTRA_RECORD, false)) {
-            // Tile/complication tap while recording = stop
-            if (WatchState.isRecording) WatchRecorderService.stop(this) else startOnResume = true
+            when {
+                // The press that started it (e.g. a key also bound elsewhere): nothing to do
+                WatchState.isRecording && WatchPrefs.justStarted() -> Unit
+                WatchState.isRecording -> when (WatchPrefs.get(this).quickRecordWhileRecording) {
+                    "stop" -> WatchRecorderService.stop(this)
+                    "new" -> WatchRecorderService.restart(this)
+                    else -> Unit
+                }
+                // Same press as the stop that just happened: don't start again
+                WatchPrefs.justStopped(this) -> Unit
+                else -> startOnResume = true
+            }
         }
         intent.getStringExtra(EXTRA_ERRAND)?.let { openErrand.value = it }
     }

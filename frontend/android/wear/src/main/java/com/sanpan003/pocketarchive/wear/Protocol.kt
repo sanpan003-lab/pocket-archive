@@ -27,6 +27,11 @@ object Protocol {
     /** Message watch → phone: smart append answer. JSON {captureId, choice: "undo"|"yes"|"new"} */
     const val MSG_DECIDE = "/pa/decide"
 
+    /** DataItem phone → watch: the watch's "while recording" settings edited on the phone. String "json" */
+    const val DATA_REC_SETTINGS = "/pa/rec-settings"
+    /** DataItem watch → phone: the same settings edited on the watch. String "json" */
+    const val DATA_REC_SETTINGS_WATCH = "/pa/rec-settings-watch"
+
     /** DataItem phone → watch: recent notes + open errands. Strings "recent", "errands"; long "updatedAt". */
     const val DATA_STATE = "/pa/state"
     /** DataItem watch → phone: /pa/toggle/<errandId>/<itemId> {done, at}. The phone deletes it once applied. */

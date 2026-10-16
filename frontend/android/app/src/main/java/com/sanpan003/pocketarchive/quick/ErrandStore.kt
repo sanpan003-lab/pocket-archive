@@ -28,8 +28,16 @@ object ErrandStore {
         val placeName: String?,
         val items: List<Item>,
         val branches: List<Branch>,
+        /** "errand" (store list) or "reminder" (any note tied to a personal place) */
+        val kind: String = "errand",
+        /** "arrive" (DWELL) or "leave" (EXIT) */
+        val whenAt: String = "arrive",
+        val text: String? = null,
+        val radiusM: Float = 150f,
     ) {
         val openItems get() = items.filter { !it.done }
+        val isReminder get() = kind == "reminder"
+        val leaving get() = whenAt == "leave"
     }
 
     private const val PREFS = "errands"
@@ -63,6 +71,22 @@ object ErrandStore {
     fun clear(ctx: Context) {
         prefs(ctx).edit().clear().apply()
     }
+
+    // ── Diagnostics (Settings → Location reminders) ─────────────────────────
+    fun recordEvent(ctx: Context, transition: String, key: String) {
+        prefs(ctx).edit().putString("lastEvent", JSONObject().put("at", System.currentTimeMillis()).put("transition", transition).put("key", key).toString()).apply()
+    }
+
+    fun lastEvent(ctx: Context): JSONObject? = prefs(ctx).getString("lastEvent", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    fun setArmedCount(ctx: Context, n: Int, error: String?) {
+        prefs(ctx).edit().putInt("armed", n).putString("armError", error).putLong("armedAt", System.currentTimeMillis()).apply()
+    }
+
+    fun armedInfo(ctx: Context): JSONObject = JSONObject()
+        .put("count", prefs(ctx).getInt("armed", 0))
+        .put("error", prefs(ctx).getString("armError", null))
+        .put("at", prefs(ctx).getLong("armedAt", 0L))
 
     // ── Local state ─────────────────────────────────────────────────────────
 
@@ -121,6 +145,10 @@ object ErrandStore {
                     distanceM = if (b.isNull("distanceM")) null else b.optInt("distanceM"),
                 )
             },
+            kind = o.optString("kind", "errand"),
+            whenAt = o.optString("when", "arrive").takeIf { it == "leave" } ?: "arrive",
+            text = o.optString("text").takeIf { it.isNotBlank() && it != "null" },
+            radiusM = o.optDouble("radiusM", 150.0).toFloat().coerceIn(80f, 500f),
         )
     }
 }

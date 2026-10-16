@@ -36,10 +36,10 @@ class QuickRecorderService : Service() {
         private const val TAG = "QuickRecorder"
         const val ACTION_START = "com.sanpan003.pocketarchive.recorder.START"
         const val ACTION_STOP = "com.sanpan003.pocketarchive.recorder.STOP"
+        const val ACTION_DISCARD = "com.sanpan003.pocketarchive.recorder.DISCARD"
+        private const val COUNTDOWN_MS = 900L
 
-        private const val POLL_MS = 200L
-        private const val SILENCE_MS = 4_000L
-        private const val MAX_MS = 120_000L
+        private const val POLL_MS = 50L         // ~20 level updates a second for the live waveform
         private const val GRACE_MS = 700L        // ignore the start beep
         private const val MIN_THRESHOLD = 1_500.0 // getMaxAmplitude() is 0..32767
 
@@ -57,6 +57,9 @@ class QuickRecorderService : Service() {
     private var heardVoice = false
     private var noiseFloor = 400.0
     private var uploadsInFlight = 0
+    private var starting = false      // countdown running
+    private var silenceMs = 4_000L    // from Settings → Recording & shortcuts, read at start
+    private var maxMs = 120_000L
     /** Captures the volume keys while recording (screen on or off); released on stop. */
     private var keySession: MediaSessionCompat? = null
 
@@ -69,8 +72,9 @@ class QuickRecorderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> if (recorder == null) startRecording()
-            ACTION_STOP -> stopRecording()
+            ACTION_START -> if (recorder == null && !starting) startRecording()
+            ACTION_STOP -> if (starting) cancelCountdown() else stopRecording()
+            ACTION_DISCARD -> if (starting) cancelCountdown() else stopRecording(discard = true)
             else -> if (recorder == null && uploadsInFlight == 0) stopSelf()
         }
         return START_NOT_STICKY
@@ -92,6 +96,30 @@ class QuickRecorderService : Service() {
             return
         }
 
+        val prefs = RecorderPrefs.get(this)
+        silenceMs = if (prefs.silenceSec > 0) prefs.silenceSec * 1000L else Long.MAX_VALUE
+        maxMs = prefs.maxMinutes * 60_000L
+        if (prefs.countdown) {
+            starting = true
+            Feedback.countdown(this)
+            main.postDelayed(beginAfterCountdown, COUNTDOWN_MS)
+        } else {
+            beginRecording()
+        }
+    }
+
+    private val beginAfterCountdown = Runnable {
+        starting = false
+        beginRecording()
+    }
+
+    private fun cancelCountdown() {
+        main.removeCallbacks(beginAfterCountdown)
+        starting = false
+        finishIfIdle()
+    }
+
+    private fun beginRecording() {
         val output = PendingStore.newFile(this)
         val mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(this)
@@ -123,10 +151,11 @@ class QuickRecorderService : Service() {
         lastVoiceElapsed = startedElapsed
         heardVoice = false
         noiseFloor = 400.0
+        RecorderGuard.started()
         RecorderState.update(this, true, System.currentTimeMillis())
         Feedback.recordingStarted(this)
         main.postDelayed(poll, POLL_MS)
-        if (TokenStore.volumeStop(this)) captureVolumeKeys()
+        if (RecorderPrefs.get(this).capturesKeys) captureVolumeKeys()
     }
 
     // ── Volume keys: down = stop & upload, up = ignored ────────────────────
@@ -141,10 +170,14 @@ class QuickRecorderService : Service() {
         try {
             val provider = object : VolumeProviderCompat(VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
-                    if (direction < 0) main.post { stopFromKey() }
+                    when {
+                        direction < 0 -> main.post { keyFromSession(RecorderKeys.Key.DOWN) }
+                        direction > 0 -> main.post { keyFromSession(RecorderKeys.Key.UP) }
+                    }
                 }
                 override fun onSetVolumeTo(volume: Int) {
-                    if (volume < currentVolume) main.post { stopFromKey() }
+                    if (volume < currentVolume) main.post { keyFromSession(RecorderKeys.Key.DOWN) }
+                    else if (volume > currentVolume) main.post { keyFromSession(RecorderKeys.Key.UP) }
                 }
             }
             keySession = MediaSessionCompat(this, "PocketArchiveRecorder").apply {
@@ -168,8 +201,15 @@ class QuickRecorderService : Service() {
 
     private fun stopFromKey() {
         if (recorder == null) return // already stopped: no double stop
-        Log.i(TAG, "Stopped with the volume key")
+        Log.i(TAG, "Stopped with the media session")
         stopRecording()
+    }
+
+    /** Volume keys with the screen off / app in the background → Settings → Recording & shortcuts */
+    private fun keyFromSession(key: RecorderKeys.Key) {
+        if (recorder == null) return
+        Log.i(TAG, "Volume key from the media session: $key")
+        RecorderKeys.onKey(this, key)
     }
 
     private fun releaseVolumeKeys() {
@@ -192,19 +232,19 @@ class QuickRecorderService : Service() {
                     heardVoice = true
                 }
             } else {
-                noiseFloor = noiseFloor * 0.95 + amp * 0.05
+                noiseFloor = noiseFloor * 0.9875 + amp * 0.0125 // same ~4 s time constant at 50 ms polls
             }
             RecorderState.level(min(1.0, amp / 12_000.0))
 
             when {
-                now - startedElapsed >= MAX_MS -> stopRecording()
-                now - lastVoiceElapsed >= SILENCE_MS -> stopRecording()
+                now - startedElapsed >= maxMs -> stopRecording()
+                now - lastVoiceElapsed >= silenceMs -> stopRecording()
                 else -> main.postDelayed(this, POLL_MS)
             }
         }
     }
 
-    private fun stopRecording() {
+    private fun stopRecording(discard: Boolean = false) {
         val active = recorder
         if (active == null) {
             finishIfIdle()
@@ -213,6 +253,8 @@ class QuickRecorderService : Service() {
         main.removeCallbacks(poll)
         recorder = null
         releaseVolumeKeys()
+        RecorderKeys.reset()
+        RecorderGuard.stopped()
         val stoppedCleanly = try {
             active.stop()
             true
@@ -224,6 +266,13 @@ class QuickRecorderService : Service() {
         val captured = file
         file = null
         RecorderState.update(this, false)
+
+        if (discard) {
+            Feedback.discarded(this)
+            if (stoppedCleanly && captured != null && captured.length() > 0) DiscardStore.discard(this, captured) else captured?.delete()
+            finishIfIdle()
+            return
+        }
         Feedback.recordingStopped(this)
 
         if (!stoppedCleanly || captured == null || !heardVoice || captured.length() < 1_500) {
@@ -268,13 +317,14 @@ class QuickRecorderService : Service() {
     }
 
     private fun finishIfIdle() {
-        if (recorder != null || uploadsInFlight > 0) return
+        if (recorder != null || uploadsInFlight > 0 || starting) return
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
         main.removeCallbacks(poll)
+        main.removeCallbacks(beginAfterCountdown)
         releaseVolumeKeys()
         recorder?.let { active ->
             // Killed mid-recording: keep what we have and queue it

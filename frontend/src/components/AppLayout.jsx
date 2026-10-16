@@ -4,6 +4,7 @@ import { ArrivalPermissionPrompt } from '../native/arrival';
 import { Menu, Moon, Sun } from 'lucide-react';
 import Sidebar from './Sidebar';
 import CreateMenu from './create/CreateMenu';
+import { WhatsNewSheet } from './WhatsNew';
 import { useApp } from '../context/AppContext';
 import { useAppearance } from '../context/appearanceStore';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -70,6 +71,7 @@ export default function AppLayout() {
 
         <Outlet />
         <CreateMenu />
+        <WhatsNewSheet />
         <ArrivalPermissionPrompt />
       </main>
     </div>

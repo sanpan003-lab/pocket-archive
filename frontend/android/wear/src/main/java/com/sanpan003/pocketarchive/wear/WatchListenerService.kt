@@ -44,6 +44,8 @@ class WatchListenerService : WearableListenerService() {
             val path = event.dataItem.uri.path ?: continue
             when {
                 path == Protocol.DATA_STATE && event.type == DataEvent.TYPE_CHANGED -> applyState(this, event.dataItem)
+                path == Protocol.DATA_REC_SETTINGS && event.type == DataEvent.TYPE_CHANGED ->
+                    WatchPrefs.fromPhone(this, DataMapItem.fromDataItem(event.dataItem).dataMap.getString("json"))
                 // The phone deletes a checklist change once it reached the server
                 path.startsWith("${Protocol.DATA_TOGGLE}/") && event.type == DataEvent.TYPE_DELETED -> {
                     val parts = path.removePrefix("${Protocol.DATA_TOGGLE}/").split('/')
@@ -66,12 +68,17 @@ class WatchListenerService : WearableListenerService() {
         val place = o.optString("placeName").takeIf { it.isNotBlank() && it != "null" } ?: o.optString("title")
         val items = o.optJSONArray("items")
         val open = (0 until (items?.length() ?: 0)).mapNotNull { items?.optJSONObject(it) }.filter { !it.optBoolean("done") }
-        val title = when (open.size) {
-            0 -> "🛒 You're at $place"
-            1 -> "🛒 You're at $place — 1 item"
+        val reminder = o.optString("kind") == "reminder"
+        val headline = o.optString("headline").takeIf { it.isNotBlank() && it != "null" }
+        val title = when {
+            reminder -> "${headline ?: "📍 Reminder"} — ${o.optString("title")}"
+            open.isEmpty() -> "🛒 You're at $place"
+            open.size == 1 -> "🛒 You're at $place — 1 item"
             else -> "🛒 You're at $place — ${open.size} items"
         }
-        val list = open.joinToString("\n") { "☐ ${it.optString("text")}" }
+        val text = o.optString("text").takeIf { it.isNotBlank() && it != "null" && it != o.optString("title") }
+        val list = if (reminder) listOfNotNull(text, open.joinToString("\n") { "☐ ${it.optString("text")}" }.ifBlank { null }).joinToString("\n\n")
+            else open.joinToString("\n") { "☐ ${it.optString("text")}" }
         val nid = 3000 + (id.hashCode() and 0xFFFF)
         val openList = WatchNotifications.openApp(this, nid) { putExtra(MainActivity.EXTRA_ERRAND, id) }
         val done = android.app.PendingIntent.getBroadcast(
@@ -85,7 +92,7 @@ class WatchListenerService : WearableListenerService() {
                 .setSmallIcon(R.drawable.ic_stat_mic)
                 .setColor(WatchNotifications.GREEN)
                 .setContentTitle(title)
-                .setContentText(open.joinToString(", ") { it.optString("text") })
+                .setContentText(if (reminder) (text ?: o.optString("title")) else open.joinToString(", ") { it.optString("text") })
                 .setStyle(NotificationCompat.BigTextStyle().bigText(list))
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)

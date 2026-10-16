@@ -22,8 +22,11 @@ object Haptics {
         }
     }
 
-    fun start(ctx: Context) = vibrate(ctx, VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
-    fun stop(ctx: Context) = vibrate(ctx, VibrationEffect.createWaveform(PATTERN_DOUBLE, -1))
+    private fun on(ctx: Context) = WatchPrefs.get(ctx).feedback != "none"
+    fun start(ctx: Context) { if (on(ctx)) vibrate(ctx, VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE)) }
+    fun stop(ctx: Context) { if (on(ctx)) vibrate(ctx, VibrationEffect.createWaveform(PATTERN_DOUBLE, -1)) }
+    /** Countdown before recording: three short taps */
+    fun countdown(ctx: Context) = vibrate(ctx, VibrationEffect.createWaveform(longArrayOf(0, 40, 260, 40, 260, 40), -1))
     fun success(ctx: Context) = vibrate(ctx, VibrationEffect.createWaveform(PATTERN_DOUBLE, -1))
     fun review(ctx: Context) = vibrate(ctx, VibrationEffect.createWaveform(PATTERN_LONG, -1))
 }

@@ -86,6 +86,9 @@ object PhoneLink {
             val items = Wearable.getDataClient(ctx).dataItems.await()
             try {
                 items.firstOrNull { it.uri.path == Protocol.DATA_STATE }?.let { WatchListenerService.applyState(ctx, it) }
+                items.firstOrNull { it.uri.path == Protocol.DATA_REC_SETTINGS }?.let {
+                    WatchPrefs.fromPhone(ctx, com.google.android.gms.wearable.DataMapItem.fromDataItem(it).dataMap.getString("json"))
+                }
             } finally {
                 items.release()
             }

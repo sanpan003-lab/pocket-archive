@@ -15,6 +15,7 @@ const {
   getConfig, saveConfig, CONFIG_PATH,
 } = require('./auth');
 const { createQuickCapture } = require('./quickCapture');
+const { createMaps } = require('./maps');
 const { createPlaces } = require('./places');
 
 const app  = express();
@@ -501,7 +502,7 @@ function bearerToken(req) {
 }
 
 // Media URLs the Android app loads in <audio>/links (no Authorization header possible)
-const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/(audio|media)|recordings\/[^/]+\/attachments\/[^/]+)$/;
+const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/(audio|media)|recordings\/[^/]+\/attachments\/[^/]+|maps\/(tiles|fonts|sprites)\/.+)$/;
 
 function requireAuth(req, res, next) {
   // Android app: "Authorization: Bearer <device token>"
@@ -609,7 +610,7 @@ const places = createPlaces({
 places.register(app);
 
 // ── Appearance & layout settings (shared across devices; per-device overrides stay on the device) ──
-const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'behavior'];
+const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'capture', 'behavior', 'toolbar'];
 app.get('/api/appearance', (_req, res) => {
   res.json(getConfig().appearance || {});
 });
@@ -623,7 +624,7 @@ app.put('/api/appearance', (req, res) => {
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       clean[g] = Object.fromEntries(Object.entries(v)
         .filter(([k, x]) => /^[a-zA-Z]{1,40}$/.test(k) && ['string', 'boolean', 'number'].includes(typeof x))
-        .map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 40) : x]));
+        .map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 200) : x]));
     }
   }
   const config = getConfig();
@@ -631,6 +632,9 @@ app.put('/api/appearance', (req, res) => {
   saveConfig(config);
   res.json(config.appearance);
 });
+
+// ── Self-hosted map (09_Maps/*.pmtiles) ────────────────────────────────────
+createMaps({ archivePath: ARCHIVE_PATH }).register(app);
 
 // ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
 const quick = createQuickCapture({

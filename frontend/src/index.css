@@ -567,3 +567,24 @@ html[data-theme="black"] .note-surface { background: #000; border: 1px solid rgb
 
 /* Drawing canvas */
 .draw-canvas { touch-action: none; background: #FFFFFF; cursor: crosshair; }
+
+/* ─── Capture screen: breathing glow around the idle mic ─────────────────── */
+@keyframes capture-breathe {
+  0%, 100% { transform: scale(0.92); opacity: 0.45; }
+  50%      { transform: scale(1.06); opacity: 0.85; }
+}
+.capture-breathe {
+  background: radial-gradient(circle, rgb(var(--accent-400) / 0.45) 0%, rgb(var(--accent-500) / 0.18) 45%, transparent 70%);
+  animation: capture-breathe 4.2s ease-in-out infinite;
+}
+
+/* ─── Note toolbar: edge fades show there's more to scroll ───────────────── */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+/* Edge fades as a mask, so they work on any note color */
+.toolbar-fade-left  { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); mask-image: linear-gradient(to right, transparent, #000 28px); }
+.toolbar-fade-right { -webkit-mask-image: linear-gradient(to left, transparent, #000 28px); mask-image: linear-gradient(to left, transparent, #000 28px); }
+.toolbar-fade-left.toolbar-fade-right {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}

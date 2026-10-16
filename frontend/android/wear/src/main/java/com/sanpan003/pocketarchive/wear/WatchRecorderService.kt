@@ -30,14 +30,19 @@ class WatchRecorderService : Service() {
         private const val ACTION_START = "start"
         private const val ACTION_STOP = "stop"
         private const val POLL_MS = 200L
-        private const val SILENCE_MS = 4_000L
-        private const val MAX_MS = 120_000L
+        private const val COUNTDOWN_MS = 900L
         private const val GRACE_MS = 700L
         private const val MIN_THRESHOLD = 1_500.0
 
         /** Only from the foreground (activity): Android requires it for microphone services. */
         fun start(ctx: Context) {
             if (WatchState.isRecording) return
+            ContextCompat.startForegroundService(ctx, Intent(ctx, WatchRecorderService::class.java).setAction(ACTION_START))
+        }
+
+        /** "Start a new note": save this one, start the next */
+        fun restart(ctx: Context) {
+            stop(ctx)
             ContextCompat.startForegroundService(ctx, Intent(ctx, WatchRecorderService::class.java).setAction(ACTION_START))
         }
 
@@ -56,13 +61,16 @@ class WatchRecorderService : Service() {
     private var lastVoiceElapsed = 0L
     private var heardVoice = false
     private var noiseFloor = 400.0
+    private var starting = false
+    private var silenceMs = 4_000L
+    private var maxMs = 120_000L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> if (recorder == null) startRecording() else Unit
-            ACTION_STOP -> stopRecording()
+            ACTION_START -> if (recorder == null && !starting) startRecording() else Unit
+            ACTION_STOP -> if (starting) { main.removeCallbacks(begin); starting = false; finish() } else stopRecording()
             else -> if (recorder == null) stopSelf()
         }
         return START_NOT_STICKY
@@ -78,6 +86,19 @@ class WatchRecorderService : Service() {
             stopSelf()
             return
         }
+        val prefs = WatchPrefs.get(this)
+        silenceMs = if (prefs.silenceSec > 0) prefs.silenceSec * 1000L else Long.MAX_VALUE
+        maxMs = prefs.maxMinutes * 60_000L
+        if (prefs.countdown) {
+            starting = true
+            Haptics.countdown(this)
+            main.postDelayed(begin, COUNTDOWN_MS)
+        } else beginRecording()
+    }
+
+    private val begin = Runnable { starting = false; beginRecording() }
+
+    private fun beginRecording() {
         val output = CaptureQueue.newRecording(this)
         val mr = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) MediaRecorder(this)
         else @Suppress("DEPRECATION") MediaRecorder()
@@ -106,6 +127,7 @@ class WatchRecorderService : Service() {
         heardVoice = false
         noiseFloor = 400.0
         WatchState.set(Phase.Recording(startedElapsed))
+        WatchPrefs.started()
         Haptics.start(this)
         RecordTileService.requestUpdate(this)
         main.postDelayed(poll, POLL_MS)
@@ -124,8 +146,8 @@ class WatchRecorderService : Service() {
             }
             WatchState.level(min(1.0, amp / 12_000.0).toFloat())
             when {
-                now - startedElapsed >= MAX_MS -> stopRecording()
-                now - lastVoiceElapsed >= SILENCE_MS -> stopRecording()
+                now - startedElapsed >= maxMs -> stopRecording()
+                now - lastVoiceElapsed >= silenceMs -> stopRecording()
                 else -> main.postDelayed(this, POLL_MS)
             }
         }
@@ -135,6 +157,7 @@ class WatchRecorderService : Service() {
         val active = recorder ?: return finish()
         main.removeCallbacks(poll)
         recorder = null
+        WatchPrefs.stopped()
         val clean = try { active.stop(); true } catch (_: RuntimeException) { false } finally { active.release() }
         val captured = file
         file = null
@@ -160,6 +183,7 @@ class WatchRecorderService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(poll)
+        main.removeCallbacks(begin)
         recorder?.let { active ->
             // Killed mid-recording: keep what we have
             runCatching { active.stop() }

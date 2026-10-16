@@ -1,17 +1,19 @@
 {
   "name": "pocket-archive",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/changelog.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:android": "vite build --mode android && cap sync android && node scripts/android-config.mjs",
+    "build:android": "node scripts/changelog.mjs && vite build --mode android && cap sync android && node scripts/android-config.mjs",
     "icons": "node scripts/icons/build.mjs",
     "icons:design": "node scripts/icons/design.mjs",
-    "icons:preview": "node scripts/icons/preview.mjs"
+    "icons:preview": "node scripts/icons/preview.mjs",
+    "changelog": "node scripts/changelog.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -19,10 +21,13 @@
     "@capacitor/camera": "8.2.4",
     "@capacitor/core": "^8.5.3",
     "@capacitor/share": "8.0.2",
+    "@protomaps/basemaps": "5.7.2",
     "axios": "^1.15.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.12.0",
+    "maplibre-gl": "6.11.2",
     "mermaid": "^11.0.0",
+    "pmtiles": "4.5.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.2",

@@ -41,7 +41,7 @@ function NotePanelBody({ note, projectName, onChanged, arrivalReady, onReload })
   const pending = note.status === 'pending_decision' && note.pending;
   return (
     <>
-      <div className="px-5 sm:px-6 pt-1 pb-3">
+      <div className="px-5 sm:px-6 pt-1 pb-3" data-note-body>
         {pending && <div className="mb-3"><AskPrompt note={note} onResolved={() => onReload?.()} /></div>}
         <NoteContent note={note} onChanged={onChanged} projectName={projectName} arrivalReady={arrivalReady} />
       </div>
@@ -98,8 +98,13 @@ export default function NoteView({
 
   // Touch: swipe down to close (card/sheet, when scrolled to the top), left/right for prev/next
   const onTouchStart = e => {
+    // The action toolbar scrolls sideways itself: gestures that start there never change notes
+    if (e.target.closest?.('[data-no-swipe]')) { touch.current = null; return; }
     const t = e.touches[0];
-    touch.current = { x: t.clientX, y: t.clientY, top: (scrollRef.current?.scrollTop || 0) <= 0, axis: null };
+    touch.current = {
+      x: t.clientX, y: t.clientY, top: (scrollRef.current?.scrollTop || 0) <= 0, axis: null,
+      fromBody: !!e.target.closest?.('[data-note-body]'),   // prev/next only from the note itself
+    };
   };
   const onTouchMove = e => {
     const s = touch.current;
@@ -120,7 +125,7 @@ export default function NoteView({
     const dx = t.clientX - s.x, dy = t.clientY - s.y;
     if (s.axis === 'y' && dragY > 110) { onClose(); return; }
     setDragY(0);
-    if (swipe && s.axis === 'x' && Math.abs(dx) > 70 && Math.abs(dy) < 60) {
+    if (swipe && s.fromBody && s.axis === 'x' && Math.abs(dx) > 70 && Math.abs(dy) < 60) {
       if (dx < 0 && onNext) onNext();
       if (dx > 0 && onPrev) onPrev();
     }

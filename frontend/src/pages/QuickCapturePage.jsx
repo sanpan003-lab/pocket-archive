@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Mic, Square, Loader2, Undo2, CloudOff, AlertCircle, Lock, Check } from 'lucide-react';
+import { Mic, Undo2, CloudOff, AlertCircle, Lock, Check } from 'lucide-react';
 import { captureQuick, undoQuickNote, getQuickNotes, moveQuickNote } from '../lib/api';
 import { speak, unlockSpeech, stopSpeaking } from '../lib/speech';
 import {
@@ -19,6 +19,8 @@ import QuickSettings from '../components/quick/QuickSettings';
 import { QUICK_TYPES, describeWhen, confirmationFor, errandPlaceName, errandProgress } from '../components/quick/quickMeta';
 import { syncErrands } from '../native/errands';
 import AskPrompt from '../components/quick/AskPrompt';
+import CaptureStage from '../components/quick/CaptureStage';
+import { useAppearance } from '../context/appearanceStore';
 import TargetPicker from '../components/quick/TargetPicker';
 
 const UNDO_WINDOW_MS = 30000;
@@ -91,6 +93,7 @@ export default function QuickCapturePage() {
   const [queued, setQueued]     = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
   const [toast, setToast]       = useState(null);
+  const { settings: appearance } = useAppearance();
   const [readAloud, setReadAloud] = useQuickSetting('readAloud');
   const [feedback, setFeedback]   = useQuickSetting('feedback');
   const phaseRef = useRef(phase);
@@ -328,6 +331,18 @@ export default function QuickCapturePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ?voice=1
   }, [searchParams]);
 
+  // "Done": close the result → back to the Capture screen (or the Inbox, per Settings → Capture screen)
+  function finishResult() {
+    stopSpeaking();
+    setToast(null);
+    setMoving(false);
+    setUndoUntil(0);
+    setResult(null);
+    setMessage(null);
+    setPhase('idle');
+    if (appearance.capture.afterDone === 'inbox') navigate('/quick/inbox');
+  }
+
   async function handleUndo() {
     if (!result) return;
     setUndoing(true);
@@ -420,52 +435,17 @@ export default function QuickCapturePage() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center gap-6 py-4">
-          {/* Big mic button (replaced by "Record another" once a capture is finished) */}
+          {/* Idle: greeting + breathing mic + hints · Recording: timer + live waveform + Stop · Processing: the wave collapses */}
           {!finished && (
-            <div className="relative flex items-center justify-center" style={{ width: 'min(78vw, 52vh, 420px)', height: 'min(78vw, 52vh, 420px)' }}>
-              {recording && (
-                <>
-                  <span className="absolute inset-0 rounded-full animate-ping" style={{ background: 'rgba(245,158,11,0.25)' }} />
-                  <span
-                    className="absolute inset-0 rounded-full transition-transform duration-100"
-                    style={{ background: 'rgba(245,158,11,0.22)', transform: `scale(${1.04 + recorder.level * 0.22})` }}
-                  />
-                </>
-              )}
-              <button
-                className="relative w-full h-full rounded-full flex items-center justify-center text-white transition-all active:scale-95 disabled:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-gold-400/60"
-                style={{
-                  background: recording
-                    ? 'linear-gradient(135deg,#F59E0B 0%,#EA580C 100%)'
-                    : 'linear-gradient(135deg,#F59E0B 0%,#D97706 100%)',
-                  boxShadow: '0 12px 40px rgba(245,158,11,0.40), inset 0 2px 0 rgba(255,255,255,0.25)',
-                }}
-                onClick={handleTap}
-                disabled={processing}
-                aria-label={recording ? 'Stop recording' : 'Start recording'}
-              >
-                {processing
-                  ? <Loader2 className="w-[30%] h-[30%] animate-spin" />
-                  : recording
-                    ? <Square className="w-[26%] h-[26%]" fill="currentColor" />
-                    : <Mic className="w-[34%] h-[34%]" />}
-              </button>
-            </div>
-          )}
-
-          {/* Status (a saved capture is confirmed by the toast + result card instead) */}
-          {phase !== 'done' && (
-            <p
-              className={`text-center text-lg sm:text-xl font-semibold px-2 break-words max-w-md ${
-                phase === 'error' ? 'text-red-500 dark:text-red-400' : 'text-navy-900 dark:text-white'
-              }`}
-              aria-live="polite"
-            >
-              {statusText}
-            </p>
-          )}
-          {recording && (
-            <p className="-mt-4 text-sm text-navy-400 dark:text-white/40">Stops after 4 seconds of silence</p>
+            <CaptureStage
+              recording={recording}
+              processing={processing}
+              level={recorder.level}
+              elapsedMs={recorder.elapsedMs}
+              onTap={handleTap}
+              statusText={recording ? 'Listening…' : statusText}
+              error={phase === 'error'}
+            />
           )}
 
           {/* Result */}
@@ -541,7 +521,7 @@ export default function QuickCapturePage() {
               </button>
               <button
                 className="h-20 rounded-2xl text-lg font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] bg-white dark:bg-white/10 text-navy-900 dark:text-white border-2 border-navy-200 dark:border-white/20 shadow-glass"
-                onClick={() => navigate('/quick/inbox')}
+                onClick={finishResult}
               >
                 <Check size={24} className="shrink-0" />
                 Done

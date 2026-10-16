@@ -24,6 +24,20 @@ Rules:
 - Never invent facts, names, numbers or dates. If notes disagree, the newest note wins; mention the change only if it matters.
 - Be concise: aim for under 200 words. No preamble, no closing remarks, no code fences.`;
 
+// The prompt says to leave empty sections out, but the model sometimes still writes
+// "- None recorded yet." Drop filler lines, and any section left with nothing in it.
+const FILLER = /^[-*\s]*(?:none\b|nothing\b|not yet\b|n\/a\b|no (?:\w+ ){0,3}(?:recorded|mentioned|noted|yet|so far)\b)/i;
+function dropFillerSections(md) {
+  const out = [];
+  for (const part of md.split(/\n(?=### )/)) {
+    const [head, ...body] = part.split('\n');
+    if (!head.startsWith('### ')) { out.push(part); continue; }
+    const kept = body.filter(l => !FILLER.test(l.trim()));
+    if (kept.some(l => l.trim())) out.push([head, ...kept].join('\n').trimEnd());
+  }
+  return out.join('\n\n').trim();
+}
+
 const isProjectId = id => typeof id === 'string' && /^pj_\d+_[a-z0-9]+$/.test(id);
 const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -185,7 +199,7 @@ function createProjects({ archivePath, getNote, listNotes, updateNote, onChange 
     const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('').trim()
       .replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i, '$1').trim();
     if (!text) throw new Error('Claude returned an empty summary');
-    return text;
+    return dropFillerSections(text) || text;
   }
 
   /** Projects whose living summary never finished (e.g. after a restart). */

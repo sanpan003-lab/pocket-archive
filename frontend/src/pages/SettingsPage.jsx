@@ -9,6 +9,8 @@ import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
 import AppearanceSettings from '../components/AppearanceSettings';
+import RecordingSettings from '../components/RecordingSettings';
+import { AboutSection } from '../components/WhatsNew';
 
 function shortDate(iso) {
   return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -184,6 +186,7 @@ export default function SettingsPage() {
       </div>
 
       <AppearanceSettings />
+      <RecordingSettings />
 
       {/* ── Backend status ──────────────────────────────────────────────────── */}
       <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">
@@ -287,6 +290,7 @@ export default function SettingsPage() {
           {' '}inside the archive folder.
         </p>
       </div>
+      <AboutSection />
     </div>
   );
 }

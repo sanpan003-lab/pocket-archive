@@ -113,6 +113,13 @@ export const createMediaNote    = (formData, onProgress) => http.post('/quick/me
 }).then(r => r.data);
 
 // Appearance & layout (shared across devices)
+// Self-hosted map (PMTiles): status + absolute URLs (the app adds its media token)
+export const getMapStatus       = () => http.get('/maps/status').then(r => r.data);
+export const mapUrl             = rel => {
+  const base = new URL(API_BASE, window.location.origin).href.replace(/\/$/, '');
+  return withMediaToken(`${base}/maps/${rel}`);
+};
+
 export const getAppearance      = () => http.get('/appearance').then(r => r.data);
 export const saveAppearance     = groups => http.put('/appearance', groups).then(r => r.data);
 
@@ -154,6 +161,10 @@ export const addSavedPlace      = place => http.post('/places/saved', place).the
 export const updateSavedPlace   = (id, place) => http.put(`/places/saved/${id}`, place).then(r => r.data);
 export const deleteSavedPlace   = id => http.delete(`/places/saved/${id}`).then(r => r.data);
 export const updateErrandSettings = settings => http.put('/errands/settings', settings).then(r => r.data);
+// Location reminders (any place: "when I get home", "when I leave work")
+export const getLocationReminders = () => http.get('/location-reminders').then(r => r.data);
+export const setGeoPlace          = (id, body) => http.post(`/quick/${id}/geo-place`, body).then(r => r.data);
+export const setReminderDone      = (id, done = true) => http.post(`/quick/${id}/done`, { done }).then(r => r.data);
 
 // Trash / delete
 export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);

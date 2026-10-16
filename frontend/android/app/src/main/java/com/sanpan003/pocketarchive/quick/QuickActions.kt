@@ -29,12 +29,27 @@ object QuickActions {
      * Android only lets microphone services start from the foreground.
      * Returns false when the app has to be opened first (permission / sign-in).
      */
-    fun start(ctx: Context): Boolean {
+    fun start(ctx: Context, source: String = "external", force: Boolean = false): Boolean {
         if (blocker(ctx) != null) return false
         if (!RecorderState.recording) {
+            // The press that just stopped a recording (e.g. volume up + a Samsung routine) must not start one
+            if (!force && source != "app" && !RecorderGuard.canStart(ctx, source)) return true
             ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START))
         }
         return true
+    }
+
+    /** Stop without saving (Undo for 10 s). */
+    fun discard(ctx: Context) {
+        if (RecorderState.recording) {
+            ctx.startService(QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_DISCARD))
+        }
+    }
+
+    /** "Start a new note": save this one and start the next right away */
+    fun restart(ctx: Context) {
+        stop(ctx)
+        ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START))
     }
 
     /** Stops and uploads. Does nothing when not recording (never starts one). */
@@ -44,6 +59,6 @@ object QuickActions {
         }
     }
 
-    fun toggle(ctx: Context): Boolean =
-        if (RecorderState.recording) { stop(ctx); true } else start(ctx)
+    fun toggle(ctx: Context, source: String = "external"): Boolean =
+        if (RecorderState.recording) { stop(ctx); true } else start(ctx, source)
 }

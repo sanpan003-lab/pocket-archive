@@ -10,7 +10,8 @@ inside the Android app (`android/`). The backend lives in
   service-account JSON, `.env*`, `android/keystore.properties`, `*.jks`.
 - The web build must keep using the same-origin `/api` base URL. Don't change the web
   login cookie (name, httpOnly, SameSite, Secure, expiry) or `/api/auth/login`.
-- Don't modify `C:\Users\sundi\Documents\deploy-to-nas.bat` or the Dockerfiles.
+- Don't modify the Dockerfiles. Change `C:\Users\sundi\Documents\deploy-to-nas.bat` only to fix deploy
+  steps (frontend sync, release check).
 - **Never create a new Android signing key.** The app is signed with
   `C:\Users\sundi\keys\pocketarchive.jks` (alias `pocketarchive`, credentials in
   `android/keystore.properties`). Certificate SHA-256:
@@ -33,6 +34,21 @@ inside the Android app (`android/`). The backend lives in
   browser keeps `/api`.
 - Native code gets the server from the web layer (`QuickRecorder.configure`) and falls
   back to `BuildConfig.API_BASE`, which Gradle reads from `.env.android`.
+
+## Every release (rule)
+
+1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single
+   source of truth): `## X.Y.Z — Mon D, YYYY`, user-facing bullets. Set `"version"` in `package.json`
+   to the same number, and `NEXT_VERSION_NAME=X.Y.Z` in `android/app/version.properties` and
+   `android/wear/version.properties` (the next release build uses it once and removes it).
+2. `npm run changelog` copies it to `src/generated/changelog.md` (also runs before every build). Settings →
+   About shows it; the app shows a one-time "What's new in X.Y.Z" after an update.
+3. Deploy web + backend, rebuild the NAS, run `update-android.bat`. Both scripts end with
+   `node scripts/verify-release.mjs` (`--phone` from update-android.bat). It compares the CHANGELOG
+   version with package.json, the NAS build folder and the installed app (adb), and fails loudly
+   when anything is behind. Don't report a release as done until it passes.
+   (1.1.0 was once announced but never deployed: the work stopped at an approval gate before the
+   build/deploy steps and nothing checked it. That's why this check exists.)
 
 ## Android release procedure
 
@@ -209,6 +225,9 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 
 ## Stopping a recording (Part C)
 
+> Since 1.1.0 the key behavior comes from `RecorderPrefs` (Settings → Recording & shortcuts, see below):
+> volume up and down both stop & save by default. The `volumeStop`/`launcherToggle` settings below are migrated.
+
 - `QuickRecorderService` holds a `MediaSessionCompat` with a remote `VolumeProviderCompat` only while
   recording (volume down → stop; up ignored), released in `stopRecording`/`onDestroy`.
   `MainActivity.onKeyDown/onKeyUp` handle the keys when the app is on screen.
@@ -248,6 +267,36 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
   the logo uses `bg-brand-gradient` and stays gold. The old `pa_darkMode` is migrated once.
 - Tests (scratchpad, not in git): `create-e2e.cjs` (real AI), `fftools/create-ui.cjs` (every opening
   style × phone/desktop, layouts, composers, settings), `voice-default.cjs`.
+
+## Location reminders, maps, capture screen, toolbar (1.1.0)
+
+- **Location reminders** (backend `quickCapture.js` + `places.js`): the classifier returns `geoWhen`
+  ('' | arrive | leave), `geoPlace` (what was said) and `geoPlaceId` (from the PLACES block: home, work,
+  saved places). `prepareGeo` sets `note.geo` {when, query, placeId, name, address, lat, lng, radiusM
+  (home 100, else 150), status active | needs_place | done}. `POST /api/quick/:id/geo-place` (placeId, or
+  lat/lng/name/address → saves the place with the spoken words as an alias). `GET /api/location-reminders`.
+  `/api/errands/active` prepends them as `kind:'reminder'` with keys `ar|lv:<placeId>:<lat>,<lng>`.
+- Android: `ErrandSync` registers DWELL (arrive) / EXIT (leave) fences; personal places without an
+  initial trigger. A signature pref skips re-registering; a reboot or GEOFENCE_NOT_AVAILABLE re-arms them.
+  `ArrivalNotifier.onArrive(key, leaving)`; plugin `getLocationStatus`, `testLocationReminder`.
+  Web: `components/places/` (GeoPlacePrompt, LocationReminders, PlacesMap, NoteMap, MapView).
+- **Maps**: `maps.js` serves `ARCHIVE/09_Maps/*.pmtiles` with range requests (+ cached fonts/sprites). See
+  `docs/maps.md` in the monorepo. Never commit the map file. MapView gotchas: MapLibre 6's worker is a
+  separate ES module (`?worker&url` + `setWorkerUrl`, `worker.format: 'es'` in vite.config), and
+  `.maplibregl-map { position: relative }` beats Tailwind's `absolute`, so the container uses inline styles.
+- **Capture screen**: `components/quick/CaptureStage.jsx` + `VoiceWaveform.jsx` (canvas; neon / gold / bars;
+  web uses an AnalyserNode, native sends ~20 levels/s). Appearance group `capture` {micSize, waveform, afterDone}.
+- **Note toolbar**: `NoteToolbar.jsx` + `toolbarActions.js` + `ToolbarEditor.jsx`; appearance group `toolbar`
+  {order, hidden}. The toolbar is `data-no-swipe`; NoteView only swipes from `[data-note-body]`.
+  Edge fades are a CSS mask (they work on any note color). Delete is always in ⋯ More.
+- **Recording & shortcuts** (native only): `components/RecordingSettings.jsx` ⇄ `quick/RecorderPrefs.kt`,
+  `RecorderGuard.kt` (double-action guards), `RecorderKeys.kt`, `DiscardStore.kt`, `VolumeShortcutService.kt`;
+  the watch syncs via `/pa/rec-settings(-watch)`.
+- "Done" bug (fixed): the create menu's invisible wrapper covered the result card's Done button. The FAB
+  wrapper is `pointer-events-none`; only the button and the open menu take taps.
+- Emulator: start it with `-camera-back none -camera-front none -no-snapshot` (the emulated camera crashes
+  Vulkan on this PC). Git Bash needs `MSYS_NO_PATHCONV=1` for adb paths. Mock-location walk scripts and
+  UI tests live in the session scratchpad, not in git.
 
 ## Next up
 

@@ -88,8 +88,10 @@ export default function CreateMenu() {
           {open && (
             <div className={`fixed inset-0 z-[118] bg-black/35 ${animate ? 'backdrop-blur-[2px] note-anim-fade' : ''}`} onClick={() => setOpen(false)} aria-hidden="true" />
           )}
-          <div className="fixed z-[119] right-4 sm:right-6 bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+1rem))] flex flex-col items-end gap-3">
-            <ul id="create-menu" className={`flex flex-col-reverse items-end gap-2.5 ${open ? '' : 'pointer-events-none'}`} aria-hidden={!open} role="menu" aria-label="Create">
+          {/* The wrapper lets taps through: only the button and the open menu catch them
+              (a closed, invisible menu must never block what's underneath, e.g. "Done") */}
+          <div className="fixed z-[119] right-4 sm:right-6 bottom-[max(1.25rem,calc(env(safe-area-inset-bottom)+1rem))] flex flex-col items-end gap-3 pointer-events-none">
+            <ul id="create-menu" className={`flex flex-col-reverse items-end gap-2.5 ${open ? 'pointer-events-auto' : 'invisible'}`} aria-hidden={!open} role="menu" aria-label="Create">
               {OPTIONS.map((o, i) => (
                 <li key={o.key} role="none">
                   <button
@@ -112,7 +114,7 @@ export default function CreateMenu() {
             </ul>
             <button
               type="button"
-              className="fab"
+              className="fab pointer-events-auto"
               onClick={() => { setOpen(o => !o); haptic(10); }}
               aria-label={open ? 'Close create menu' : 'Create'}
               aria-expanded={open}

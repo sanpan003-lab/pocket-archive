@@ -6,12 +6,15 @@ import { useAppearance } from '../context/appearanceStore';
 import { OPTIONS, ACCENT_SWATCH, NOTE_COLORS } from '../lib/appearance';
 import { noteColorStyle, resolveOpenStyle } from './quick/noteHelpers';
 import { useIsMobile } from '../hooks/useIsMobile';
+import ToolbarEditor from './quick/ToolbarEditor';
 
 const GROUP_INFO = {
   opening:  { title: 'Opening notes' },
   inbox:    { title: 'Inbox layout' },
   look:     { title: 'Notes look' },
   theme:    { title: 'Theme' },
+  capture:  { title: 'Capture screen' },
+  toolbar:  { title: 'Note toolbar' },
   behavior: { title: 'Behavior' },
 };
 
@@ -216,6 +219,11 @@ export default function AppearanceSettings() {
         <Switch label="Pinned notes at the top" checked={inbox.pinnedSection} onChange={set('inbox', 'pinnedSection')} />
       </Group>
 
+      <Group group="toolbar">
+        <p className="text-xs text-navy-500 dark:text-white/50 pt-2 pb-1">Drag to reorder, tap the eye to show or hide. Tip: long-press the toolbar in a note to edit it there.</p>
+        <ToolbarEditor />
+      </Group>
+
       <Group group="look">
         <Segmented id="ap-card" label="Card style" value={look.cardStyle} options={OPTIONS.cardStyle} onChange={set('look', 'cardStyle')} />
         <Switch label="Note colors" hint={`${NOTE_COLORS.length - 1} soft colors, like Keep (Color in a note's toolbar)`} checked={look.noteColors} onChange={set('look', 'noteColors')} />
@@ -239,6 +247,12 @@ export default function AppearanceSettings() {
         <Segmented id="ap-text" label="Text size" value={theme.textSize} options={OPTIONS.textSize} onChange={set('theme', 'textSize')} />
         <Segmented id="ap-density" label="Density" value={theme.density} options={OPTIONS.density} onChange={set('theme', 'density')} />
         <Segmented id="ap-motion" label="Animations" value={theme.motion} options={OPTIONS.motion} onChange={set('theme', 'motion')} />
+      </Group>
+
+      <Group group="capture">
+        <Segmented id="ap-mic" label="Mic button size" value={settings.capture.micSize} options={OPTIONS.micSize} onChange={set('capture', 'micSize')} />
+        <Segmented id="ap-wave" label="Waveform while recording" value={settings.capture.waveform} options={OPTIONS.waveform} onChange={set('capture', 'waveform')} />
+        <Segmented id="ap-done" label="“Done” after a recording goes to" value={settings.capture.afterDone} options={OPTIONS.afterDone} onChange={set('capture', 'afterDone')} />
       </Group>
 
       <Group group="behavior">

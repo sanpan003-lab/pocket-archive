@@ -28,8 +28,8 @@ class RecordTrampolineActivity : Activity() {
         }
 
         val ready = when (intent?.action) {
-            QuickActions.ACTION_START_RECORDING -> QuickActions.start(this)
-            else -> QuickActions.toggle(this)
+            QuickActions.ACTION_START_RECORDING -> QuickActions.start(this, "shortcut")
+            else -> QuickActions.toggle(this, "widget/tile")
         }
         if (!ready) {
             // Needs mic permission or sign-in: open the app where that's handled

@@ -92,20 +92,36 @@ in addition to the existing development origins; everything else stays blocked.
 | **App shortcuts** (long-press the icon) | *Quick Capture* (starts recording) · *Inbox* |
 | **"Quick Record" launcher icon** | Opens the app and starts recording. Opened again **while recording**, it stops and uploads instead (setting *Quick Record stops a recording*, default on). Choose it for the Samsung side key: *Settings → Advanced features → Side button → Double press → Open app → Quick Record*. |
 | **"Stop Recording" launcher icon** | No screen at all: stops and uploads if a recording is running, does nothing otherwise (never starts one). Icon: the app icon with a small stop square. For Samsung Routines or the side key (see *Stopping a recording*). |
-| **Volume down** | While recording: stops and uploads, also with the screen off. Volume up is ignored while recording. |
+| **Volume keys** | While recording (screen on or off): volume up or down stops and saves by default. Each key can also discard or do nothing; see *Recording & shortcuts*. |
 | Intent `com.sanpan003.pocketarchive.START_RECORDING` | For automations (Bixby Routines, Tasker) |
 | Intent `com.sanpan003.pocketarchive.OPEN_INBOX` | Opens the Quick Capture inbox |
 
 ## Stopping a recording
 
-A recording stops by itself after 4 s of silence or 2 minutes. To stop it yourself:
+All options live in **Settings → Recording & shortcuts** (Android app; per device, not shared with the
+web). Presets at the top set everything at once.
 
-| | |
+| Option | Choices (default first) |
 |---|---|
-| Volume down | Stops and uploads, with the screen on or off, in any app. A short buzz confirms it. Volume up does nothing while recording. Setting: Quick Capture → ⚙ → *Volume down stops recording* (default on). |
-| Quick Record again | Side key double press (if set to Quick Record) stops instead of starting. Setting: *Quick Record stops a recording* (default on). |
-| Stop Recording | The separate launcher entry. Nothing happens if nothing is recording. |
-| Notification / widget / tile | *Stop* as before. |
+| Volume up while recording | Stop & save · Ignore |
+| Volume down while recording | Stop & save · Discard · Ignore |
+| Long-press volume down | Off · Discard |
+| Opening Quick Record while recording | Stop & save · Ignore · Start a new note |
+| Auto-stop after silence | 4 s · Off · 3 · 6 · 10 s |
+| Maximum length | 2 min · 1 · 5 · 10 min |
+| Start/stop feedback | Vibrate + chime · Vibrate only · Chime only · None |
+| Countdown beep before recording | Off · On |
+
+- **Discard** asks nothing: a "Discarded" notification offers **Undo** for 10 seconds.
+- **No double actions:** the press that stops a recording never starts a new one (starts are ignored for
+  3 s after a stop, configurable 2–5 s, and a Quick Record launch right after a key stop counts as the
+  same press), and stop keys are ignored for 1.5 s after a start.
+- **Start methods** are listed with setup steps and buttons that open the right screen (Samsung side
+  key, Routines, Galaxy Wearable, battery, assistant, widget, Quick Settings tile).
+  *Test a key* shows what a key press would do.
+- **Double-press volume shortcuts** (optional, off by default) use an accessibility service and work
+  only while the screen is on. The screen explains this and has a *Turn off* button.
+- Galaxy Watch: the same options on the watch's settings page (swipe left), synced both ways.
 
 How it works: while (and only while) recording, the recorder service holds a media session with a
 "remote" volume control, so Android sends the volume keys to it instead of changing the volume. It's
@@ -187,6 +203,30 @@ a reminder.
 Arrival reminders need location **"Allow all the time"**. The app explains this and asks when your first
 arrival errand exists. Until it's allowed, the Inbox shows a banner.
 
+## Location reminders (any place)
+
+*"Remind me to put clothes in the dryer when I get home"*, *"When I leave work, call mom"*,
+*"Next time I'm at my son's school, ask about the field trip"*: any reminder tied to arriving at or
+leaving a place.
+
+| | |
+|---|---|
+| Places | **Home** (always available once set), **Work**, and your own saved places in Settings → *Places & errands* (name + address or *Use my current location*, plus aliases like "the office"). |
+| Unknown place | The note asks once: **Where is "my son's school"?** (current location, search an address, or a saved place). The place is saved with the words you used, so next time it's known. |
+| Trigger | Arrive = about 1 minute inside the place (100 m around home, 150 m elsewhere). Leave = when you exit it. |
+| Notification | 🏠 *You're home — Put clothes in the dryer* / 🚪 *Leaving Work — …* / 📍 *You're at …*, with **Done / Snooze 1 hr / Open**, also on the watch. |
+| Settings | *Places & errands → Location reminders*: every reminder with its status, the last trigger, permission checks with fix-it buttons (location all the time, precise location, notifications, battery Unrestricted), and **Test this reminder**. |
+
+Why "when I get home" didn't work before 1.1.0: the note was saved as a plain reminder without a
+place, because arrival reminders only existed for store errands. The phone registered no geofence for it.
+
+## Map
+
+Places & errands has a **Map** (home, work, saved places, stores, reminder areas), and reminder and
+errand notes show a small map. The map is **self-hosted OpenStreetMap** (Protomaps): tiles come from
+your own server (`ARCHIVE/09_Maps/florida.pmtiles`), so nothing goes to a map company. *Directions*
+still opens Google Maps. To update or change the map area see [maps.md](maps.md).
+
 ## Galaxy Watch app
 
 A Wear OS companion app (`android/wear`, same package and signing key as the phone app).
@@ -200,7 +240,8 @@ A Wear OS companion app (`android/wear`, same package and signing key as the pho
 | Tile | Mic button, last note + time, "🛒 N open errands". |
 | Complication | Mic icon for any watch face (short text, small image, monochrome); tap to record. |
 | Recent / Errands | Swipe left from the record screen. Recent: tap a note for its AI summary (scroll with the bezel/crown). Errands: tap an item to check it off; works offline and syncs through the phone. |
-| Arrival | When the phone detects you at a store, the watch shows the list itself; *Open list* opens the checklist on the watch. |
+| Arrival | When the phone detects you at a store, the watch shows the list itself; *Open list* opens the checklist on the watch. Location reminders (home, work, any place) show there too. |
+| Settings | Swipe to the last page: the same recording options as the phone, synced both ways. |
 
 Revoking the phone in Settings → Devices also stops the watch (it uses the phone's token).
 Install: `update-android.bat` (see *Releasing*), or `adb -s <watch> install -r PocketArchiveWatch.apk`
@@ -216,7 +257,8 @@ after pairing the watch for wireless debugging (Developer options → Wireless d
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE` (Android 14+) | Keep recording with the screen off |
 | `INTERNET` | Talk to your server |
 | `VIBRATE` | Start / saved / needs-review vibrations |
-| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION` | Errand arrival reminders (geofences). Asked only when you create your first arrival errand. |
+| `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION` | Errand and location reminders (geofences). Asked only when you create your first one. |
+| Accessibility service (optional) | Double-press volume shortcuts. Off unless you turn it on in Recording & shortcuts. |
 | `RECEIVE_BOOT_COMPLETED` | Re-register store geofences after a reboot |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED` | Added by WorkManager so queued uploads run when the network returns, even after a reboot |
 

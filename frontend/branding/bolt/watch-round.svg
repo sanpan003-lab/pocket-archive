@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="navyGlow" cx="512" cy="470" r="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E2A44"/>
+      <stop offset="0.55" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#0B1222"/>
+    </radialGradient>
+    <radialGradient id="amberHalo" cx="512" cy="512" r="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F59E0B" stop-opacity="0.30"/>
+      <stop offset="0.6" stop-color="#F59E0B" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="boltFill" x1="512" y1="160" x2="512" y2="880" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="coreFill" x1="512" y1="200" x2="512" y2="840" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFF4CC"/>
+    </linearGradient>
+    <filter id="bloomWide" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="46"/></filter>
+    <filter id="bloomTight" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="16"/></filter>
+    <filter id="coreSoft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="13"/></filter>
+    <clipPath id="tileClip"><path d="M228 0H796A228 228 0 0 1 1024 228V796A228 228 0 0 1 796 1024H228A228 228 0 0 1 0 796V228A228 228 0 0 1 228 0Z"/></clipPath>
+  </defs>
+  <circle cx="512" cy="512" r="512" fill="url(#navyGlow)"/><circle cx="512" cy="512" r="512" fill="url(#amberHalo)"/>
+  
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="none" stroke="#F59E0B" stroke-width="86.4" stroke-linejoin="round" stroke-opacity="0.65" filter="url(#bloomWide)"/>
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="none" stroke="#FBBF24" stroke-width="27" stroke-linejoin="round" stroke-opacity="0.85" filter="url(#bloomTight)"/>
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="none" stroke="#F59E0B" stroke-width="75.6" stroke-linejoin="round" stroke-opacity="0.07"/>
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="none" stroke="#F59E0B" stroke-width="46.8" stroke-linejoin="round" stroke-opacity="0.12"/>
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="none" stroke="#FBBF24" stroke-width="23.4" stroke-linejoin="round" stroke-opacity="0.22"/>
+    <path d="M554.73 244.6L679.64 253.33L558.93 451.86L667.89 459.48L397.51 774.38L488.31 564.42L356.76 555.22Z" fill="url(#boltFill)" stroke="url(#boltFill)" stroke-width="12.6" stroke-linejoin="round"/>
+    <path d="M533.37 378.3L595.82 382.67L535.47 481.93L589.95 485.74L454.76 643.19L500.15 538.21L434.38 533.61Z" fill="url(#coreFill)" fill-opacity="0.95" stroke="url(#coreFill)" stroke-width="9" stroke-linejoin="round" filter="url(#coreSoft)"/>
+</svg>

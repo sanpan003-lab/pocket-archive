@@ -14,16 +14,28 @@ import android.os.VibratorManager
 object Feedback {
     private val main = Handler(Looper.getMainLooper())
 
+    // Start/stop cues follow Settings → Recording & shortcuts → "Start/stop feedback"
+    private fun buzz(ctx: Context) = RecorderPrefs.get(ctx).feedback.let { it == "both" || it == "vibrate" }
+    private fun chime(ctx: Context) = RecorderPrefs.get(ctx).feedback.let { it == "both" || it == "chime" }
+
     fun recordingStarted(ctx: Context) {
-        if (!TokenStore.feedbackEnabled(ctx)) return
-        vibrate(ctx, longArrayOf(0, 150))
-        tone(ToneGenerator.TONE_PROP_BEEP, 120)
+        if (buzz(ctx)) vibrate(ctx, longArrayOf(0, 150))
+        if (chime(ctx)) tone(ToneGenerator.TONE_PROP_BEEP, 120)
     }
 
     fun recordingStopped(ctx: Context) {
-        if (!TokenStore.feedbackEnabled(ctx)) return
-        vibrate(ctx, longArrayOf(0, 60)) // short buzz: you can feel it stopped (screen off, volume key)
-        tone(ToneGenerator.TONE_PROP_ACK, 150)
+        if (buzz(ctx)) vibrate(ctx, longArrayOf(0, 60)) // short buzz: you can feel it stopped (screen off, volume key)
+        if (chime(ctx)) tone(ToneGenerator.TONE_PROP_ACK, 150)
+    }
+
+    fun discarded(ctx: Context) {
+        if (buzz(ctx)) vibrate(ctx, longArrayOf(0, 40, 60, 40, 60, 40))
+        if (chime(ctx)) tone(ToneGenerator.TONE_PROP_NACK, 200)
+    }
+
+    /** "Short countdown beep before recording starts": three beeps over ~0.9 s */
+    fun countdown(ctx: Context) {
+        for (i in 0..2) main.postDelayed({ tone(if (i == 2) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP, 90) }, i * 300L)
     }
 
     fun success(ctx: Context) {

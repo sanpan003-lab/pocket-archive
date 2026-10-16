@@ -404,7 +404,34 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   function findAlias(query) {
     const q = norm(query);
     if (!q) return null;
-    return getSaved().find(p => [p.name, ...(p.aliases || [])].some(a => norm(a) === q)) || null;
+    return getSaved().find(p => [p.name, ...(p.aliases || [])].some(a => norm(a) === q))
+      || (/^(work|my work|the office|office|my office|my job)$/.test(q) ? getSaved().find(p => p.kind === 'work') : null)
+      || null;
+  }
+
+  const HOME_WORDS = /^(home|my home|my house|the house|house|my place|my apartment|the apartment)$/;
+
+  /**
+   * A personal place for a location reminder ("when I get home", "when I leave work",
+   * "at my son's school"): home, a saved place (name / alias / Work), or null = ask the user.
+   * Returns { placeId, name, address, lat, lng, radiusM } or null.
+   */
+  function personalPlace(query, placeId) {
+    const home = getHome();
+    if (placeId === 'home' || HOME_WORDS.test(norm(query))) {
+      return home ? { placeId: 'home', name: 'Home', address: home.address || null, lat: home.lat, lng: home.lng, radiusM: 100 } : null;
+    }
+    const saved = (placeId && getSaved().find(p => p.id === placeId)) || findAlias(query);
+    return saved ? { placeId: saved.id, name: saved.name, address: saved.address || null, lat: saved.lat, lng: saved.lng, radiusM: 150 } : null;
+  }
+
+  /** Short list for the classifier: id | name | aliases */
+  function placesForPrompt() {
+    const lines = [];
+    const home = getHome();
+    lines.push(home ? 'home | Home | my house, the house' : '(home not set)');
+    for (const p of getSaved()) lines.push(`${p.id} | ${p.name}${p.kind === 'work' ? ' (work)' : ''} | ${(p.aliases || []).join(', ') || '-'}`);
+    return lines.join('\n');
   }
 
   /**
@@ -606,10 +633,26 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       address: body.address ? String(body.address).trim().slice(0, 200) : null,
       lat: round5(lat), lng: round5(lng),
       chain: body.chain ? String(body.chain).trim().slice(0, 60) : null,
+      kind: body.kind === 'work' ? 'work' : body.kind === 'store' ? 'store' : 'other',
     };
   }
 
-  return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey };
+  /** Save a place the user just told us about ("Where is my son's school?") with the spoken words as an alias */
+  function savePlace(body) {
+    const place = cleanSaved(body);
+    if (place.error) return place;
+    const existing = getSaved().find(p => Math.abs(p.lat - place.lat) < 0.0002 && Math.abs(p.lng - place.lng) < 0.0002);
+    if (existing) {
+      const merged = { ...existing, aliases: [...new Set([...(existing.aliases || []), ...place.aliases])] };
+      updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).map(s => (s.id === existing.id ? merged : s)) }));
+      return merged;
+    }
+    place.id = `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    updatePlacesConfig(p => ({ ...p, saved: [...(p.saved || []), place] }));
+    return place;
+  }
+
+  return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey, personalPlace, placesForPrompt, savePlace };
 }
 
 module.exports = {

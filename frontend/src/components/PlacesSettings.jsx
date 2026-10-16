@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed } from 'lucide-react';
+import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed, Briefcase } from 'lucide-react';
 import {
   getPlaces, setHomeLocation, clearHomeLocation, searchPlaces,
   addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, reversePlace,
 } from '../lib/api';
 import { isNative } from '../lib/platform';
+import { currentPosition } from '../lib/geolocate';
+import LocationReminders from './places/LocationReminders';
+import PlacesMap from './places/PlacesMap';
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
 
@@ -210,7 +213,7 @@ export default function PlacesSettings() {
         setPicker(null);
       }, `${p.aliases?.[0] || p.name} → ${result.address || result.name}`);
     } else {
-      setDraft({ ...result, aliases: query, chain: query });
+      setDraft({ ...result, aliases: query, chain: query, kind: picker?.kind || 'store' });
       setPicker(null);
     }
   }
@@ -219,12 +222,28 @@ export default function PlacesSettings() {
     e.preventDefault();
     act('place', async () => {
       await addSavedPlace({
-        name: draft.name, address: draft.address, lat: draft.lat, lng: draft.lng,
-        aliases: draft.aliases, chain: draft.chain,
+        name: draft.label?.trim() || draft.name, address: draft.address, lat: draft.lat, lng: draft.lng,
+        aliases: draft.aliases, chain: draft.kind === 'store' ? draft.chain : null, kind: draft.kind,
       });
       setDraft(null);
     }, 'Place saved');
   };
+
+  // "Save where I am now": current GPS spot as a new personal place
+  async function addHere() {
+    setBusy('here');
+    setError('');
+    try {
+      const pos = await currentPosition();
+      let address = null;
+      try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
+      setDraft({ name: address || 'Current location', address, lat: pos.lat, lng: pos.lng, aliases: '', chain: null, kind: 'other', label: '' });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const home = data?.home;
   const settings = data?.errandSettings;
@@ -350,23 +369,25 @@ export default function PlacesSettings() {
       <div className="mt-5">
         <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mb-1">My Places</h3>
         <p className="text-xs text-navy-500 dark:text-white/50 mb-2">
-          Your usual stores. When you say an alias like “Publix”, its address goes on the calendar event.
+          Work, school, the gym, your usual stores. Say a name or alias (“my son’s school”, “Publix”) and the app knows where it is.
         </p>
         {data?.saved?.length > 0 && (
           <ul className="space-y-2">
             {data.saved.map(p => (
               <li key={p.id} className="px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
                 <div className="flex items-start gap-3">
-                  <Store size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  {p.kind === 'work' ? <Briefcase size={16} className="mt-0.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                    : p.kind === 'other' ? <MapPin size={16} className="mt-0.5 shrink-0 text-violet-600 dark:text-violet-400" />
+                      : <Store size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">
-                      {p.aliases?.length ? p.aliases.join(', ') : p.name}
+                      {p.kind === 'work' ? 'Work' : p.name}{p.aliases?.length ? <span className="font-normal text-navy-500 dark:text-white/50"> · {p.aliases.join(', ')}</span> : null}
                     </p>
                     <p className="text-xs text-navy-500 dark:text-white/50 break-words">{p.name}{p.address ? ` · ${p.address}` : ''}</p>
                   </div>
                 </div>
                 <div className="flex gap-1 mt-1.5 pl-7">
-                  <button className="btn-ghost text-xs" onClick={() => setPicker({ mode: 'change', place: p })}>Change store</button>
+                  <button className="btn-ghost text-xs" onClick={() => setPicker({ mode: 'change', place: p })}>{p.kind && p.kind !== 'store' ? 'Change place' : 'Change store'}</button>
                   <button
                     className="btn-ghost text-xs text-red-500 dark:text-red-400"
                     onClick={() => window.confirm(`Remove “${p.aliases?.[0] || p.name}”?`) && act('place', () => deleteSavedPlace(p.id))}
@@ -386,6 +407,12 @@ export default function PlacesSettings() {
           <form onSubmit={saveDraft} className="mt-3 p-3 rounded-xl bg-navy-50/60 dark:bg-white/5 space-y-2">
             <p className="text-sm font-semibold text-navy-900 dark:text-white break-words">{draft.name}</p>
             <p className="text-xs text-navy-500 dark:text-white/50 break-words">{draft.address || 'Address unknown'}</p>
+            {draft.kind !== 'store' && (
+              <>
+                <label className="block text-xs font-semibold text-navy-600 dark:text-white/60" htmlFor="place-label">Name</label>
+                <input id="place-label" className={INPUT} value={draft.label ?? ''} onChange={e => setDraft(d => ({ ...d, label: e.target.value }))} placeholder={draft.kind === 'work' ? 'Work' : 'e.g. Lincoln Elementary'} />
+              </>
+            )}
             <label className="block text-xs font-semibold text-navy-600 dark:text-white/60" htmlFor="place-aliases">
               Call it (aliases, comma-separated)
             </label>
@@ -400,11 +427,19 @@ export default function PlacesSettings() {
         ) : picker?.mode === 'add' ? (
           <PlacePicker onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
         ) : (
-          <button className="btn-ghost text-sm mt-2" onClick={() => setPicker({ mode: 'add' })}>
-            <Store size={15} /> Add a place
-          </button>
+          <div className="flex flex-wrap gap-1 mt-2">
+            {!data?.saved?.some(p => p.kind === 'work') && (
+              <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'work' })}><Briefcase size={15} /> Add Work</button>
+            )}
+            <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'other' })}><MapPin size={15} /> Add a place</button>
+            <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'store' })}><Store size={15} /> Add a store</button>
+            <button className="btn-ghost text-sm" onClick={addHere} disabled={busy === 'here'}><LocateFixed size={15} className={busy === 'here' ? 'animate-pulse' : ''} /> {busy === 'here' ? 'Finding you…' : 'Save where I am now'}</button>
+          </div>
         )}
       </div>
+
+      <LocationReminders />
+      <PlacesMap places={data} />
     </div>
   );
 }

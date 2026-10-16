@@ -33,6 +33,11 @@ if (isReleaseBuild) {
     parts[2] = ((parts[2] as Integer) + 1).toString()
     versionProps['VERSION_CODE'] = code.toString()
     versionProps['VERSION_NAME'] = parts.join('.')
+    // A planned release (e.g. a CHANGELOG entry "1.1.0") sets NEXT_VERSION_NAME once; it's used and removed
+    if (versionProps['NEXT_VERSION_NAME']) {
+        versionProps['VERSION_NAME'] = versionProps['NEXT_VERSION_NAME']
+        versionProps.remove('NEXT_VERSION_NAME')
+    }
     versionFile.withWriter { versionProps.store(it, 'Bumped automatically by release builds') }
     logger.lifecycle("Pocket Archive release version ${versionProps['VERSION_NAME']} (${versionProps['VERSION_CODE']})")
 }

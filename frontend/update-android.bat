@@ -140,6 +140,15 @@ if "!WATCHES!"=="0" (
 echo.
 echo Done: %OUTPUT%  ^(phone !VERSION_NAME!, code !VERSION_CODE!^)
 echo       %OUTPUT_WATCH%  ^(watch !WATCH_VERSION_NAME!, code !WATCH_VERSION_CODE!^)
+echo.
+rem Is the CHANGELOG version really on the NAS and the phone now?
+set "ADB=%ADB%"
+call node scripts\verify-release.mjs --phone
+if errorlevel 1 (
+  echo Some parts of this release are not deployed yet - see FAIL lines above.
+  endlocal
+  exit /b 2
+)
 endlocal
 exit /b 0
 
