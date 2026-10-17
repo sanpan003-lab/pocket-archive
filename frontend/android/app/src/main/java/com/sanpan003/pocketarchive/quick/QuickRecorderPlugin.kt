@@ -343,6 +343,17 @@ class QuickRecorderPlugin : Plugin() {
         }.start()
     }
 
+    /** Settings → App icon: { tile: dark | light | amoled } */
+    @PluginMethod
+    fun getAppIcon(call: PluginCall) = call.resolve(JSObject().put("tile", AppIcon.current(context)).put("tiles", com.getcapacitor.JSArray(AppIcon.TILES)))
+
+    @PluginMethod
+    fun setAppIcon(call: PluginCall) {
+        val tile = call.getString("tile") ?: return call.reject("tile is required")
+        if (!AppIcon.set(context, tile)) return call.reject("Unknown icon: $tile")
+        call.resolve(JSObject().put("tile", AppIcon.current(context)))
+    }
+
     /** Settings → Notifications */
     @PluginMethod
     fun getNotificationStatus(call: PluginCall) = call.resolve(JSObject.fromJSONObject(Notifications.status(context)))

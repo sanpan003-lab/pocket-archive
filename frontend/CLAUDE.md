@@ -201,6 +201,23 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 
 ## App icon (`npm run icons`)
 
+- Since 1.3.0: the **Purple Neon Bolt** (`scripts/icons/family.mjs`, design `purpleBolt`, color `neonPurple`
+  #A78BFA → #6366F1) on three selectable tiles: dark (default), light (soft purple rim), amoled. `npm run icons`
+  (`build.mjs`) writes the sources to `branding/purple/<tile>/` and renders: vector backgrounds per tile
+  (`ic_launcher_bg[_light|_amoled]`), glowing foreground PNGs (dark/amoled share one; light has its own) incl.
+  Quick Record / Stop Recording badges, adaptive icons `ic_launcher|ic_quick_record|ic_stop_record[_light|_amoled]`,
+  the monochrome bolt, `ic_stat_mic` / `ic_bolt_white` (bolt glyph), splash, web favicons per tile
+  (`public/icons/favicon-<tile>.svg`, `app-icon-<tile>-192.png`, `apple-touch-icon-<tile>.png`). The watch uses dark.
+- Switching (`quick/AppIcon.kt`, plugin `getAppIcon`/`setAppIcon`): MainActivity is NOT a launcher entry; the
+  manifest has activity-aliases `.AppIconDark|Light|Amoled`, `.QuickRecordLauncher[Light|Amoled]`,
+  `.StopRecordLauncher[Light|Amoled]` — exactly one set enabled (DONT_KILL_APP; new set enabled before the old is
+  disabled). The enabled component is the stored choice, so it survives updates. Dark keeps the original
+  Quick/Stop names (side keys and Routines set up before keep working). Disabling the alias an activity was started
+  from closes that screen once. Web: appearance group `icon` {tile} → favicon swap in AppearanceContext.
+- The other 15 designs and 10 colors are not shipped; `branding/family/*.svg` + `family.mjs` keep them
+  (`node scripts/icons/preview-icons.mjs` → `branding/preview-icons.png`).
+- Older notes below (gold mic, gold bolt) are history.
+
 - Since 1.1.1 the icon is the **neon bolt**: `scripts/icons/design-bolt.mjs` writes `branding/bolt/*.svg`
   (`node scripts/icons/design-bolt.mjs`; preview: `node scripts/icons/preview-bolt.mjs` → `branding/preview-bolt.png`).
   `npm run icons` (`build.mjs`, `ICONS = 'branding/bolt'`) renders everything with `@resvg/resvg-js`:

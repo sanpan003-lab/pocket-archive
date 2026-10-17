@@ -87,7 +87,7 @@ class MainActivity : BridgeActivity() {
         intent ?: return
         // "Quick Record" launcher alias (e.g. Samsung side key → open app) behaves like START_RECORDING,
         // and stops a running recording instead when that setting is on
-        val isQuickRecordAlias = intent.component?.className?.endsWith(".QuickRecordLauncher") == true
+        val isQuickRecordAlias = intent.component?.className?.contains(".QuickRecordLauncher") == true // any tile
         val wantsRecording = intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias
         when {
             wantsRecording && RecorderState.recording -> {

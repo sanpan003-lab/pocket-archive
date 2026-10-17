@@ -32,11 +32,6 @@
             android:launchMode="singleTask"
             android:exported="true">
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
             <!-- Open straight into recording / the inbox (app shortcuts, automations) -->
             <intent-filter>
                 <action android:name="com.sanpan003.pocketarchive.START_RECORDING" />
@@ -47,10 +42,60 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
+        </activity>
+
+        <!-- App icon (Settings → App icon): one launcher entry per tile, exactly one enabled
+             (quick/AppIcon.kt). Dark is the default. The Quick Record / Stop Recording entries
+             follow the same tile; the Dark ones keep their original names so a side key or
+             Routine set up before still works. -->
+        <activity-alias
+            android:name=".AppIconDark"
+            android:targetActivity=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".AppIconLight"
+            android:targetActivity=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_light"
+            android:roundIcon="@mipmap/ic_launcher_round_light"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity-alias>
+        <activity-alias
+            android:name=".AppIconAmoled"
+            android:targetActivity=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_amoled"
+            android:roundIcon="@mipmap/ic_launcher_round_amoled"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity-alias>
 
         <!-- Second launcher entry "Quick Record": opens the app and starts recording.
              Pick it for the Samsung side key ("Double press → Open app"). -->
@@ -60,6 +105,32 @@
             android:label="@string/quick_record_label"
             android:icon="@mipmap/ic_quick_record"
             android:roundIcon="@mipmap/ic_quick_record"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".QuickRecordLauncherLight"
+            android:targetActivity=".MainActivity"
+            android:label="@string/quick_record_label"
+            android:icon="@mipmap/ic_quick_record_light"
+            android:roundIcon="@mipmap/ic_quick_record_light"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".QuickRecordLauncherAmoled"
+            android:targetActivity=".MainActivity"
+            android:label="@string/quick_record_label"
+            android:icon="@mipmap/ic_quick_record_amoled"
+            android:roundIcon="@mipmap/ic_quick_record_amoled"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -76,6 +147,32 @@
             android:label="@string/stop_record_label"
             android:icon="@mipmap/ic_stop_record"
             android:roundIcon="@mipmap/ic_stop_record"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".StopRecordLauncherLight"
+            android:targetActivity=".quick.RecordTrampolineActivity"
+            android:label="@string/stop_record_label"
+            android:icon="@mipmap/ic_stop_record_light"
+            android:roundIcon="@mipmap/ic_stop_record_light"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".StopRecordLauncherAmoled"
+            android:targetActivity=".quick.RecordTrampolineActivity"
+            android:label="@string/stop_record_label"
+            android:icon="@mipmap/ic_stop_record_amoled"
+            android:roundIcon="@mipmap/ic_stop_record_amoled"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

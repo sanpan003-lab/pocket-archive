@@ -197,7 +197,7 @@ class WatchRecorderService : Service() {
 
     private fun notification() = NotificationCompat.Builder(this, WatchNotifications.CH_RECORDING)
         .setSmallIcon(R.drawable.ic_stat_mic)
-        .setColor(WatchNotifications.GOLD)
+        .setColor(WatchNotifications.BRAND)
         .setContentTitle("Recording…")
         .setContentText("Tap to open")
         .setOngoing(true)

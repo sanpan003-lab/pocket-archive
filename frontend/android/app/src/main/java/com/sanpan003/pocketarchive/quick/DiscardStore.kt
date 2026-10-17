@@ -58,7 +58,7 @@ object DiscardStore {
         )
         val n = NotificationCompat.Builder(ctx, Notifications.CH_RESULT_SILENT)
             .setSmallIcon(R.drawable.ic_stat_mic)
-            .setColor(Notifications.GOLD)
+            .setColor(Notifications.BRAND)
             .setContentTitle("Discarded")
             .setContentText("The recording wasn't saved")
             .setCategory(NotificationCompat.CATEGORY_STATUS)

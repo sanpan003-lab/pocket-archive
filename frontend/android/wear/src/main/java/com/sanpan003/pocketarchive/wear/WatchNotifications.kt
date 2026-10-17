@@ -17,7 +17,7 @@ object WatchNotifications {
     const val ID_RECORDING = 1
     const val ID_RESULT = 2
 
-    const val GOLD = 0xFFF59E0B.toInt()
+    const val BRAND = 0xFF6366F1.toInt() // Purple Neon Bolt (app icon)
     const val AMBER = 0xFFD97706.toInt()
     const val GREEN = 0xFF10B981.toInt()
 

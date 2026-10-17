@@ -5,7 +5,16 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
-## 1.2.1 — Oct 17, 2026
+## 1.3.0 — Oct 17, 2026
+
+### New app icon: Purple Neon Bolt
+- The bolt is now violet → indigo with a neon glow, on your choice of tile: **Dark** (default), **Light** (with a soft purple glow) or **AMOLED black**
+- Settings → Appearance & layout → **App icon**, with a live home-screen preview
+- Quick Record and Stop Recording follow the same tile; notifications, the splash screen, the Galaxy Watch icon, tile and complication use the purple bolt too
+- The browser tab icon follows your choice
+- After this update your launcher may drop the old home-screen icon once: add Pocket Archive again from the app drawer. If you pick Light or AMOLED and your side key or a Routine opens Quick Record / Stop Recording, choose them again there
+
+Oct 17, 2026
 
 ### Finding addresses
 - When OpenStreetMap can't find an address or a place (or can't be reached), the Android app now asks the phone's own address lookup (Android Geocoder) instead — free, no map account or API key

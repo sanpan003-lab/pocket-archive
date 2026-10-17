@@ -40,6 +40,9 @@ export const APPEARANCE_DEFAULTS = {
     waveform: 'neon',       // neon | gold | bars
     afterDone: 'capture',   // capture | inbox
   },
+  icon: {
+    tile: 'dark',           // dark | light | amoled — Purple Neon Bolt app icon (Android launcher + browser tab)
+  },
   behavior: {
     defaultScreen: 'dashboard', // dashboard | quick | inbox | projects
     defaultTab: 'all',

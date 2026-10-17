@@ -44,6 +44,14 @@ export function AppearanceProvider({ authenticated, children }) {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#F8FAFC');
   }, [dark, theme, accent, textSize, density, motionLevel, settings.look.cardStyle]);
 
+  // Browser tab / home-screen bookmark icon follows Settings → App icon
+  const iconTile = ['dark', 'light', 'amoled'].includes(settings.icon?.tile) ? settings.icon.tile : 'dark';
+  useEffect(() => {
+    document.querySelector('link[rel="icon"][type="image/svg+xml"]')?.setAttribute('href', `/icons/favicon-${iconTile}.svg`);
+    document.querySelector('link[rel="icon"]:not([type])')?.setAttribute('href', `/icons/favicon-${iconTile}-32.png`);
+    document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute('href', `/icons/apple-touch-icon-${iconTile}.png`);
+  }, [iconTile]);
+
   useEffect(() => { saveLocal(state); }, [state]);
 
   // Shared settings come from the server once signed in

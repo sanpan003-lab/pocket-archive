@@ -18,7 +18,7 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.ListenableFuture
 
 /**
- * Tile: big gold mic (starts recording), the last note's title + time, and
+ * Tile: big purple bolt button (starts recording), the last note's title + time, and
  * "🛒 N open errands" when there are any.
  */
 class RecordTileService : TileService() {
@@ -97,7 +97,7 @@ class RecordTileService : TileService() {
                 ModifiersBuilders.Modifiers.Builder()
                     .setBackground(
                         ModifiersBuilders.Background.Builder()
-                            .setColor(argb(if (recording) 0xFFDC2626.toInt() else 0xFFF59E0B.toInt()))
+                            .setColor(argb(if (recording) 0xFFDC2626.toInt() else 0xFF6366F1.toInt())) // Purple Neon Bolt
                             .setCorner(ModifiersBuilders.Corner.Builder().setRadius(dp(38f)).build())
                             .build(),
                     )
@@ -118,7 +118,7 @@ class RecordTileService : TileService() {
             .setWidth(wrap())
             .setHeight(wrap())
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
-            .addContent(text("Quick Capture", 0xFFF59E0B.toInt(), 13f, bold = true))
+            .addContent(text("Quick Capture", 0xFFA78BFA.toInt(), 13f, bold = true))
             .addContent(spacer(8f))
             .addContent(micButton)
             .addContent(spacer(8f))

@@ -28,7 +28,7 @@ object Notifications {
     const val ID_RESULT = 1002
     const val ID_TEST = 1003
 
-    const val GOLD = 0xFFF59E0B.toInt()
+    const val BRAND = 0xFF6366F1.toInt() // Purple Neon Bolt (app icon)
     const val GREEN = 0xFF10B981.toInt()
     const val AMBER = 0xFFD97706.toInt()
     const val GREY = 0xFF64748B.toInt()

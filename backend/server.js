@@ -610,7 +610,7 @@ const places = createPlaces({
 places.register(app);
 
 // ── Appearance & layout settings (shared across devices; per-device overrides stay on the device) ──
-const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'capture', 'behavior', 'toolbar'];
+const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'capture', 'behavior', 'toolbar', 'icon'];
 app.get('/api/appearance', (_req, res) => {
   res.json(getConfig().appearance || {});
 });

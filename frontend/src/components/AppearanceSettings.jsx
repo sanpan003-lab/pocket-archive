@@ -7,6 +7,7 @@ import { OPTIONS, ACCENT_SWATCH, NOTE_COLORS } from '../lib/appearance';
 import { noteColorStyle, resolveOpenStyle } from './quick/noteHelpers';
 import { useIsMobile } from '../hooks/useIsMobile';
 import ToolbarEditor from './quick/ToolbarEditor';
+import AppIconPicker from './AppIconPicker';
 
 const GROUP_INFO = {
   opening:  { title: 'Opening notes' },
@@ -15,6 +16,7 @@ const GROUP_INFO = {
   theme:    { title: 'Theme' },
   capture:  { title: 'Capture screen' },
   toolbar:  { title: 'Note toolbar' },
+  icon:     { title: 'App icon' },
   behavior: { title: 'Behavior' },
 };
 
@@ -247,6 +249,10 @@ export default function AppearanceSettings() {
         <Segmented id="ap-text" label="Text size" value={theme.textSize} options={OPTIONS.textSize} onChange={set('theme', 'textSize')} />
         <Segmented id="ap-density" label="Density" value={theme.density} options={OPTIONS.density} onChange={set('theme', 'density')} />
         <Segmented id="ap-motion" label="Animations" value={theme.motion} options={OPTIONS.motion} onChange={set('theme', 'motion')} />
+      </Group>
+
+      <Group group="icon">
+        <AppIconPicker />
       </Group>
 
       <Group group="capture">

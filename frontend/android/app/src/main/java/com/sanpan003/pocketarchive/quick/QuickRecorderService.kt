@@ -348,7 +348,7 @@ class QuickRecorderService : Service() {
     private fun recordingNotification() =
         NotificationCompat.Builder(this, Notifications.CH_RECORDING)
             .setSmallIcon(R.drawable.ic_stat_mic)
-            .setColor(Notifications.GOLD)
+            .setColor(Notifications.BRAND)
             .setContentTitle("Recording…")
             .setContentText("Tap to stop")
             .setOngoing(true)
@@ -365,7 +365,7 @@ class QuickRecorderService : Service() {
     private fun sendingNotification() =
         NotificationCompat.Builder(this, Notifications.CH_RECORDING)
             .setSmallIcon(R.drawable.ic_stat_mic)
-            .setColor(Notifications.GOLD)
+            .setColor(Notifications.BRAND)
             .setContentTitle("Saving voice note…")
             .setOngoing(true)
             .setProgress(0, 0, true)
