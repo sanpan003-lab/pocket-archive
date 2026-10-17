@@ -5,6 +5,13 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 1.1.1 — Oct 16, 2026
+
+### New icon
+- A neon lightning bolt replaces the gold mic: app icon, round and themed (Android 13+) icons, Quick Record and Stop Recording, notifications, splash screen, browser tab and installed web app
+- Galaxy Watch: new app icon, tile and complication
+- Record buttons (widget, watch record screen) keep the mic, and the logo inside the web app is unchanged
+
 ## 1.1.0 — Oct 16, 2026
 
 ### Recording & shortcuts

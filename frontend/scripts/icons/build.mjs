@@ -1,4 +1,6 @@
-// npm run icons — every app icon, generated from the SVG sources in branding/.
+// npm run icons — every app icon, generated from the SVG sources in branding/bolt/
+// (neon bolt, since 1.1.1; scripts/icons/design-bolt.mjs). The old gold mic set is
+// still in branding/ (design.mjs) and supplies glyph-mic.svg for record buttons.
 //
 //   branding/icon-master.svg      gold tile + mic (web icons, legacy launcher PNGs, splash bitmaps)
 //   branding/icon-background.svg  adaptive background (gold gradient + highlight)
@@ -18,7 +20,9 @@ import { fileURLToPath } from 'node:url';
 import { Resvg } from '@resvg/resvg-js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const B = file => readFileSync(join(root, 'branding', file), 'utf8');
+const ICONS = 'branding/bolt';
+const B = file => readFileSync(join(root, ICONS, file), 'utf8');
+const M = file => readFileSync(join(root, 'branding', file), 'utf8');
 const out = (rel, data) => {
   const file = join(root, rel);
   mkdirSync(dirname(file), { recursive: true });
@@ -85,16 +89,27 @@ function androidColor(hex, opacity = 1) {
 
 function gradients(svgText) {
   const map = {};
-  for (const m of svgText.matchAll(/<linearGradient([^>]*)>([\s\S]*?)<\/linearGradient>/g)) {
-    const id = attr(m[1], 'id');
-    const stops = [...m[2].matchAll(/<stop([^>]*)\/>/g)].map(s => ({
-      offset: Number(attr(s[1], 'offset')),
-      color: androidColor(attr(s[1], 'stop-color'), Number(attr(s[1], 'stop-opacity') ?? 1)),
+  for (const m of svgText.matchAll(/<(linear|radial)Gradient([^>]*)>([\s\S]*?)<\/\1Gradient>/g)) {
+    const [, type, a, inner] = m;
+    const stops = [...inner.matchAll(/<stop([^>]*)\/>/g)].map(st => ({
+      offset: Number(attr(st[1], 'offset')),
+      color: androidColor(attr(st[1], 'stop-color'), Number(attr(st[1], 'stop-opacity') ?? 1)),
     }));
-    map[id] = { x1: attr(m[1], 'x1'), y1: attr(m[1], 'y1'), x2: attr(m[1], 'x2'), y2: attr(m[1], 'y2'), stops };
+    map[attr(a, 'id')] = type === 'linear'
+      ? { type, x1: attr(a, 'x1'), y1: attr(a, 'y1'), x2: attr(a, 'x2'), y2: attr(a, 'y2'), stops }
+      : { type, cx: attr(a, 'cx'), cy: attr(a, 'cy'), r: attr(a, 'r'), stops };
   }
   return map;
 }
+
+const gradientXml = (name, gr) => `
+        <aapt:attr name="android:${name}">
+            <gradient ${gr.type === 'linear'
+    ? `android:type="linear" android:startX="${gr.x1}" android:startY="${gr.y1}" android:endX="${gr.x2}" android:endY="${gr.y2}"`
+    : `android:type="radial" android:centerX="${gr.cx}" android:centerY="${gr.cy}" android:gradientRadius="${gr.r}"`}>
+${gr.stops.map(st => `                <item android:offset="${st.offset}" android:color="${st.color}"/>`).join('\n')}
+            </gradient>
+        </aapt:attr>`;
 
 function rectPath(t) {
   const x = Number(attr(t, 'x') ?? 0), y = Number(attr(t, 'y') ?? 0);
@@ -122,24 +137,21 @@ function vectorPaths(svgText, { color = null } = {}) {
     if (stroke && stroke !== 'none' && attr(t, 'filter')) continue; // blurred inner shadow: bitmap only
     let xml = `    <path android:pathData="${d}"`;
     let gradient = '';
+    const gradOf = v => grads[v?.match(/url\(#([^)]+)\)/)?.[1]];
     if (fill && fill !== 'none') {
-      const g = fill.match(/url\(#([^)]+)\)/)?.[1];
-      if (g && grads[g]) {
-        const gr = grads[g];
-        gradient = `
-        <aapt:attr name="android:fillColor">
-            <gradient android:type="linear" android:startX="${gr.x1}" android:startY="${gr.y1}" android:endX="${gr.x2}" android:endY="${gr.y2}">
-${gr.stops.map(s => `                <item android:offset="${s.offset}" android:color="${s.color}"/>`).join('\n')}
-            </gradient>
-        </aapt:attr>`;
+      if (gradOf(fill) && !color) {
+        gradient += gradientXml('fillColor', gradOf(fill));
+        if (attr(t, 'fill-opacity')) xml += ` android:fillAlpha="${attr(t, 'fill-opacity')}"`;
       } else {
         xml += ` android:fillColor="${androidColor(color || fill, Number(attr(t, 'fill-opacity') ?? 1))}"`;
       }
     }
     if (stroke && stroke !== 'none') {
-      xml += ` android:strokeColor="${androidColor(color || stroke)}" android:strokeWidth="${attr(t, 'stroke-width')}"`;
-      xml += ` android:strokeAlpha="${attr(t, 'stroke-opacity') ?? 1}"`;
+      if (gradOf(stroke) && !color) gradient += gradientXml('strokeColor', gradOf(stroke));
+      else xml += ` android:strokeColor="${androidColor(color || stroke)}"`;
+      xml += ` android:strokeWidth="${attr(t, 'stroke-width')}" android:strokeAlpha="${attr(t, 'stroke-opacity') ?? 1}"`;
       if (attr(t, 'stroke-linecap') === 'round') xml += ' android:strokeLineCap="round"';
+      if (attr(t, 'stroke-linejoin') === 'round') xml += ' android:strokeLineJoin="round"';
     }
     out.push(gradient ? `${xml}>${gradient}\n    </path>` : `${xml}/>`);
   }
@@ -147,7 +159,7 @@ ${gr.stops.map(s => `                <item android:offset="${s.offset}" android:
 }
 
 const vector = (paths, { dp = 108, group = null } = {}) => `<?xml version="1.0" encoding="utf-8"?>
-<!-- Generated by scripts/icons/build.mjs from branding/*.svg — edit those, then: npm run icons -->
+<!-- Generated by scripts/icons/build.mjs from branding/bolt/*.svg — edit those, then: npm run icons -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="${dp}dp" android:height="${dp}dp"
@@ -173,7 +185,10 @@ const monoSvg = B('icon-monochrome.svg');
 const fullbleed = B('icon-fullbleed.svg');
 const quickSvg = B('quick-record.svg');
 const stopSvg = B('stop-record.svg');
-const micSvg = B('glyph-mic.svg');
+const glyphSvg = B('glyph-bolt.svg');  // brand glyph: notifications, watch tile/complication
+const smallSvg = B('icon-small.svg');   // simplified tile for tiny sizes (favicon, 48px)
+const watchSvg = B('watch-round.svg');  // round watch icon bitmaps
+const micSvg = M('glyph-mic.svg');      // record buttons (widget, watch record screen) stay a mic
 
 // Adaptive foregrounds with a badge, kept inside the visible 72dp area
 const badge = kind => kind === 'dot'
@@ -183,17 +198,17 @@ const withBadge = (svg, kind) => svg.replace(/<\/svg>\s*$/, `  ${badge(kind)}\n<
 const quickFg = withBadge(fgSvg, 'dot');
 const stopFg = withBadge(fgSvg, 'stop');
 
-// Splash (Android 12+): gold disc + mic, inside the 2/3 circle the system shows
+// Splash (Android 12+): navy disc + neon bolt, inside the 2/3 circle the system shows
 const splashSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>${bgSvg.match(/<defs>([\s\S]*?)<\/defs>/)[1]}</defs>
-  <circle cx="512" cy="512" r="336" fill="url(#gold)"/>
-  <circle cx="512" cy="512" r="336" fill="url(#highlight)"/>
+  <circle cx="512" cy="512" r="336" fill="url(#navyGlow)"/>
+  <circle cx="512" cy="512" r="336" fill="url(#amberHalo)"/>
 </svg>`;
 
 // ── Web / PWA ───────────────────────────────────────────────────────────────
 
 out('public/favicon.svg', master); count++;
-out('public/favicon.ico', ico([16, 32, 48].map(size => ({ size, data: png(master, size) })))); count++;
+out('public/favicon.ico', ico([16, 32, 48].map(size => ({ size, data: png(smallSvg, size) })))); count++;
 out('public/icons/apple-touch-icon.png', png(fullbleed, 180)); count++;
 out('public/icons/icon-192.png', png(master, 192)); count++;
 out('public/icons/icon-512.png', png(master, 512)); count++;
@@ -209,14 +224,19 @@ for (const module of ['app', 'wear']) {
   const res = `android/${module}/src/main/res`;
   // Vector layers
   out(`${res}/drawable/ic_launcher_bg.xml`, vector(vectorPaths(bgSvg)));
-  out(`${res}/drawable/ic_launcher_fg.xml`, vector(vectorPaths(fgSvg)));
+  // Foregrounds as bitmaps: the neon glow is a blur, which vector drawables can't do
+  for (const [name, svg] of [['ic_launcher_fg', fgSvg], ['ic_quick_record_fg', quickFg], ['ic_stop_record_fg', stopFg]]) {
+    const old = join(root, `${res}/drawable/${name}.xml`);
+    if (existsSync(old)) rmSync(old);
+    for (const [d, k] of Object.entries(DENSITIES)) { out(`${res}/drawable-${d}/${name}.png`, png(svg, Math.round(108 * k))); count++; }
+  }
   out(`${res}/drawable/ic_launcher_monochrome.xml`, vector(vectorPaths(monoSvg)));
-  out(`${res}/drawable/ic_quick_record_fg.xml`, vector(vectorPaths(quickFg)));
-  out(`${res}/drawable/ic_stop_record_fg.xml`, vector(vectorPaths(stopFg)));
-  // White mic glyph: notification small icon, widget button, watch tile/complication
-  out(`${res}/drawable/ic_stat_mic.xml`, vector(vectorPaths(micSvg, { color: '#FFFFFF' }), { dp: 24, group: 0.86 }));
+  // White glyphs: bolt = notification small icon (ic_stat_mic keeps its name) + watch tile/complication;
+  // mic = record buttons (widget, watch record screen)
+  out(`${res}/drawable/ic_stat_mic.xml`, vector(vectorPaths(glyphSvg, { color: '#FFFFFF' }), { dp: 24, group: 0.86 }));
   out(`${res}/drawable/ic_mic_white.xml`, vector(vectorPaths(micSvg, { color: '#FFFFFF' }), { dp: 24 }));
-  count += 7;
+  out(`${res}/drawable/ic_bolt_white.xml`, vector(vectorPaths(glyphSvg, { color: '#FFFFFF' }), { dp: 24 }));
+  count += 4;
   // Adaptive icons
   out(`${res}/mipmap-anydpi-v26/ic_launcher.xml`, adaptiveXml('ic_launcher_fg'));
   out(`${res}/mipmap-anydpi-v26/ic_launcher_round.xml`, adaptiveXml('ic_launcher_fg'));
@@ -226,8 +246,8 @@ for (const module of ['app', 'wear']) {
   // Bitmaps (previews, launchers that ignore adaptive icons)
   for (const [d, k] of Object.entries(DENSITIES)) {
     const size = Math.round(48 * k);
-    out(`${res}/mipmap-${d}/ic_launcher.png`, png(master, size));
-    out(`${res}/mipmap-${d}/ic_launcher_round.png`, png(adaptiveRound(bgSvg, fgSvg, size), size));
+    out(`${res}/mipmap-${d}/ic_launcher.png`, png(k <= 1 ? smallSvg : master, size));
+    out(`${res}/mipmap-${d}/ic_launcher_round.png`, png(module === 'wear' ? watchSvg : adaptiveRound(bgSvg, fgSvg, size), size));
     const old = join(root, `${res}/mipmap-${d}/ic_launcher_foreground.png`);
     if (existsSync(old)) rmSync(old); // replaced by the vector foreground
     count += 2;
@@ -237,7 +257,7 @@ for (const module of ['app', 'wear']) {
 // Phone only: splash icon, launcher shortcut icon, legacy splash bitmaps
 const appRes = 'android/app/src/main/res';
 out(`${appRes}/drawable/ic_splash.xml`, `<?xml version="1.0" encoding="utf-8"?>
-<!-- Generated by scripts/icons/build.mjs — Android 12+ splash: gold disc + mic -->
+<!-- Generated by scripts/icons/build.mjs — Android 12+ splash: navy disc + neon bolt -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/ic_splash_disc"/>
     <item android:drawable="@drawable/ic_launcher_fg"/>
@@ -256,4 +276,4 @@ for (const d of ['', '-land-mdpi', '-land-hdpi', '-land-xhdpi', '-land-xxhdpi', 
   count++;
 }
 
-console.log(`icons: generated ${count} files from branding/*.svg`);
+console.log(`icons: generated ${count} files from ${ICONS}/*.svg`);

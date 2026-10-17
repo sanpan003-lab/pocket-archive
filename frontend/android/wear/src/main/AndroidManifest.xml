@@ -78,7 +78,7 @@
         <service
             android:name=".RecordTileService"
             android:exported="true"
-            android:icon="@drawable/ic_mic_white"
+            android:icon="@drawable/ic_bolt_white"
             android:label="@string/tile_label"
             android:description="@string/tile_description"
             android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
@@ -93,7 +93,7 @@
         <service
             android:name=".MicComplicationService"
             android:exported="true"
-            android:icon="@drawable/ic_mic_white"
+            android:icon="@drawable/ic_bolt_white"
             android:label="@string/complication_label"
             android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
             <intent-filter>

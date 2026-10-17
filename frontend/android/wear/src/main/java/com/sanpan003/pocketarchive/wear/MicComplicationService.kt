@@ -31,7 +31,7 @@ class MicComplicationService : SuspendingComplicationDataSourceService() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val mic = Icon.createWithResource(this, R.drawable.ic_mic_white)
+        val mic = Icon.createWithResource(this, R.drawable.ic_bolt_white)
         val mono = MonochromaticImage.Builder(mic).build()
         return when (type) {
             ComplicationType.SHORT_TEXT ->

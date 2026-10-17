@@ -48,7 +48,7 @@ class RecordTileService : TileService() {
         SuspendToFutureAdapter.launchFuture {
             ResourceBuilders.Resources.Builder()
                 .setVersion(RES_VERSION)
-                .addIdToImageMapping(IMG_MIC, image(R.drawable.ic_mic_white))
+                .addIdToImageMapping(IMG_MIC, image(R.drawable.ic_bolt_white))
                 .addIdToImageMapping(IMG_STOP, image(R.drawable.ic_stop_white))
                 .build()
         }

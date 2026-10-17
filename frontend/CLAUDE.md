@@ -201,11 +201,16 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 
 ## App icon (`npm run icons`)
 
-- Source of truth: `scripts/icons/design.mjs` (tilted gold mic, Option A) writes the SVGs in `branding/`
-  (`npm run icons:design`). `npm run icons` renders everything from them with `@resvg/resvg-js`:
-  web favicons/PWA icons in `public/`, Android adaptive icons (vector drawables + `mipmap-anydpi-v26`),
-  monochrome, Quick Record (red dot), Stop Recording (stop square), notification/splash icons, and the
-  same set for `android/wear`. `npm run icons:preview` → `branding/preview.png`.
+- Since 1.1.1 the icon is the **neon bolt**: `scripts/icons/design-bolt.mjs` writes `branding/bolt/*.svg`
+  (`node scripts/icons/design-bolt.mjs`; preview: `node scripts/icons/preview-bolt.mjs` → `branding/preview-bolt.png`).
+  `npm run icons` (`build.mjs`, `ICONS = 'branding/bolt'`) renders everything with `@resvg/resvg-js`:
+  web favicons/PWA icons in `public/` (favicon/48px from `icon-small.svg`), Android adaptive icons for
+  `app` and `wear` — foregrounds as PNGs per density (`drawable-*/ic_launcher_fg.png`, quick/stop variants),
+  because the glow is a blur and vector drawables can't blur; background and monochrome stay vectors
+  (radial gradients supported) — plus the splash, `ic_stat_mic` (now the bolt glyph, name kept) and
+  `ic_bolt_white` (watch tile/complication). Watch round bitmaps come from `watch-round.svg`.
+- Record buttons keep the mic: `ic_mic_white` is built from the old `branding/glyph-mic.svg`
+  (the gold-mic set from `design.mjs` stays in `branding/`).
 - The web sidebar/login logo is separate and unchanged. Don't hand-edit generated icon files.
 
 ## Smart append & projects (backend `quickAppend.js`, `projects.js`)

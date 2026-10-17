@@ -14,7 +14,7 @@
         <item name="android:background">@null</item>
     </style>
 
-    <!-- Launch: navy splash with the gold mic (Android 12+ system splash + older bitmap) -->
+    <!-- Launch: navy splash with the neon bolt (Android 12+ system splash + older bitmap) -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
         <item name="windowSplashScreenBackground">@color/pa_navy</item>
