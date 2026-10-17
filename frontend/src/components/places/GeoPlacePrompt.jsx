@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MapPin, LocateFixed, Search, Home, Briefcase, Loader2, X, ArrowLeftRight, Map as MapIcon } from 'lucide-react';
-import { getPlaces, searchPlaces, reversePlace, setGeoPlace } from '../../lib/api';
+import { getPlaces, setGeoPlace } from '../../lib/api';
+import { findPlaces, findAddress } from '../../lib/placeLookup';
 import { currentPosition } from '../../lib/geolocate';
 import { syncErrands } from '../../native/errands';
 import { geoLabel } from '../../lib/geoLabel';
@@ -19,6 +20,7 @@ export default function GeoPlacePrompt({ note, onChanged }) {
   const [mode, setMode] = useState(null);       // null | 'search' | 'saved' | 'adjust'
   const [q, setQ] = useState('');
   const [results, setResults] = useState(null);
+  const [fallback, setFallback] = useState(false); // results from the phone's geocoder
   const [places, setPlaces] = useState(null);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
@@ -52,7 +54,7 @@ export default function GeoPlacePrompt({ note, onChanged }) {
     try {
       const pos = await currentPosition();
       let address = null;
-      try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* still save the spot */ }
+      try { address = (await findAddress(pos.lat, pos.lng)).address || null; } catch { /* still save the spot */ }
       // Where you stand is a point: a normal-size circle (change it on the map if needed)
       await save({ lat: pos.lat, lng: pos.lng, address, name: titleCase(geo.query) }, 'here');
     } catch (err) {
@@ -65,7 +67,7 @@ export default function GeoPlacePrompt({ note, onChanged }) {
     e.preventDefault();
     if (!q.trim()) return;
     setBusy('search');
-    try { setResults((await searchPlaces(q.trim())).results || []); }
+    try { const found = await findPlaces(q.trim(), places?.home); setResults(found.results || []); setFallback(found.fallback); }
     catch (err) { setError(err.response?.data?.error || 'Search failed'); }
     finally { setBusy(null); }
   }
@@ -132,6 +134,7 @@ export default function GeoPlacePrompt({ note, onChanged }) {
               {results && (
                 <ul className="mt-2 space-y-1 max-h-52 overflow-y-auto">
                   {results.length === 0 && <li className="text-xs text-navy-500">No matches — try a fuller address.</li>}
+                  {fallback && results.length > 0 && <li className="text-[11px] text-navy-500 dark:text-white/45">Not on OpenStreetMap — found with your phone’s address lookup.</li>}
                   {results.slice(0, 8).map((r, i) => (
                     <li key={i}>
                       <button type="button" className="w-full text-left rounded-xl px-3 py-2 hover:bg-gold-500/10" onClick={() => save({ lat: r.lat, lng: r.lng, address: r.address, name: r.name || titleCase(geo.query), areaRadiusM: r.areaRadiusM || null }, 'pick')}>

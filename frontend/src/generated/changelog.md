@@ -5,6 +5,14 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 1.2.1 — Oct 17, 2026
+
+### Finding addresses
+- When OpenStreetMap can't find an address or a place (or can't be reached), the Android app now asks the phone's own address lookup (Android Geocoder) instead — free, no map account or API key
+- Works for place search ("Where is …?", Add a place / store / Work), your home address, and the street address shown for "use my current location"
+- Results from the phone are labeled, and a home found this way shows "Matched by your phone's address lookup"
+- Search results that OpenStreetMap knows as a large area (airports, campuses) keep their Auto size even when a store search finds them too
+
 ## 1.2.0 — Oct 17, 2026
 
 ### Location reminders you can rely on

@@ -320,6 +320,29 @@ class QuickRecorderPlugin : Plugin() {
         }.start()
     }
 
+    /** Android's built-in Geocoder (fallback when OpenStreetMap finds nothing): { query, nearLat?, nearLng? } */
+    @PluginMethod
+    fun geocode(call: PluginCall) {
+        val query = call.getString("query")?.trim().orEmpty()
+        if (query.isEmpty()) return call.reject("query is required")
+        val lat = call.getDouble("nearLat")
+        val lng = call.getDouble("nearLng")
+        Thread {
+            val results = DeviceGeocoder.search(context, query, if (lat != null && lng != null) lat to lng else null)
+            call.resolve(JSObject().put("available", DeviceGeocoder.available()).put("results", com.getcapacitor.JSArray(results.toString())))
+        }.start()
+    }
+
+    /** Coordinates → nearest address with Android's Geocoder: { lat, lng } */
+    @PluginMethod
+    fun reverseGeocode(call: PluginCall) {
+        val lat = call.getDouble("lat") ?: return call.reject("lat is required")
+        val lng = call.getDouble("lng") ?: return call.reject("lng is required")
+        Thread {
+            call.resolve(JSObject().put("available", DeviceGeocoder.available()).put("address", DeviceGeocoder.reverse(context, lat, lng)))
+        }.start()
+    }
+
     /** Settings → Notifications */
     @PluginMethod
     fun getNotificationStatus(call: PluginCall) = call.resolve(JSObject.fromJSONObject(Notifications.status(context)))

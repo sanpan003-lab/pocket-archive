@@ -93,6 +93,7 @@ const HOME_SOURCES = {
   zip:           'ZIP code center (approximate)',
   phone:         'Phone location',
   browser:       'Browser location',
+  geocoder:      "Phone's address lookup (Android Geocoder)",
 };
 
 // Last 5-digit group, e.g. "…, Orlando, FL 32801-1234" → "32801"
@@ -500,7 +501,9 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
     if (out.length < 3) {
       const geo = await geocode(q, { near: home || undefined, limit: 5 });
       for (const g of geo) {
-        if (out.some(o => distanceM(o, g) < 200)) continue;
+        // Same place from both lookups: keep one, but keep the area size (Auto radius) from OpenStreetMap
+        const dup = out.find(o => distanceM(o, g) < 200);
+        if (dup) { if (g.areaRadiusM && !dup.areaRadiusM) dup.areaRadiusM = g.areaRadiusM; continue; }
         out.push({ ...g, distanceM: home ? distanceM(home, g) : null });
       }
     }
@@ -580,7 +583,8 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
         if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
           return res.status(400).json({ error: 'lat/lng are invalid' });
         }
-        const source = body.source === 'phone' ? 'phone' : 'browser';
+        // geocoder = the app found the typed address with Android's Geocoder (OpenStreetMap couldn't)
+        const source = ['phone', 'geocoder'].includes(body.source) ? body.source : 'browser';
         return res.json(setHomeFromCoords({ lat, lng, accuracyM: Number(body.accuracyM), source, address: body.address }));
       }
       const address = String(body.address || '').trim().slice(0, 200);

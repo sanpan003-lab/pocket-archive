@@ -211,6 +211,7 @@ leaving a place.
 
 | | |
 |---|---|
+| Address lookup | OpenStreetMap on your server first. If it finds nothing (or can't be reached), the app uses the phone's built-in **Android Geocoder** (free, no API key; on Samsung/Google phones the lookup itself goes through Google's service). Used for place search, the home address and "use my current location". Not available in the browser. |
 | Places | **Home** (always available once set), **Work**, and your own saved places in Settings → *Places & errands* (name + address or *Use my current location*, plus aliases like "the office"). |
 | Unknown place | The note asks once: **Where is "my son's school"?** (current location, search an address, or a saved place). The place is saved with the words you used, so next time it's known. |
 | Size | Auto (default) fits the place: its OpenStreetMap area for big places (airport, campus, mall, park, hospital), at least 150 m (home 100 m), at most 2 km. Or pick Small 100 m / Medium 250 m / Large 500 m / Extra large 1 km per place, or drag the slider. **Pin & radius** (Settings → Places & errands, or Change → Adjust on the map on a reminder) moves the pin on the map. |

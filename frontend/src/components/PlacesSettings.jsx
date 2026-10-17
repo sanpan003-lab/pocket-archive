@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed, Briefcase, Map as MapIcon } from 'lucide-react';
 import {
-  getPlaces, setHomeLocation, clearHomeLocation, searchPlaces,
-  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, reversePlace, setWorkLocation,
+  getPlaces, setHomeLocation, clearHomeLocation,
+  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, setWorkLocation,
 } from '../lib/api';
+import { findPlaces, findAddress, setHomeFromAddress } from '../lib/placeLookup';
 import { radiusLabel } from '../lib/radius';
 import PlaceAdjust from './places/PlaceAdjust';
 import { isNative } from '../lib/platform';
@@ -31,6 +32,7 @@ const HOME_SOURCE = {
   census:        'US Census Bureau',
   zip:           'ZIP code center',
   phone:         'phone location',
+  geocoder:      'your phone’s address lookup (Android)',
   browser:       'browser location',
 };
 
@@ -43,20 +45,21 @@ const GEO_ERRORS = {
 };
 
 /** Search nearby places and pick one (used to add a place or change the preferred store). */
-function PlacePicker({ initialQuery = '', onPick, onCancel, busy }) {
+function PlacePicker({ initialQuery = '', onPick, onCancel, busy, near }) {
   const [query, setQuery]     = useState(initialQuery);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(!!initialQuery);
   const [error, setError]     = useState('');
 
   // Sets state only once the request settles (also used for the initial search)
-  const search = useCallback(q => searchPlaces(q)
+  const search = useCallback(q => findPlaces(q, near)
     .then(data => {
       setResults(data.results);
-      setError(data.home ? '' : 'Tip: set your home location first to see the stores closest to you.');
+      setError(data.fallback ? 'Not on OpenStreetMap — these come from your phone’s address lookup.'
+        : data.home ? '' : 'Tip: set your home location first to see the stores closest to you.');
     })
     .catch(err => setError(errMsg(err, 'Search failed')))
-    .finally(() => setLoading(false)), []);
+    .finally(() => setLoading(false)), [near]);
 
   function run(e) {
     e.preventDefault();
@@ -169,7 +172,7 @@ export default function PlacesSettings() {
 
   const saveHome = e => {
     e.preventDefault();
-    act('home', async () => { await setHomeLocation(address.trim()); setEditingHome(false); setAddress(''); }, 'Home location saved');
+    act('home', async () => { await setHomeFromAddress(address.trim()); setEditingHome(false); setAddress(''); }, 'Home location saved');
   };
 
   // "Use my current location": phone GPS in the app (WebView geolocation), browser location on the web
@@ -184,7 +187,7 @@ export default function PlacesSettings() {
     navigator.geolocation.getCurrentPosition(
       pos => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-        reversePlace(lat, lng)
+        findAddress(lat, lng)
           .then(found => setLocated({ lat, lng, accuracy, address: found.address, error: found.error }))
           .catch(err => setLocated({ lat, lng, accuracy, address: null, error: errMsg(err, "Couldn't look up the address") }))
           .finally(() => setBusy(null));
@@ -248,7 +251,7 @@ export default function PlacesSettings() {
     try {
       const pos = await currentPosition();
       let address = null;
-      try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
+      try { address = (await findAddress(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
       await setWorkLocation({ lat: pos.lat, lng: pos.lng, address });
       load();
       flash(`Work set to your current location${pos.accuracy ? ` (±${Math.round(pos.accuracy)} m)` : ''}`);
@@ -266,7 +269,7 @@ export default function PlacesSettings() {
     try {
       const pos = await currentPosition();
       let address = null;
-      try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
+      try { address = (await findAddress(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
       setDraft({ name: address || 'Current location', address, lat: pos.lat, lng: pos.lng, aliases: '', chain: null, kind: 'other', label: '' });
     } catch (err) {
       setError(err.message);
@@ -445,7 +448,7 @@ export default function PlacesSettings() {
                     onSaved={() => { setAdjusting(null); load(); flash(`${p.kind === 'work' ? 'Work' : p.name} updated`); }} onCancel={() => setAdjusting(null)} />
                 )}
                 {picker?.mode === 'change' && picker.place.id === p.id && (
-                  <PlacePicker initialQuery={p.chain || p.aliases?.[0] || p.name} onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
+                  <PlacePicker initialQuery={p.chain || p.aliases?.[0] || p.name} onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} near={data?.home} />
                 )}
               </li>
             ))}
@@ -474,7 +477,7 @@ export default function PlacesSettings() {
             </div>
           </form>
         ) : picker?.mode === 'add' ? (
-          <PlacePicker onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
+          <PlacePicker onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} near={data?.home} />
         ) : (
           <div className="flex flex-wrap gap-1 mt-2">
             {!data?.saved?.some(p => p.kind === 'work') && (

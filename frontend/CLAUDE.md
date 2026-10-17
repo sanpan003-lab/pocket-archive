@@ -297,6 +297,10 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 - Emulator geofence test: a temporary `src/debug` receiver with ops suppress (remove fences, keep the signature),
   check (fresh location → `LocationCheck.check`) and sync; WebView DevTools via
   `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>` for screenshots. Delete `src/debug` afterwards.
+- Address lookup fallback (1.2.1): `lib/placeLookup.js` (`findPlaces`, `findAddress`, `setHomeFromAddress`) tries the
+  server (OpenStreetMap / Census / ZIP) first, then — in the app only — Android's Geocoder via the plugin
+  (`geocode` / `reverseGeocode` → `quick/DeviceGeocoder.kt`). Home found that way is saved with `source: 'geocoder'`.
+  Use these helpers, not `searchPlaces` / `reversePlace` directly. No paid map APIs.
 - Web: `components/places/` (GeoPlacePrompt, PlaceAdjust = pin + radius editor, LocationReminders, PlacesMap,
   NoteMap, MapView with `edit` mode and circle size chips), `components/NotificationSettings.jsx`, `lib/radius.js`.
 - **Maps**: `maps.js` serves `ARCHIVE/09_Maps/*.pmtiles` with range requests (+ cached fonts/sprites). See

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Loader2, Move } from 'lucide-react';
-import { getMapStatus, reversePlace, setHomeLocation, setPlaceRadius, updateSavedPlace } from '../../lib/api';
+import { getMapStatus, setHomeLocation, setPlaceRadius, updateSavedPlace } from '../../lib/api';
+import { findAddress } from '../../lib/placeLookup';
 import { RADIUS_OPTIONS, MIN_RADIUS_M, MAX_RADIUS_M, formatRadius } from '../../lib/radius';
 import { syncErrands } from '../../native/errands';
 
@@ -37,7 +38,7 @@ export default function PlaceAdjust({ place, onSaved, onCancel }) {
     try {
       if (moved) {
         let address = place.address || null;
-        try { address = (await reversePlace(pos.lat, pos.lng)).address || address; } catch { /* keep the old one */ }
+        try { address = (await findAddress(pos.lat, pos.lng)).address || address; } catch { /* keep the old one */ }
         if (home) await setHomeLocation({ lat: pos.lat, lng: pos.lng, source: 'browser', address });
         else await updateSavedPlace(place.id, { lat: pos.lat, lng: pos.lng, address });
       }
