@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { MapPin, LocateFixed, Search, Home, Briefcase, Loader2, X, ArrowLeftRight } from 'lucide-react';
+import { MapPin, LocateFixed, Search, Home, Briefcase, Loader2, X, ArrowLeftRight, Map as MapIcon } from 'lucide-react';
 import { getPlaces, searchPlaces, reversePlace, setGeoPlace } from '../../lib/api';
 import { currentPosition } from '../../lib/geolocate';
 import { syncErrands } from '../../native/errands';
 import { geoLabel } from '../../lib/geoLabel';
+import { radiusLabel, formatRadius } from '../../lib/radius';
+import PlaceAdjust from './PlaceAdjust';
 
 const INPUT = 'w-full text-sm text-navy-900 dark:text-white bg-black/5 dark:bg-white/5 border border-navy-200 dark:border-white/20 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-gold-400/50';
 
@@ -14,7 +16,7 @@ const INPUT = 'w-full text-sm text-navy-900 dark:text-white bg-black/5 dark:bg-w
  */
 export default function GeoPlacePrompt({ note, onChanged }) {
   const geo = note.geo;
-  const [mode, setMode] = useState(null);       // null | 'search' | 'saved'
+  const [mode, setMode] = useState(null);       // null | 'search' | 'saved' | 'adjust'
   const [q, setQ] = useState('');
   const [results, setResults] = useState(null);
   const [places, setPlaces] = useState(null);
@@ -51,6 +53,7 @@ export default function GeoPlacePrompt({ note, onChanged }) {
       const pos = await currentPosition();
       let address = null;
       try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* still save the spot */ }
+      // Where you stand is a point: a normal-size circle (change it on the map if needed)
       await save({ lat: pos.lat, lng: pos.lng, address, name: titleCase(geo.query) }, 'here');
     } catch (err) {
       setError(err.message);
@@ -67,6 +70,14 @@ export default function GeoPlacePrompt({ note, onChanged }) {
     finally { setBusy(null); }
   }
 
+  // Fresh pin + radius after "Adjust on the map" (the note keeps a copy of the place)
+  async function adjusted() {
+    setMode(null);
+    await save({ placeId: geo.placeId }, 'adjust');
+  }
+  const savedPlace = geo.placeId && geo.placeId !== 'home' ? (places?.saved || []).find(p => p.id === geo.placeId) : null;
+  const adjustable = geo.status === 'active' && geo.placeId && Number.isFinite(geo.lat);
+
   const status = geo.status === 'done' ? 'Done' : geo.status === 'active' ? 'Active' : geo.status === 'needs_place' ? 'Needs a place' : geo.status;
 
   return (
@@ -81,6 +92,9 @@ export default function GeoPlacePrompt({ note, onChanged }) {
       </div>
       {ask && <p className="text-xs text-navy-600 dark:text-white/65 mt-1">{geo.error || 'Tell me once — it’s saved, so next time I know.'}</p>}
       {!ask && geo.address && <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5 pl-6 break-words">{geo.address}</p>}
+      {!ask && Number.isFinite(geo.radiusM) && (
+        <p className="text-xs text-navy-500 dark:text-white/50 pl-6">Fires within {radiusLabel(geo.radiusMode || 'auto', geo.radiusM)} of the pin</p>
+      )}
 
       {open && (
         <div className="mt-2.5 space-y-2">
@@ -94,6 +108,11 @@ export default function GeoPlacePrompt({ note, onChanged }) {
             <button type="button" className={`btn-white text-xs py-1.5 px-3 ${mode === 'saved' ? 'ring-2 ring-gold-400/50' : ''}`} onClick={() => setMode(m => (m === 'saved' ? null : 'saved'))}>
               <Home size={13} /> Pick a saved place
             </button>
+            {adjustable && (
+              <button type="button" className={`btn-white text-xs py-1.5 px-3 ${mode === 'adjust' ? 'ring-2 ring-gold-400/50' : ''}`} onClick={() => setMode(m => (m === 'adjust' ? null : 'adjust'))}>
+                <MapIcon size={13} /> Adjust on the map
+              </button>
+            )}
             {!ask && (
               <button type="button" className="btn-ghost text-xs" onClick={() => save({ when: geo.when === 'leave' ? 'arrive' : 'leave', placeId: geo.placeId }, 'when')} disabled={!!busy || !geo.placeId}>
                 <ArrowLeftRight size={13} /> Remind when I {geo.when === 'leave' ? 'arrive' : 'leave'} instead
@@ -115,9 +134,9 @@ export default function GeoPlacePrompt({ note, onChanged }) {
                   {results.length === 0 && <li className="text-xs text-navy-500">No matches — try a fuller address.</li>}
                   {results.slice(0, 8).map((r, i) => (
                     <li key={i}>
-                      <button type="button" className="w-full text-left rounded-xl px-3 py-2 hover:bg-gold-500/10" onClick={() => save({ lat: r.lat, lng: r.lng, address: r.address, name: titleCase(geo.query) }, 'pick')}>
+                      <button type="button" className="w-full text-left rounded-xl px-3 py-2 hover:bg-gold-500/10" onClick={() => save({ lat: r.lat, lng: r.lng, address: r.address, name: r.name || titleCase(geo.query), areaRadiusM: r.areaRadiusM || null }, 'pick')}>
                         <span className="block text-sm font-semibold text-navy-900 dark:text-white">{r.name}</span>
-                        <span className="block text-xs text-navy-500 dark:text-white/50">{r.address}{Number.isFinite(r.distanceM) ? ` · ${(r.distanceM / 1609).toFixed(1)} mi` : ''}</span>
+                        <span className="block text-xs text-navy-500 dark:text-white/50">{r.address}{Number.isFinite(r.distanceM) ? ` · ${(r.distanceM / 1609).toFixed(1)} mi` : ''}{r.areaRadiusM ? ` · large place, ${formatRadius(r.areaRadiusM)} circle` : ''}</span>
                       </button>
                     </li>
                   ))}
@@ -142,6 +161,15 @@ export default function GeoPlacePrompt({ note, onChanged }) {
               ))}
               {!places.home && !(places.saved || []).length && <li className="text-xs text-navy-500">No saved places yet.</li>}
             </ul>
+          )}
+          {mode === 'adjust' && adjustable && (
+            <PlaceAdjust
+              key={geo.placeId}
+              place={{ id: geo.placeId, lat: geo.lat, lng: geo.lng, address: geo.address, radiusMode: geo.radiusMode || savedPlace?.radiusMode || 'auto',
+                radiusM: savedPlace?.radiusM ?? (geo.radiusMode === 'custom' ? geo.radiusM : null), autoRadiusM: savedPlace?.autoRadiusM ?? (geo.placeId === 'home' ? places?.home?.autoRadiusM : null) }}
+              onSaved={adjusted}
+              onCancel={() => setMode(null)}
+            />
           )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         </div>

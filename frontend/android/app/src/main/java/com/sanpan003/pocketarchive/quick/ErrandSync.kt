@@ -32,6 +32,8 @@ object ErrandSync {
     private const val MAX_GEOFENCES = 100
     private const val RADIUS_M = 150f
     private const val DWELL_MS = 60_000      // ~1 minute in the store, so driving past doesn't count
+    private const val PERSONAL_DWELL_MS = 30_000 // small personal places (home): a short moment inside
+    private const val FENCE_VERSION = 2      // bump when the transition rules change → re-arm after an update
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -47,6 +49,23 @@ object ErrandSync {
     fun hasBackgroundLocation(ctx: Context) =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /** Permission state that affects geofences; a change re-arms them. */
+    fun permissionSignature(ctx: Context) =
+        "fg=${hasForegroundLocation(ctx)},bg=${hasBackgroundLocation(ctx)},v=$FENCE_VERSION"
+
+    /** Next registerGeofences() re-adds everything (location came back on, permissions changed…). */
+    fun forceRearm(ctx: Context) = ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE).edit().remove("sig").apply()
+
+    /** App opened: if a location permission changed since the fences were added, sync now. */
+    fun onAppResumed(ctx: Context) {
+        val prefs = ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE)
+        if (TokenStore.token(ctx) == null) return
+        if (prefs.getString("perms", null) != permissionSignature(ctx)) {
+            forceRearm(ctx)
+            ErrandWorker.syncNow(ctx)
+        }
+    }
 
     private fun geofenceIntent(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
         ctx, 0, Intent(ctx, GeofenceReceiver::class.java),
@@ -92,25 +111,33 @@ object ErrandSync {
         val geofencing = LocationServices.getGeofencingClient(ctx)
         val pending = geofenceIntent(ctx)
         val signature = ErrandStore.armed(ctx).flatMap { e -> e.branches.map { "${it.key}/${e.radiusM}/${e.whenAt}" } }.sorted().joinToString(",") +
-            "|fg=${hasForegroundLocation(ctx)}"
+            "|" + permissionSignature(ctx)
         val prefs = ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE)
         val now = android.os.SystemClock.elapsedRealtime()
         val armedAt = prefs.getLong("elapsed", -1L)
         if (!force && signature == prefs.getString("sig", null) && armedAt in 0..now) {
             Log.i(TAG, "Geofences unchanged; keeping them armed")
+            LocationCheck.update(ctx, ErrandStore.armed(ctx).isNotEmpty())
             return
         }
+        prefs.edit().putString("perms", permissionSignature(ctx)).apply()
         try {
             Tasks.await(geofencing.removeGeofences(pending), 10, TimeUnit.SECONDS)
         } catch (e: Exception) {
             Log.w(TAG, "Could not remove old geofences: ${e.message}")
         }
         prefs.edit().remove("sig").apply()
-        if (!hasForegroundLocation(ctx)) return
+        if (!hasForegroundLocation(ctx)) {
+            ErrandStore.setArmedCount(ctx, 0, "Location permission is off")
+            LocationCheck.update(ctx, false)
+            return
+        }
 
         // One geofence per place (shared by errands at the same store). Personal places
-        // (location reminders) first, then stores closest to home. Arrive = DWELL ~1 min;
-        // leave = EXIT. Home uses 100 m, everything else 150 m (from the server).
+        // (location reminders) first, then stores closest to home. Radius comes from the server
+        // (Auto = the OpenStreetMap area of the place, 100 m – 2 km).
+        // Arrive: ENTER (places ≥ 250 m fire on entering) + DWELL for small places (30 s personal, 1 min stores).
+        // Leave: EXIT (+ ENTER, so the inside/outside state is known).
         data class Fence(val key: String, val lat: Double, val lng: Double, val radius: Float, val leave: Boolean, val personal: Boolean, val order: Int)
         val chosen = ErrandStore.armed(ctx)
             .flatMap { e -> e.branches.map { b -> Fence(b.key, b.lat, b.lng, if (e.isReminder) e.radiusM else RADIUS_M, e.leaving, e.isReminder, if (e.isReminder) -1 else (b.distanceM ?: Int.MAX_VALUE)) } }
@@ -122,11 +149,20 @@ object ErrandSync {
             .setCircularRegion(f.lat, f.lng, f.radius)
             .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .apply {
-                if (f.leave) setTransitionTypes(Geofence.GEOFENCE_TRANSITION_EXIT)
-                else setTransitionTypes(Geofence.GEOFENCE_TRANSITION_DWELL).setLoiteringDelay(DWELL_MS)
+                when {
+                    f.leave -> setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+                    f.radius >= LocationCheck.SMALL_RADIUS_M -> setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+                    else -> setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_DWELL or Geofence.GEOFENCE_TRANSITION_EXIT)
+                        .setLoiteringDelay(if (f.personal) PERSONAL_DWELL_MS else DWELL_MS)
+                }
             }
             .build()
-        if (chosen.isEmpty()) { ErrandStore.setArmedCount(ctx, 0, null); prefs.edit().putString("sig", signature).putLong("elapsed", now).apply(); return }
+        if (chosen.isEmpty()) {
+            ErrandStore.setArmedCount(ctx, 0, null)
+            prefs.edit().putString("sig", signature).putLong("elapsed", now).apply()
+            LocationCheck.update(ctx, false)
+            return
+        }
 
         // Stores: being in the store already counts (initial DWELL). Personal places: only a real
         // arrival / departure — "when I get home" said at home shouldn't fire a minute later.
@@ -140,12 +176,16 @@ object ErrandSync {
             for (r in requests) Tasks.await(geofencing.addGeofences(r, pending), 20, TimeUnit.SECONDS)
             Log.i(TAG, "Armed ${chosen.size} geofence(s) (${chosen.count { it.personal }} personal)")
             ErrandStore.setArmedCount(ctx, chosen.size, null)
+            ErrandStore.recordEvent(ctx, "registered", "", "sync", "${chosen.size} places (${chosen.count { it.personal }} reminders)")
             prefs.edit().putString("sig", signature).putLong("elapsed", now).apply()
         } catch (e: Exception) {
             // e.g. location turned off (GEOFENCE_NOT_AVAILABLE); the next sync tries again
             Log.w(TAG, "Could not add geofences: ${e.message}")
             ErrandStore.setArmedCount(ctx, 0, e.message ?: "Could not add geofences")
+            ErrandStore.recordEvent(ctx, "error", "", "sync", (e.message ?: "Could not add geofences").take(80))
         }
+        // Fallback for missed events (low-power location every ~15 min while something is armed)
+        LocationCheck.update(ctx, true)
     }
 
     /** Signed out: forget errands and remove geofences. */
@@ -153,6 +193,7 @@ object ErrandSync {
         ErrandStore.clear(ctx)
         ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE).edit().clear().apply()
         runCatching { LocationServices.getGeofencingClient(ctx).removeGeofences(geofenceIntent(ctx)) }
+        runCatching { LocationCheck.update(ctx, false) }
     }
 
     // ── Calls back to the server (from workers) ────────────────────────────

@@ -35,6 +35,7 @@ class MainActivity : BridgeActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.sanpan003.pocketarchive.quick.ErrandSync.onAppResumed(this) // location permission changed → re-arm geofences
         if (startRecordingOnResume) {
             startRecordingOnResume = false
             QuickActions.start(this, "quick-record") // if not possible yet, /quick shows sign-in / permission

@@ -30,10 +30,19 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
         val id = inputData.getString(KEY_ID)
         return when (inputData.getString(KEY_ACTION)) {
             ACTION_SYNC -> {
+                // Location services turned back on since the last sync: geofences were dropped, add them again
+                val locOn = runCatching { ctx.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled == true }.getOrDefault(true)
+                val prefs = ctx.getSharedPreferences("geofence_sig", Context.MODE_PRIVATE)
+                if (locOn && !prefs.getBoolean("locOn", true)) ErrandSync.forceRearm(ctx)
+                prefs.edit().putBoolean("locOn", locOn).apply()
                 ErrandSync.syncBlocking(ctx)
+                // Fallback check with whatever location the phone already has (no extra GPS use)
+                LocationCheck.currentLocation(ctx, fresh = false)?.let { LocationCheck.check(ctx, it, "sync") }
+                sendEvents(ctx)
                 WearBridge.syncState(ctx) // watch: recent notes + open errands
                 Result.success()
             }
+            ACTION_EVENTS -> if (sendEvents(ctx)) Result.success() else Result.retry()
             ACTION_DONE -> {
                 if (id == null) return Result.failure()
                 if (!ErrandSync.post(ctx, "/api/quick/$id/done", JSONObject().put("done", true))) return Result.retry()
@@ -84,6 +93,15 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
         }
     }
 
+    /** Geofence / fallback events → the server's log (type, time, place id; never the phone's location). */
+    private fun sendEvents(ctx: Context): Boolean {
+        val events = ErrandStore.takePendingEvents(ctx)
+        if (events.length() == 0) return true
+        val (done, _) = ErrandSync.requestJson(ctx, "POST", "/api/location-reminders/events", JSONObject().put("events", events))
+        if (!done) ErrandStore.requeueEvents(ctx, events)
+        return done
+    }
+
     /** Remove the watch's Data Layer item once its change reached the server. */
     private fun deleteDataItem(ctx: Context) {
         val uri = inputData.getString(KEY_DATA_URI)?.takeIf { it.isNotBlank() } ?: return
@@ -105,6 +123,7 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
         private const val ACTION_SNOOZE = "snooze"
         private const val ACTION_ITEM = "item"
         private const val ACTION_CAPTURE = "capture"
+        private const val ACTION_EVENTS = "events"
         private const val KEY_CHOICE = "choice"
         private const val KEY_ITEM = "itemId"
         private const val KEY_DONE = "done"
@@ -140,6 +159,16 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
             enqueueNetwork(ctx, "errand-item-$id-$itemId", ACTION_ITEM, id, workDataOf(KEY_ITEM to itemId, KEY_DONE to done, KEY_DATA_URI to dataUri))
 
         fun reportTriggered(ctx: Context, id: String) = enqueueNetwork(ctx, "errand-triggered-$id", ACTION_TRIGGERED, id)
+
+        /** Upload queued geofence events (KEEP: a waiting upload takes everything queued by then). */
+        fun uploadEvents(ctx: Context) {
+            val request = OneTimeWorkRequestBuilder<ErrandWorker>()
+                .setConstraints(network)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
+                .setInputData(workDataOf(KEY_ACTION to ACTION_EVENTS))
+                .build()
+            WorkManager.getInstance(ctx).enqueueUniqueWork("errand-events", ExistingWorkPolicy.KEEP, request)
+        }
 
         fun snooze(ctx: Context, id: String, place: String?, delayMs: Long) {
             val request = OneTimeWorkRequestBuilder<ErrandWorker>()

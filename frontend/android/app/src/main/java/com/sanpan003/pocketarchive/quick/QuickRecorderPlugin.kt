@@ -259,9 +259,12 @@ class QuickRecorderPlugin : Plugin() {
             androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED
         val reminders = org.json.JSONArray().apply {
             ErrandStore.errands(context).forEach { e ->
+                val last = e.branches.mapNotNull { ErrandStore.lastEventFor(context, it.key) }.maxByOrNull { it.optLong("at") }
                 put(JSONObject().put("id", e.id).put("kind", e.kind).put("when", e.whenAt).put("place", e.placeName)
-                    .put("fences", e.branches.size).put("locallyDone", ErrandStore.isLocallyDone(context, e.id))
-                    .put("snoozedUntil", ErrandStore.snoozedUntil(context, e.id)))
+                    .put("fences", e.branches.size).put("radiusM", e.radiusM.toInt()).put("locallyDone", ErrandStore.isLocallyDone(context, e.id))
+                    .put("snoozedUntil", ErrandStore.snoozedUntil(context, e.id))
+                    .put("inside", e.branches.firstOrNull()?.let { ErrandStore.inside(context, it.key) } ?: JSONObject.NULL)
+                    .put("lastEvent", last ?: JSONObject.NULL))
             }
         }
         val o = JSONObject()
@@ -270,6 +273,14 @@ class QuickRecorderPlugin : Plugin() {
             .put("notifications", if (Build.VERSION.SDK_INT < 33) "granted" else getPermissionState("notifications").toString())
             .put("batteryUnrestricted", pm?.isIgnoringBatteryOptimizations(context.packageName) == true)
             .put("locationOn", runCatching { context.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled == true }.getOrDefault(true))
+            // Google Location Accuracy off ⇒ no network (Wi-Fi / cell) location ⇒ slow, unreliable geofences
+            .put("googleAccuracy", runCatching { context.getSystemService(android.location.LocationManager::class.java)?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true }.getOrDefault(true))
+            .put("fallback", LocationCheck.isRunning(context))
+            .put("notificationsEnabled", Notifications.canPost(context))
+            .put("arrivalChannelBlocked", runCatching {
+                Notifications.ensureChannels(context)
+                context.getSystemService(android.app.NotificationManager::class.java)?.getNotificationChannel(Notifications.CH_ARRIVAL)?.importance == android.app.NotificationManager.IMPORTANCE_NONE
+            }.getOrDefault(false))
             .put("armed", ErrandStore.armedInfo(context))
             .put("lastEvent", ErrandStore.lastEvent(context) ?: JSONObject.NULL)
             .put("reminders", reminders)
@@ -285,11 +296,60 @@ class QuickRecorderPlugin : Plugin() {
             val e = ErrandStore.errand(context, id)
             if (e == null) call.reject("This reminder isn't armed on the phone yet (check the place and permissions)")
             else {
-                ErrandStore.recordEvent(context, "test-${e.whenAt}", e.branches.firstOrNull()?.key ?: "")
+                ErrandStore.recordEvent(context, "test", e.branches.firstOrNull()?.key ?: "", "app", e.whenAt)
+                ErrandWorker.uploadEvents(context)
                 ArrivalNotifier.show(context, e, e.placeName)
                 call.resolve(JSObject().put("shown", true))
             }
         }.start()
+    }
+
+    /** Distance from you now to each reminder's place. Computed on the phone; the location isn't sent anywhere. */
+    @PluginMethod
+    fun getReminderDistances(call: PluginCall) {
+        Thread {
+            val loc = LocationCheck.currentLocation(context, fresh = true) ?: LocationCheck.currentLocation(context, fresh = false)
+            if (loc == null) call.resolve(JSObject().put("available", false))
+            else {
+                // A fresh location is also a fallback check
+                LocationCheck.check(context, loc, "app")
+                call.resolve(JSObject().put("available", true).put("accuracyM", loc.accuracy.toInt())
+                    .put("ageSec", ((System.currentTimeMillis() - loc.time) / 1000).toInt())
+                    .put("reminders", LocationCheck.distances(context, loc)))
+            }
+        }.start()
+    }
+
+    /** Settings → Notifications */
+    @PluginMethod
+    fun getNotificationStatus(call: PluginCall) = call.resolve(JSObject.fromJSONObject(Notifications.status(context)))
+
+    @PluginMethod
+    fun sendTestNotification(call: PluginCall) {
+        val target = call.getString("target") ?: "phone"
+        val ok = Notifications.sendTest(context, target)
+        ErrandStore.recordEvent(context, "test", "", "notification", target)
+        call.resolve(JSObject().put("sent", ok).put("watchApp", WearBridge.watchAppKnown(context)))
+    }
+
+    @PluginMethod
+    fun openNotificationSettings(call: PluginCall) {
+        runCatching { context.startActivity(Notifications.settingsIntent(context, call.getString("channel"))) }
+            .onFailure { return call.reject("Couldn't open notification settings") }
+        call.resolve()
+    }
+
+    /** Google Location Accuracy (Wi-Fi/cell positioning) — falls back to the Location settings screen. */
+    @PluginMethod
+    fun openLocationAccuracy(call: PluginCall) {
+        val intents = listOf(
+            Intent("com.google.android.gms.location.settings.GOOGLE_LOCATION_ACCURACY"),
+            Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+        )
+        for (i in intents) {
+            if (runCatching { context.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess) return call.resolve()
+        }
+        call.reject("Couldn't open location settings")
     }
 
     @PluginMethod

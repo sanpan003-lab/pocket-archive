@@ -30,7 +30,7 @@ object ErrandStore {
         val branches: List<Branch>,
         /** "errand" (store list) or "reminder" (any note tied to a personal place) */
         val kind: String = "errand",
-        /** "arrive" (DWELL) or "leave" (EXIT) */
+        /** "arrive" (ENTER, or DWELL for small places) or "leave" (EXIT) */
         val whenAt: String = "arrive",
         val text: String? = null,
         val radiusM: Float = 150f,
@@ -45,6 +45,9 @@ object ErrandStore {
     private const val KEY_FIRED = "fired"        // "errandId|branchKey" → millis
     private const val KEY_SNOOZED = "snoozed"    // errandId → until millis
     private const val KEY_DONE = "doneLocal"     // errandId → millis
+    private const val KEY_INSIDE = "inside"      // branchKey → 1 inside / 0 outside
+    private const val KEY_EVENTS_BY_KEY = "eventsByKey"
+    private const val KEY_PENDING_EVENTS = "pendingEvents"
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -57,6 +60,8 @@ object ErrandStore {
         prune(ctx, KEY_DONE) { it in ids }
         prune(ctx, KEY_SNOOZED) { it in ids }
         prune(ctx, KEY_FIRED) { it.substringBefore('|') in ids }
+        val keys = errands(ctx).flatMap { e -> e.branches.map { it.key } }.toSet()
+        prune(ctx, KEY_INSIDE) { it in keys }
     }
 
     fun errands(ctx: Context): List<Errand> =
@@ -73,11 +78,50 @@ object ErrandStore {
     }
 
     // ── Diagnostics (Settings → Location reminders) ─────────────────────────
-    fun recordEvent(ctx: Context, transition: String, key: String) {
-        prefs(ctx).edit().putString("lastEvent", JSONObject().put("at", System.currentTimeMillis()).put("transition", transition).put("key", key).toString()).apply()
+
+    /**
+     * A geofence / fallback event: kept locally (last one overall + last one per place) and
+     * queued for the server's event log. Only the type, time and place key go up — never where the phone is.
+     * type: registered | enter | exit | dwell | fallback | notified | test | error
+     */
+    @Synchronized
+    fun recordEvent(ctx: Context, type: String, key: String, source: String? = null, detail: String? = null) {
+        val now = System.currentTimeMillis()
+        val ev = JSONObject().put("at", now).put("transition", type).put("key", key).put("source", source).put("detail", detail)
+        val perKey = map(ctx, KEY_EVENTS_BY_KEY)
+        if (key.isNotBlank()) perKey.put(key, ev)
+        val ids = if (key.isBlank()) listOf<String?>(null) else errands(ctx).filter { e -> e.branches.any { it.key == key } }.map { it.id }.ifEmpty { listOf(null) }
+        val queue = runCatching { JSONArray(prefs(ctx).getString(KEY_PENDING_EVENTS, "[]")) }.getOrDefault(JSONArray())
+        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(now))
+        for (id in ids) queue.put(JSONObject().put("at", iso).put("type", type).put("key", key).put("reminderId", id).put("source", source).put("detail", detail))
+        val trimmed = JSONArray().apply { for (i in maxOf(0, queue.length() - 100) until queue.length()) put(queue.get(i)) }
+        prefs(ctx).edit().putString("lastEvent", ev.toString()).putString(KEY_EVENTS_BY_KEY, perKey.toString()).putString(KEY_PENDING_EVENTS, trimmed.toString()).apply()
+    }
+
+    /** Events waiting for upload (cleared when taken; put back with [requeueEvents] if the upload fails). */
+    @Synchronized
+    fun takePendingEvents(ctx: Context): JSONArray {
+        val q = runCatching { JSONArray(prefs(ctx).getString(KEY_PENDING_EVENTS, "[]")) }.getOrDefault(JSONArray())
+        prefs(ctx).edit().remove(KEY_PENDING_EVENTS).apply()
+        return q
+    }
+
+    @Synchronized
+    fun requeueEvents(ctx: Context, events: JSONArray) {
+        val q = runCatching { JSONArray(prefs(ctx).getString(KEY_PENDING_EVENTS, "[]")) }.getOrDefault(JSONArray())
+        for (i in 0 until q.length()) events.put(q.get(i))
+        val trimmed = JSONArray().apply { for (i in maxOf(0, events.length() - 100) until events.length()) put(events.get(i)) }
+        prefs(ctx).edit().putString(KEY_PENDING_EVENTS, trimmed.toString()).apply()
     }
 
     fun lastEvent(ctx: Context): JSONObject? = prefs(ctx).getString("lastEvent", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    fun lastEventFor(ctx: Context, key: String): JSONObject? = map(ctx, KEY_EVENTS_BY_KEY).optJSONObject(key)
+
+    /** Inside / outside a place, from geofence and fallback events (null = not known yet). */
+    fun inside(ctx: Context, key: String): Boolean? = map(ctx, KEY_INSIDE).let { if (it.has(key)) it.optLong(key) > 0 else null }
+
+    fun setInside(ctx: Context, key: String, inside: Boolean) = put(ctx, KEY_INSIDE, key, if (inside) 1L else 0L)
 
     fun setArmedCount(ctx: Context, n: Int, error: String?) {
         prefs(ctx).edit().putInt("armed", n).putString("armError", error).putLong("armedAt", System.currentTimeMillis()).apply()
@@ -148,7 +192,7 @@ object ErrandStore {
             kind = o.optString("kind", "errand"),
             whenAt = o.optString("when", "arrive").takeIf { it == "leave" } ?: "arrive",
             text = o.optString("text").takeIf { it.isNotBlank() && it != "null" },
-            radiusM = o.optDouble("radiusM", 150.0).toFloat().coerceIn(80f, 500f),
+            radiusM = o.optDouble("radiusM", 150.0).toFloat().coerceIn(80f, 2000f),
         )
     }
 }

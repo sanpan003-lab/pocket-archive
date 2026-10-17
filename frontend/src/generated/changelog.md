@@ -5,6 +5,25 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 1.2.0 — Oct 17, 2026
+
+### Location reminders you can rely on
+- Big places work: airports, campuses, malls, parks and hospitals get a circle that fits the place (from OpenStreetMap, up to 2 km), so "when I get to work" at an airport fires when you arrive, not only at one spot
+- Reminders fire as soon as you enter a place; only small places (like home) wait a few seconds so driving past doesn't count
+- A backup check: while a reminder is active, the phone also looks at its location about every 15 minutes and catches arrivals a geofence missed
+- Reminders are set up again after a restart, an app update, a permission change or turning location back on
+
+### Places
+- Choose how big each place is: Small 100 m, Medium 250 m, Large 500 m, Extra large 1 km, or Auto (fits the place)
+- "Pin & radius": drag the pin to the right spot and size the circle on the map (Settings → Places & errands, or Change on a reminder)
+- "Set Work to my current location"
+- Maps show the size of each reminder circle
+
+### Checking that it works
+- Settings → Notifications: whether notifications are allowed, every notification type with a button to turn it back on, and test notifications for the phone and the watch
+- Location reminders: Google Location Accuracy and the backup check, plus for each reminder its size, how far you are from it now, and what last happened (entered, notified…)
+- A short event log (armed, entered, left, notified) on your server, with the place only, never where you were
+
 ## 1.1.1 — Oct 16, 2026
 
 ### New icon

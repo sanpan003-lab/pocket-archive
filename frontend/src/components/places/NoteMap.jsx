@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigation } from 'lucide-react';
 import { getMapStatus } from '../../lib/api';
 import { directionsUrl } from '../quick/quickMeta';
+import { formatRadius } from '../../lib/radius';
 
 const MapView = lazy(() => import('./MapView'));
 
@@ -21,7 +22,7 @@ export default function NoteMap({ note }) {
 
   if (!target || !status?.available || note.undone) return null;
   const markers = [{ id: 'p', lat: target.lat, lng: target.lng, label: target.name || target.query, sub: target.address, color: geo ? '#EF4444' : '#10B981' }];
-  const circles = geo ? [{ lat: geo.lat, lng: geo.lng, radiusM: geo.radiusM || 150, color: '#EF4444' }] : [];
+  const circles = geo ? [{ lat: geo.lat, lng: geo.lng, radiusM: geo.radiusM || 150, color: '#EF4444', label: formatRadius(geo.radiusM || 150) }] : [];
   const directions = directionsUrl({ name: target.name, address: target.address, lat: target.lat, lng: target.lng });
 
   return (

@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed, Briefcase } from 'lucide-react';
+import { MapPin, Home, Search, Trash2, Store, RefreshCw, CheckCircle2, BellRing, LocateFixed, Briefcase, Map as MapIcon } from 'lucide-react';
 import {
   getPlaces, setHomeLocation, clearHomeLocation, searchPlaces,
-  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, reversePlace,
+  addSavedPlace, updateSavedPlace, deleteSavedPlace, updateErrandSettings, reversePlace, setWorkLocation,
 } from '../lib/api';
+import { radiusLabel } from '../lib/radius';
+import PlaceAdjust from './places/PlaceAdjust';
 import { isNative } from '../lib/platform';
 import { currentPosition } from '../lib/geolocate';
 import LocationReminders from './places/LocationReminders';
 import PlacesMap from './places/PlacesMap';
+
+/** Reminder radius of a place as the server computes it (places.js radiusFor) */
+function effectiveRadius(p, home = false) {
+  const presets = { small: 100, medium: 250, large: 500, xl: 1000 };
+  if (p?.radiusMode === 'custom' && p.radiusM) return p.radiusM;
+  if (presets[p?.radiusMode]) return presets[p.radiusMode];
+  return Math.max(home ? 100 : 150, p?.autoRadiusM || 0);
+}
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
 
@@ -131,6 +141,7 @@ export default function PlacesSettings() {
   const [draft, setDraft]     = useState(null);   // picked result waiting for aliases
   const [saved, setSaved]     = useState('');
   const [located, setLocated] = useState(null);   // { lat, lng, accuracy, address, error } waiting for confirmation
+  const [adjusting, setAdjusting] = useState(null); // 'home' | saved place id: pin + radius on the map
 
   const load = useCallback(() => {
     getPlaces().then(d => { setData(d); setError(''); }).catch(err => setError(errMsg(err, 'Could not load places')));
@@ -209,7 +220,7 @@ export default function PlacesSettings() {
     if (picker?.mode === 'change') {
       const p = picker.place;
       act('place', async () => {
-        await updateSavedPlace(p.id, { name: result.name, address: result.address, lat: result.lat, lng: result.lng });
+        await updateSavedPlace(p.id, { name: result.name, address: result.address, lat: result.lat, lng: result.lng, autoRadiusM: result.areaRadiusM || 0 });
         setPicker(null);
       }, `${p.aliases?.[0] || p.name} → ${result.address || result.name}`);
     } else {
@@ -224,10 +235,29 @@ export default function PlacesSettings() {
       await addSavedPlace({
         name: draft.label?.trim() || draft.name, address: draft.address, lat: draft.lat, lng: draft.lng,
         aliases: draft.aliases, chain: draft.kind === 'store' ? draft.chain : null, kind: draft.kind,
+        autoRadiusM: draft.areaRadiusM || 0,
       });
       setDraft(null);
     }, 'Place saved');
   };
+
+  // "Set Work to my current location": creates Work or moves it to where you stand
+  async function workHere() {
+    setBusy('work');
+    setError('');
+    try {
+      const pos = await currentPosition();
+      let address = null;
+      try { address = (await reversePlace(pos.lat, pos.lng)).address || null; } catch { /* save the spot anyway */ }
+      await setWorkLocation({ lat: pos.lat, lng: pos.lng, address });
+      load();
+      flash(`Work set to your current location${pos.accuracy ? ` (±${Math.round(pos.accuracy)} m)` : ''}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   // "Save where I am now": current GPS spot as a new personal place
   async function addHere() {
@@ -279,6 +309,7 @@ export default function PlacesSettings() {
                   {Number.isFinite(home.accuracyM) ? ` (±${home.accuracyM} m)` : ''}
                 </p>
               )}
+              <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">Reminders fire within {radiusLabel(home.radiusMode || 'auto', effectiveRadius(home, true))}</p>
               {home.approximate && (
                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
                   Approximate — stores are found around your ZIP code’s center. Use your current location for a precise spot.
@@ -289,6 +320,7 @@ export default function PlacesSettings() {
           <div className="flex flex-col items-start mt-1.5 pl-7">
             <div className="flex flex-wrap gap-1">
               <button className="btn-ghost text-xs" onClick={() => { setAddress(home.address); setEditingHome(true); }}>Change</button>
+              <button className="btn-ghost text-xs" onClick={() => setAdjusting(a => (a === 'home' ? null : 'home'))}><MapIcon size={13} /> Pin &amp; radius</button>
               <button
                 className="btn-ghost text-xs text-red-500 dark:text-red-400"
                 onClick={() => window.confirm('Remove your home location? Chain stores can no longer be found nearby.') && act('home', clearHomeLocation)}
@@ -298,6 +330,10 @@ export default function PlacesSettings() {
             </div>
             {locateButton(true)}
           </div>
+          {adjusting === 'home' && (
+            <PlaceAdjust place={{ id: 'home', lat: home.lat, lng: home.lng, address: home.address, radiusMode: home.radiusMode, radiusM: home.radiusM, autoRadiusM: home.autoRadiusM }}
+              onSaved={() => { setAdjusting(null); load(); flash('Home updated'); }} onCancel={() => setAdjusting(null)} />
+          )}
         </div>
       ) : (
         <form onSubmit={saveHome} className="flex flex-col sm:flex-row gap-2">
@@ -384,10 +420,19 @@ export default function PlacesSettings() {
                       {p.kind === 'work' ? 'Work' : p.name}{p.aliases?.length ? <span className="font-normal text-navy-500 dark:text-white/50"> · {p.aliases.join(', ')}</span> : null}
                     </p>
                     <p className="text-xs text-navy-500 dark:text-white/50 break-words">{p.name}{p.address ? ` · ${p.address}` : ''}</p>
+                    {p.kind !== 'store' && (
+                      <p className="text-xs text-navy-500 dark:text-white/50">Reminders fire within {radiusLabel(p.radiusMode || 'auto', effectiveRadius(p))}{p.autoRadiusM && (p.radiusMode || 'auto') === 'auto' ? ' — large place' : ''}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-1 mt-1.5 pl-7">
                   <button className="btn-ghost text-xs" onClick={() => setPicker({ mode: 'change', place: p })}>{p.kind && p.kind !== 'store' ? 'Change place' : 'Change store'}</button>
+                  {p.kind !== 'store' && (
+                    <button className="btn-ghost text-xs" onClick={() => setAdjusting(a => (a === p.id ? null : p.id))}><MapIcon size={13} /> Pin &amp; radius</button>
+                  )}
+                  {p.kind === 'work' && (
+                    <button className="btn-ghost text-xs" onClick={workHere} disabled={busy === 'work'}><LocateFixed size={13} className={busy === 'work' ? 'animate-pulse' : ''} /> {busy === 'work' ? 'Finding you…' : 'Set to my current location'}</button>
+                  )}
                   <button
                     className="btn-ghost text-xs text-red-500 dark:text-red-400"
                     onClick={() => window.confirm(`Remove “${p.aliases?.[0] || p.name}”?`) && act('place', () => deleteSavedPlace(p.id))}
@@ -395,6 +440,10 @@ export default function PlacesSettings() {
                     Remove
                   </button>
                 </div>
+                {adjusting === p.id && (
+                  <PlaceAdjust place={{ id: p.id, lat: p.lat, lng: p.lng, address: p.address, radiusMode: p.radiusMode, radiusM: p.radiusM, autoRadiusM: p.autoRadiusM }}
+                    onSaved={() => { setAdjusting(null); load(); flash(`${p.kind === 'work' ? 'Work' : p.name} updated`); }} onCancel={() => setAdjusting(null)} />
+                )}
                 {picker?.mode === 'change' && picker.place.id === p.id && (
                   <PlacePicker initialQuery={p.chain || p.aliases?.[0] || p.name} onPick={picked} onCancel={() => setPicker(null)} busy={busy === 'place'} />
                 )}
@@ -429,7 +478,10 @@ export default function PlacesSettings() {
         ) : (
           <div className="flex flex-wrap gap-1 mt-2">
             {!data?.saved?.some(p => p.kind === 'work') && (
-              <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'work' })}><Briefcase size={15} /> Add Work</button>
+              <>
+                <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'work' })}><Briefcase size={15} /> Add Work</button>
+                <button className="btn-ghost text-sm" onClick={workHere} disabled={busy === 'work'}><LocateFixed size={15} className={busy === 'work' ? 'animate-pulse' : ''} /> {busy === 'work' ? 'Finding you…' : 'Set Work to my current location'}</button>
+              </>
             )}
             <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'other' })}><MapPin size={15} /> Add a place</button>
             <button className="btn-ghost text-sm" onClick={() => setPicker({ mode: 'add', kind: 'store' })}><Store size={15} /> Add a store</button>

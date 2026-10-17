@@ -173,6 +173,10 @@
         <receiver
             android:name=".quick.GeofenceReceiver"
             android:exported="false" />
+        <!-- Fallback: low-power location updates while a location reminder is active -->
+        <receiver
+            android:name=".quick.LocationFallbackReceiver"
+            android:exported="false" />
         <receiver
             android:name=".quick.ErrandActionReceiver"
             android:exported="false" />
@@ -185,6 +189,8 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.location.PROVIDERS_CHANGED" />
+                <action android:name="android.location.MODE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

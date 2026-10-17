@@ -10,6 +10,7 @@ import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
 import AppearanceSettings from '../components/AppearanceSettings';
 import RecordingSettings from '../components/RecordingSettings';
+import NotificationSettings from '../components/NotificationSettings';
 import { AboutSection } from '../components/WhatsNew';
 
 function shortDate(iso) {
@@ -187,6 +188,7 @@ export default function SettingsPage() {
 
       <AppearanceSettings />
       <RecordingSettings />
+      <NotificationSettings />
 
       {/* ── Backend status ──────────────────────────────────────────────────── */}
       <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">

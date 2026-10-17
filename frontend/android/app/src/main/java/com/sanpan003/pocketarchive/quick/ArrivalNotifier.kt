@@ -19,8 +19,8 @@ object ArrivalNotifier {
 
     fun notificationId(errandId: String) = 3000 + (errandId.hashCode() and 0xFFFF)
 
-    /** Geofence DWELL (arrive) or EXIT (leave) (key = geofence request id). */
-    fun onArrive(ctx: Context, key: String, leaving: Boolean = false) {
+    /** Arrival (ENTER / DWELL / fallback) or departure (EXIT / fallback) at a place (key = geofence request id). */
+    fun onArrive(ctx: Context, key: String, leaving: Boolean = false, source: String = "geofence") {
         val now = System.currentTimeMillis()
         for (errand in ErrandStore.armed(ctx)) {
             if (errand.leaving != leaving) continue
@@ -29,6 +29,7 @@ object ArrivalNotifier {
             if (now - ErrandStore.lastFired(ctx, errand.id, key) < REFIRE_MS) continue
             ErrandStore.setFired(ctx, errand.id, key, now)
             show(ctx, errand, errand.placeName ?: branch.name)
+            ErrandStore.recordEvent(ctx, "notified", key, source)
             ErrandWorker.reportTriggered(ctx, errand.id)
         }
     }

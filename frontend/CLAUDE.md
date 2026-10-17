@@ -281,10 +281,24 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
   (home 100, else 150), status active | needs_place | done}. `POST /api/quick/:id/geo-place` (placeId, or
   lat/lng/name/address → saves the place with the spoken words as an alias). `GET /api/location-reminders`.
   `/api/errands/active` prepends them as `kind:'reminder'` with keys `ar|lv:<placeId>:<lat>,<lng>`.
-- Android: `ErrandSync` registers DWELL (arrive) / EXIT (leave) fences; personal places without an
-  initial trigger. A signature pref skips re-registering; a reboot or GEOFENCE_NOT_AVAILABLE re-arms them.
-  `ArrivalNotifier.onArrive(key, leaving)`; plugin `getLocationStatus`, `testLocationReminder`.
-  Web: `components/places/` (GeoPlacePrompt, LocationReminders, PlacesMap, NoteMap, MapView).
+- Radius (1.2.0, `places.js` `radiusFor`): per place `radiusMode` auto|small|medium|large|xl|custom (+ `radiusM`);
+  Auto = `autoRadiusM` from the Nominatim bounding box (`areaRadiusFromBox`, 150 m–2 km; home 100 m). Search results carry
+  `areaRadiusM`; old saved places get it once in the background (`backfillAreas`). `PUT /api/places/radius/:id`,
+  `POST /api/places/work` (current location). A moved pin / new radius updates every active reminder (`places.onChange`
+  → `refreshGeoNotes`), and `/api/errands/active` always uses the live place (`liveGeo`).
+- Android: `ErrandSync` registers arrive = ENTER (≥ 250 m fire on ENTER) + DWELL for small places (30 s personal,
+  60 s stores), leave = ENTER|EXIT; personal places without an initial trigger. `FENCE_VERSION` + permission state are
+  in the signature (an update or a permission change re-arms). `LocationCheck` = fallback: low-power location updates
+  every ~15 min while anything is armed (`LocationFallbackReceiver`) + last location at each sync; fires on
+  outside→inside / inside→outside using `ErrandStore.inside`. `ErrandBootReceiver` also handles PROVIDERS_CHANGED /
+  MODE_CHANGED. Events (`ErrandStore.recordEvent`) are queued and uploaded by `ErrandWorker.uploadEvents`.
+  Plugin: `getLocationStatus`, `getReminderDistances`, `testLocationReminder`, `getNotificationStatus`,
+  `sendTestNotification`, `openNotificationSettings`, `openLocationAccuracy`.
+- Emulator geofence test: a temporary `src/debug` receiver with ops suppress (remove fences, keep the signature),
+  check (fresh location → `LocationCheck.check`) and sync; WebView DevTools via
+  `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>` for screenshots. Delete `src/debug` afterwards.
+- Web: `components/places/` (GeoPlacePrompt, PlaceAdjust = pin + radius editor, LocationReminders, PlacesMap,
+  NoteMap, MapView with `edit` mode and circle size chips), `components/NotificationSettings.jsx`, `lib/radius.js`.
 - **Maps**: `maps.js` serves `ARCHIVE/09_Maps/*.pmtiles` with range requests (+ cached fonts/sprites). See
   `docs/maps.md` in the monorepo. Never commit the map file. MapView gotchas: MapLibre 6's worker is a
   separate ES module (`?worker&url` + `setWorkerUrl`, `worker.format: 'es'` in vite.config), and

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Map as MapIcon, ChevronDown } from 'lucide-react';
 import { getMapStatus, getLocationReminders, getActiveErrands } from '../../lib/api';
+import { formatRadius } from '../../lib/radius';
 
 const MapView = lazy(() => import('./MapView'));
 
@@ -34,7 +35,7 @@ export default function PlacesMap({ places }) {
   }
   for (const r of reminders) {
     if (r.status !== 'active' || !Number.isFinite(r.lat)) continue;
-    circles.push({ lat: r.lat, lng: r.lng, radiusM: r.radiusM || 150, color: COLORS.reminder });
+    circles.push({ lat: r.lat, lng: r.lng, radiusM: r.radiusM || 150, color: COLORS.reminder, label: formatRadius(r.radiusM || 150) });
     markers.push({ id: `r-${r.id}`, lat: r.lat, lng: r.lng, label: r.title, sub: `${r.when === 'leave' ? 'Leaving' : 'Arriving at'} ${r.place}`, color: COLORS.reminder });
   }
   for (const e of errands) {

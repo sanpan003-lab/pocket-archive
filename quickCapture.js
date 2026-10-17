@@ -933,6 +933,28 @@ function createQuickCapture(deps) {
   }
 
   /** Location reminder → a known place (home / saved) or "needs_place" (ask "Where is …?") */
+  /** note.geo with the place's current pin and radius (places can move or change size after the note was made) */
+  function liveGeo(note) {
+    const g = note.geo;
+    if (!g || g.status !== 'active' || !g.placeId) return g;
+    const p = places?.personalPlace('', g.placeId);
+    return p ? { ...g, lat: p.lat, lng: p.lng, radiusM: p.radiusM, radiusMode: p.radiusMode, name: p.name, address: p.address } : g;
+  }
+
+  // A place moved or got a new radius: update the copy in every active reminder that uses it
+  function refreshGeoNotes() {
+    for (const n of store.list()) {
+      if (!isActiveGeo(n) || !n.geo.placeId) continue;
+      const g = liveGeo(n);
+      if (g.lat === n.geo.lat && g.lng === n.geo.lng && g.radiusM === n.geo.radiusM && g.name === n.geo.name && g.radiusMode === n.geo.radiusMode) continue;
+      const fresh = store.read(n.id);
+      if (!fresh?.geo) continue;
+      fresh.geo = { ...fresh.geo, lat: g.lat, lng: g.lng, radiusM: g.radiusM, radiusMode: g.radiusMode, name: g.name, address: g.address };
+      store.write(fresh);
+    }
+  }
+  places?.onChange?.(() => { try { refreshGeoNotes(); } catch (err) { console.warn(`[quick] Reminder refresh failed: ${err.message}`); } });
+
   function prepareGeo(note, now = new Date()) {
     if (!note.geo) return note;
     if (note.geo.status === 'done') return note;
@@ -945,6 +967,9 @@ function createQuickCapture(deps) {
     }
     return note;
   }
+
+  // Phone-wide geofence events (registered / errors), newest last; reminder events live on the note
+  const geofenceLog = [];
 
   // Checklist taps can come in quick succession: one Calendar update per burst
   const calendarTimers = new Map();
@@ -1841,20 +1866,20 @@ function createQuickCapture(deps) {
       try {
         const settings = errandSettings();
         const today = todayNY();
-        const geo = store.list().filter(isActiveGeo).map(n => ({
+        const geo = store.list().filter(isActiveGeo).map(n => ({ n, g: liveGeo(n) })).map(({ n, g }) => ({
           id:        n.id,
           kind:      'reminder',
-          when:      n.geo.when,                    // arrive | leave
+          when:      g.when,                        // arrive | leave
           title:     n.title,
           text:      String(n.content || n.title || '').slice(0, 300),
-          placeName: n.geo.name,
-          address:   n.geo.address || null,
-          radiusM:   n.geo.radiusM || 150,
+          placeName: g.name,
+          address:   g.address || null,
+          radiusM:   g.radiusM || 150,
           items:     (n.items || []).map(i => ({ id: i.id, text: i.text, done: !!i.done })),
           itemsLeft: (n.items || []).filter(i => !i.done).length,
           expiresOn: null,
-          branches:  [{ key: `${n.geo.when === 'leave' ? 'lv' : 'ar'}:${n.geo.placeId || 'p'}:${n.geo.lat.toFixed(5)},${n.geo.lng.toFixed(5)}`,
-            lat: n.geo.lat, lng: n.geo.lng, name: n.geo.name, address: n.geo.address || null, distanceM: 0 }],
+          branches:  [{ key: `${g.when === 'leave' ? 'lv' : 'ar'}:${g.placeId || 'p'}:${g.lat.toFixed(5)},${g.lng.toFixed(5)}`,
+            lat: g.lat, lng: g.lng, name: g.name, address: g.address || null, distanceM: 0 }],
         }));
         const errands = store.list()
           .filter(n => isActiveArrival(n, settings, today))
@@ -1885,16 +1910,18 @@ function createQuickCapture(deps) {
       for (const n of store.list()) {
         if (n.undone || n.hidden) continue;
         if (n.geo) {
-          out.push({ id: n.id, title: n.title, type: n.type, when: n.geo.when, place: n.geo.name || n.geo.query, query: n.geo.query,
-            placeId: n.geo.placeId || null, address: n.geo.address || null, lat: n.geo.lat ?? null, lng: n.geo.lng ?? null,
-            radiusM: n.geo.radiusM || null, status: n.geo.status, error: n.geo.error || null, triggeredAt: n.geo.triggeredAt || null,
-            capturedAt: n.capturedAt || n.createdAt });
+          const g = liveGeo(n);
+          out.push({ id: n.id, title: n.title, type: n.type, when: g.when, place: g.name || g.query, query: g.query,
+            placeId: g.placeId || null, address: g.address || null, lat: g.lat ?? null, lng: g.lng ?? null,
+            radiusM: g.radiusM || null, radiusMode: g.radiusMode || 'auto', status: g.status, error: g.error || null,
+            triggeredAt: g.triggeredAt || null, events: (g.events || []).slice(-10), capturedAt: n.capturedAt || n.createdAt });
         } else if (n.type === 'errand' && hasArrival(n) && !n.errandDone) {
           const active = isActiveArrival(n, settings, today);
           out.push({ id: n.id, title: n.title, type: 'errand', when: 'arrive', place: placeLabel(n), query: placeLabel(n),
             placeId: n.place?.savedPlaceId || null, address: n.place?.address || null, lat: n.place?.lat ?? null, lng: n.place?.lng ?? null,
             stores: n.place?.branches?.length || 0, radiusM: 150, status: active ? 'active' : (n.place?.resolved ? 'expired' : 'needs_place'),
-            error: n.place?.error || null, triggeredAt: n.arrival?.triggeredOn || null, capturedAt: n.capturedAt || n.createdAt });
+            error: n.place?.error || null, triggeredAt: n.arrival?.triggeredOn || null, events: (n.arrival?.events || []).slice(-10),
+            capturedAt: n.capturedAt || n.createdAt });
         }
       }
       res.json(out.slice(0, 100));
@@ -1919,6 +1946,7 @@ function createQuickCapture(deps) {
         const saved = places?.savePlace({
           name: String(b.name || geo.query).trim(), address: b.address || null, lat: b.lat, lng: b.lng,
           aliases: [geo.query], kind: /\b(work|office)\b/i.test(geo.query) ? 'work' : 'other',
+          autoRadiusM: Number(b.areaRadiusM) || null, radiusMode: b.radiusMode, radiusM: b.radiusM,
         });
         if (!saved || saved.error) return res.status(400).json({ error: saved?.error || 'Could not save the place' });
         p = places.personalPlace('', saved.id);
@@ -1928,6 +1956,35 @@ function createQuickCapture(deps) {
       note.geo = { ...geo, ...p, status: 'active', activeFrom: geo.activeFrom || todayNY(), error: null, placeIdHint: null };
       res.json(finalize(note));
     });
+
+    // POST /api/location-reminders/events { events: [{ at, type, reminderId?, key?, source? }] }
+    //   type: registered | enter | exit | dwell | fallback | notified | test. key "ar:<placeId>:…" → placeId only.
+    app.post('/api/location-reminders/events', (req, res) => {
+      const list = Array.isArray(req.body?.events) ? req.body.events.slice(0, 50) : [];
+      const TYPES = ['registered', 'enter', 'exit', 'dwell', 'fallback', 'notified', 'test', 'error'];
+      let stored = 0;
+      for (const e of list) {
+        const type = String(e?.type || '');
+        if (!TYPES.includes(type)) continue;
+        const at = Number.isFinite(Date.parse(e.at)) ? new Date(e.at).toISOString() : new Date().toISOString();
+        const placeId = String(e.key || '').match(/^(?:ar|lv):([^:]+):/)?.[1] || (e.placeId ? String(e.placeId).slice(0, 40) : null);
+        const entry = { at, type, placeId, source: e.source ? String(e.source).slice(0, 20) : null, detail: e.detail ? String(e.detail).slice(0, 80) : null };
+        if (e.reminderId && isQuickId(String(e.reminderId))) {
+          const note = store.read(String(e.reminderId));
+          if (!note) continue;
+          if (note.geo) note.geo = { ...note.geo, events: [...(note.geo.events || []), entry].slice(-20) };
+          else if (note.arrival) note.arrival = { ...note.arrival, events: [...(note.arrival.events || []), { ...entry, placeId: null }].slice(-20) };
+          else continue;
+          store.write(note);
+        } else {
+          geofenceLog.push(entry);
+          if (geofenceLog.length > 50) geofenceLog.splice(0, geofenceLog.length - 50);
+        }
+        stored++;
+      }
+      res.json({ stored });
+    });
+    app.get('/api/location-reminders/events', (_req, res) => res.json(geofenceLog.slice(-50)));
 
     // GET /api/errands/open — every unfinished errand with its checklist (the watch's Errands screen)
     app.get('/api/errands/open', (_req, res) => {

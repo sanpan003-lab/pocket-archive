@@ -2,12 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import {
-  BellRing, MapPin, CheckCircle2, AlertTriangle, RefreshCw, FlaskConical, LocateFixed, Bell, BatteryCharging, Crosshair, Radio,
+  BellRing, MapPin, CheckCircle2, AlertTriangle, RefreshCw, FlaskConical, LocateFixed, Bell, BatteryCharging, Crosshair, Radio, Wifi, Navigation, Pencil,
 } from 'lucide-react';
 import { getLocationReminders } from '../../lib/api';
 import { isNative } from '../../lib/platform';
 import { QuickRecorder } from '../../native/quickRecorder';
 import { syncErrands } from '../../native/errands';
+import { formatDistance, radiusLabel } from '../../lib/radius';
+
+const EVENT_LABEL = {
+  enter: 'entered', exit: 'left', dwell: 'stayed inside', arrive: 'arrived', leave: 'left', fallback: 'location check',
+  notified: 'notified', registered: 'armed', test: 'test', error: 'error',
+};
+const eventText = e => (e ? `${EVENT_LABEL[e.transition || e.type] || e.transition || e.type}${e.source && e.source !== 'geofence' ? ` (${e.source})` : ''}` : null);
 
 const ago = ms => {
   if (!ms) return 'never';
@@ -41,10 +48,15 @@ export default function LocationReminders() {
   const [status, setStatus] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [here, setHere] = useState(null);   // { available, accuracyM, reminders: { id: { distanceM, radiusM, inside } } } — phone only
 
   const load = useCallback(() => {
     getLocationReminders().then(setList).catch(() => setList([]));
-    if (isNative) QuickRecorder.getLocationStatus().then(setStatus).catch(() => setStatus(null));
+    if (isNative) {
+      QuickRecorder.getLocationStatus().then(setStatus).catch(() => setStatus(null));
+      // Distance from you now (computed on the phone; your location isn't sent anywhere)
+      QuickRecorder.getReminderDistances().then(setHere).catch(() => setHere(null));
+    }
   }, []);
 
   useEffect(() => {
@@ -69,6 +81,10 @@ export default function LocationReminders() {
         await QuickRecorder.openShortcutSetup({ target: 'battery' });
       } else if (kind === 'precise') {
         await QuickRecorder.openAppSettings();
+      } else if (kind === 'accuracy') {
+        await QuickRecorder.openLocationAccuracy();
+      } else if (kind === 'channel') {
+        await QuickRecorder.openNotificationSettings({ channel: 'errand_arrival' });
       }
     } catch (err) { setMsg(err.message); }
     setTimeout(load, 800);
@@ -112,7 +128,11 @@ export default function LocationReminders() {
             fix={() => fix('location')} />
           <Check ok={status.precise} label="Precise location" hint={status.precise ? null : 'Approximate location can miss small places like home'} fix={() => fix('precise')} fixLabel="Open settings" />
           <Check ok={status.locationOn} label="Location is turned on" hint={status.locationOn ? null : 'Swipe down → Location'} />
-          <Check ok={status.notifications === 'granted'} label={<span className="inline-flex items-center gap-1"><Bell size={12} /> Notifications</span>} fix={() => fix('notifications')} />
+          <Check ok={status.googleAccuracy !== false} label={<span className="inline-flex items-center gap-1"><Wifi size={12} /> Google Location Accuracy</span>}
+            hint={status.googleAccuracy === false ? 'Off — the phone only uses GPS, so arriving somewhere is noticed late or not at all' : null}
+            fix={() => fix('accuracy')} fixLabel="Turn on" />
+          <Check ok={status.notifications === 'granted' && status.notificationsEnabled !== false} label={<span className="inline-flex items-center gap-1"><Bell size={12} /> Notifications</span>} fix={() => fix('notifications')} />
+          <Check ok={!status.arrivalChannelBlocked} label="“Arrival reminders” notifications" hint={status.arrivalChannelBlocked ? 'This notification category is turned off' : null} fix={() => fix('channel')} fixLabel="Turn on" />
           <Check ok={status.batteryUnrestricted} label={<span className="inline-flex items-center gap-1"><BatteryCharging size={12} /> Battery: Unrestricted</span>} hint={status.batteryUnrestricted ? null : 'Samsung may delay reminders otherwise'} fix={() => fix('battery')} fixLabel="Open" />
           <li className="flex items-center gap-2.5 py-1.5 text-xs text-navy-600 dark:text-white/60">
             <Crosshair size={15} className="shrink-0 text-navy-400" />
@@ -122,7 +142,11 @@ export default function LocationReminders() {
           </li>
           <li className="flex items-center gap-2.5 py-1.5 text-xs text-navy-600 dark:text-white/60">
             <Radio size={15} className="shrink-0 text-navy-400" />
-            <span className="flex-1">Last geofence event: {last ? `${last.transition} · ${ago(last.at)}` : 'none yet'}</span>
+            <span className="flex-1">Last event: {last ? `${eventText(last)} · ${ago(last.at)}` : 'none yet'}</span>
+          </li>
+          <li className="flex items-center gap-2.5 py-1.5 text-xs text-navy-600 dark:text-white/60">
+            <Navigation size={15} className="shrink-0 text-navy-400" />
+            <span className="flex-1">Backup location check (every ~15 min): {status.fallback ? 'on' : 'off'}{here?.available ? ` · your location ±${here.accuracyM} m` : ''}</span>
           </li>
         </ul>
       )}
@@ -134,7 +158,11 @@ export default function LocationReminders() {
         <p className="text-sm text-navy-500 dark:text-white/50">No location reminders yet.</p>
       ) : (
         <ul className="space-y-2">
-          {[...active, ...others].map(r => (
+          {[...active, ...others].map(r => {
+            const local = status?.reminders?.find(x => x.id === r.id);
+            const dist = here?.reminders?.[r.id];
+            const lastEv = local?.lastEvent || (r.events?.length ? { ...r.events[r.events.length - 1], transition: r.events[r.events.length - 1].type, at: Date.parse(r.events[r.events.length - 1].at) } : null);
+            return (
             <li key={r.id} className="rounded-xl bg-navy-50/50 dark:bg-white/5 px-3 py-2.5">
               <div className="flex items-start gap-2">
                 <MapPin size={15} className={`mt-0.5 shrink-0 ${r.status === 'active' ? 'text-emerald-500' : 'text-amber-500'}`} />
@@ -148,6 +176,15 @@ export default function LocationReminders() {
                     </span>
                     {r.triggeredAt ? ` · last fired ${typeof r.triggeredAt === 'string' && r.triggeredAt.length > 10 ? ago(Date.parse(r.triggeredAt)) : r.triggeredAt}` : ''}
                   </p>
+                  {r.status === 'active' && Number.isFinite(r.radiusM) && (
+                    <p className="text-xs text-navy-500 dark:text-white/55">
+                      Within {radiusLabel(r.radiusMode || 'auto', r.radiusM)}
+                      {dist ? ` · ${dist.inside ? 'you’re inside it now' : `${formatDistance(dist.distanceM)} from you now`}` : ''}
+                    </p>
+                  )}
+                  {r.status === 'active' && (
+                    <p className="text-[11px] text-navy-400 dark:text-white/40">Last event: {lastEv ? `${eventText(lastEv)} · ${ago(lastEv.at)}` : 'none yet'}{local ? '' : isNative ? ' · not armed on this phone yet' : ''}</p>
+                  )}
                   {r.error && <p className="text-xs text-amber-700 dark:text-amber-300">{r.error}</p>}
                 </div>
                 {isNative && r.status === 'active' && (
@@ -158,9 +195,13 @@ export default function LocationReminders() {
                 {r.status === 'needs_place' && (
                   <Link to={`/quick/${r.id}`} className="btn-white text-xs py-1 px-2.5 shrink-0"><LocateFixed size={13} /> Set place</Link>
                 )}
+                {r.status === 'active' && r.type !== 'errand' && (
+                  <Link to={`/quick/${r.id}`} className="btn-ghost text-xs py-1 px-2 shrink-0" aria-label={`Change the place of ${r.title}`}><Pencil size={13} /> Change</Link>
+                )}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       {msg && <p className="mt-2 text-xs rounded-xl bg-gold-500/10 px-3 py-2 text-navy-800 dark:text-white/85" role="status">{msg}</p>}

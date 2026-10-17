@@ -165,6 +165,11 @@ export const updateErrandSettings = settings => http.put('/errands/settings', se
 export const getLocationReminders = () => http.get('/location-reminders').then(r => r.data);
 export const setGeoPlace          = (id, body) => http.post(`/quick/${id}/geo-place`, body).then(r => r.data);
 export const setReminderDone      = (id, done = true) => http.post(`/quick/${id}/done`, { done }).then(r => r.data);
+// Radius of home / a saved place: { radiusMode: auto|small|medium|large|xl|custom, radiusM? }
+export const setPlaceRadius       = (id, body) => http.put(`/places/radius/${id}`, body).then(r => r.data);
+// "Set Work to my current location": { lat, lng, address? }
+export const setWorkLocation      = body => http.post('/places/work', body).then(r => r.data);
+export const getGeofenceLog       = () => http.get('/location-reminders/events').then(r => r.data);
 
 // Trash / delete
 export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').then(r => r.data);

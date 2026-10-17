@@ -41,6 +41,44 @@ function distanceM(a, b) {
 }
 
 const round5 = n => Math.round(n * 1e5) / 1e5;
+
+// Location-reminder radius per place: Auto (default) = the OpenStreetMap area of the place
+// (airport, campus, mall, park…) from its bounding box, at least 150 m (home 100 m), at most 2 km.
+const RADIUS_PRESETS = { small: 100, medium: 250, large: 500, xl: 1000 };
+const RADIUS_MODES = ['auto', ...Object.keys(RADIUS_PRESETS), 'custom'];
+const MIN_RADIUS_M = 100;
+const MAX_RADIUS_M = 2000;
+const clampRadius = m => Math.round(Math.min(MAX_RADIUS_M, Math.max(MIN_RADIUS_M, m)));
+
+/** Nominatim boundingbox [south, north, west, east] → radius (m) that covers it from the point, or null for point-like results. */
+function areaRadiusFromBox(box, point) {
+  if (!Array.isArray(box) || box.length !== 4) return null;
+  const [s, n, w, e] = box.map(Number);
+  if (![s, n, w, e].every(Number.isFinite)) return null;
+  const corners = [{ lat: s, lng: w }, { lat: s, lng: e }, { lat: n, lng: w }, { lat: n, lng: e }];
+  const center = { lat: (s + n) / 2, lng: (w + e) / 2 };
+  // Half the box diagonal = the size of the area; also make sure the circle around the pin reaches most of it
+  const half = distanceM(center, corners[3]);
+  if (half < 120) return null; // a building or an address: the normal radius is right
+  const fromPin = point ? Math.max(...corners.map(c => distanceM(point, c))) * 0.8 : half;
+  return clampRadius(Math.max(half, fromPin));
+}
+
+/** Effective radius for a personal place (home or saved) */
+function radiusFor(place, { home = false } = {}) {
+  const mode = RADIUS_MODES.includes(place?.radiusMode) ? place.radiusMode : 'auto';
+  if (mode === 'custom' && Number.isFinite(place.radiusM)) return clampRadius(place.radiusM);
+  if (RADIUS_PRESETS[mode]) return RADIUS_PRESETS[mode];
+  const auto = Number.isFinite(place?.autoRadiusM) && place.autoRadiusM > 0 ? place.autoRadiusM : 0;
+  return clampRadius(Math.max(home ? 100 : 150, auto));
+}
+
+/** { radiusMode, radiusM } from a request body (null = leave unchanged) */
+function cleanRadius(body = {}) {
+  if (body.radiusMode === undefined && body.radiusM === undefined) return null;
+  const mode = RADIUS_MODES.includes(body.radiusMode) ? body.radiusMode : (Number.isFinite(Number(body.radiusM)) ? 'custom' : 'auto');
+  return { radiusMode: mode, radiusM: mode === 'custom' ? clampRadius(Number(body.radiusM)) : null };
+}
 /** Stable id for a store location (also the Android geofence request id). */
 const branchKey = p => `${round5(p.lat).toFixed(5)},${round5(p.lng).toFixed(5)}`;
 
@@ -111,6 +149,11 @@ function addressFromNominatim(r) {
 }
 
 function createPlaces({ getConfig, saveConfig, cacheFile }) {
+  // quickCapture updates its reminders when a place moves or its radius changes
+  const placesListeners = [];
+  const onPlacesChanged = () => placesListeners.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+  const onChange = fn => { placesListeners.push(fn); };
+
   // ── Cache (places-cache.json) ────────────────────────────────────────────
   let cache = null;
   function loadCache() {
@@ -182,6 +225,8 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       lat:     Number(r.lat),
       lng:     Number(r.lon),
       osm:     r.osm_type && r.osm_id ? `${r.osm_type[0]}${r.osm_id}` : null,
+      areaRadiusM: areaRadiusFromBox(r.boundingbox, { lat: Number(r.lat), lng: Number(r.lon) }),
+      kind:    r.category || r.class || null,
       // Street-level (not just a city or ZIP area)
       street:  !!(r.address?.road || r.address?.house_number || r.address?.building || r.address?.amenity || r.address?.shop),
     })).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng));
@@ -304,6 +349,7 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   }
 
   const getHome = () => placesConfig().home || null;
+  const keepRadius = place => (place?.radiusMode ? { radiusMode: place.radiusMode, radiusM: place.radiusM ?? null } : {});
   const getSaved = () => placesConfig().saved || [];
   const getErrandSettings = () => ({ ...DEFAULT_ERRAND_SETTINGS, ...(placesConfig().errandSettings || {}) });
 
@@ -376,8 +422,9 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       lat: round5(hit.lat), lng: round5(hit.lng),
       source: hit.source, approximate: !!hit.approximate, geocodedAt: new Date().toISOString(),
     };
-    updatePlacesConfig(p => ({ ...p, home }));
-    return home;
+    updatePlacesConfig(p => ({ ...p, home: { ...keepRadius(p.home), ...home } }));
+    onPlacesChanged();
+    return getHome();
   }
 
   /** "Use my current location": save the coordinates as they are (no geocoding). */
@@ -389,9 +436,10 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       accuracyM: Number.isFinite(accuracyM) ? Math.round(accuracyM) : null,
       source, approximate: false, geocodedAt: new Date().toISOString(),
     };
-    updatePlacesConfig(p => ({ ...p, home }));
+    updatePlacesConfig(p => ({ ...p, home: { ...keepRadius(p.home), ...home } }));
     console.log(`[places] Home set from ${source} location`);
-    return home;
+    onPlacesChanged();
+    return getHome();
   }
 
   /** Nearest street address to a point (for confirming "Use my current location"). */
@@ -419,10 +467,12 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   function personalPlace(query, placeId) {
     const home = getHome();
     if (placeId === 'home' || HOME_WORDS.test(norm(query))) {
-      return home ? { placeId: 'home', name: 'Home', address: home.address || null, lat: home.lat, lng: home.lng, radiusM: 100 } : null;
+      return home ? { placeId: 'home', name: 'Home', address: home.address || null, lat: home.lat, lng: home.lng,
+        radiusM: radiusFor(home, { home: true }), radiusMode: home.radiusMode || 'auto' } : null;
     }
     const saved = (placeId && getSaved().find(p => p.id === placeId)) || findAlias(query);
-    return saved ? { placeId: saved.id, name: saved.name, address: saved.address || null, lat: saved.lat, lng: saved.lng, radiusM: 150 } : null;
+    return saved ? { placeId: saved.id, name: saved.name, address: saved.address || null, lat: saved.lat, lng: saved.lng,
+      radiusM: radiusFor(saved), radiusMode: saved.radiusMode || 'auto' } : null;
   }
 
   /** Short list for the classifier: id | name | aliases */
@@ -592,7 +642,8 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       if (place.error) return res.status(400).json({ error: place.error });
       place.id = existing.id;
       updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).map(s => (s.id === place.id ? place : s)) }));
-      res.json(place);
+      onPlacesChanged();
+      res.json({ ...place, effectiveRadiusM: radiusFor(place) });
     });
 
     app.delete('/api/places/saved/:id', (req, res) => {
@@ -600,6 +651,45 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).filter(s => s.id !== req.params.id) }));
       res.json({ success: true });
     });
+
+    // POST /api/places/work { lat, lng, address?, accuracyM? } — "Set Work to my current location"
+    // (creates the Work place or moves it; a point, so Auto = 150 m unless a radius is chosen)
+    app.post('/api/places/work', (req, res) => {
+      const b = req.body || {};
+      const work = getSaved().find(p => p.kind === 'work');
+      const place = cleanSaved({
+        ...(work || { name: 'Work', aliases: ['work', 'the office', 'my work'] }),
+        lat: b.lat, lng: b.lng, address: b.address || (work ? null : 'Current location'),
+        kind: 'work', autoRadiusM: null, autoCheckedAt: new Date().toISOString(),
+        ...(cleanRadius(b) || {}),
+      });
+      if (place.error) return res.status(400).json({ error: place.error });
+      place.id = work?.id || `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      updatePlacesConfig(p => ({ ...p, saved: work ? (p.saved || []).map(s => (s.id === place.id ? place : s)) : [...(p.saved || []), place] }));
+      onPlacesChanged();
+      res.json({ ...place, effectiveRadiusM: radiusFor(place) });
+    });
+
+    // PUT /api/places/radius/:id { radiusMode: auto|small|medium|large|xl|custom, radiusM? } (:id = home or a saved place)
+    app.put('/api/places/radius/:id', (req, res) => {
+      const r = cleanRadius(req.body);
+      if (!r) return res.status(400).json({ error: 'radiusMode or radiusM is required' });
+      if (req.params.id === 'home') {
+        if (!getHome()) return res.status(404).json({ error: 'Set your home location first' });
+        updatePlacesConfig(p => ({ ...p, home: { ...p.home, ...r } }));
+        onPlacesChanged();
+        return res.json({ id: 'home', ...r, effectiveRadiusM: radiusFor(getHome(), { home: true }) });
+      }
+      const existing = getSaved().find(p => p.id === req.params.id);
+      if (!existing) return res.status(404).json({ error: 'Place not found' });
+      const next = { ...existing, ...r };
+      updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).map(s => (s.id === next.id ? next : s)) }));
+      onPlacesChanged();
+      res.json({ id: next.id, ...r, effectiveRadiusM: radiusFor(next) });
+    });
+
+    // Saved places from before 1.2.0 have no area size: look them up once (in the background)
+    setTimeout(() => backfillAreas().catch(err => console.warn(`[places] Area backfill failed: ${err.message}`)), 15000).unref?.();
 
     // GET/PUT /api/errands/settings
     app.get('/api/errands/settings', (_req, res) => res.json(getErrandSettings()));
@@ -634,6 +724,11 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
       lat: round5(lat), lng: round5(lng),
       chain: body.chain ? String(body.chain).trim().slice(0, 60) : null,
       kind: body.kind === 'work' ? 'work' : body.kind === 'store' ? 'store' : 'other',
+      radiusMode: RADIUS_MODES.includes(body.radiusMode) ? body.radiusMode : 'auto',
+      radiusM: body.radiusMode === 'custom' && Number.isFinite(Number(body.radiusM)) ? clampRadius(Number(body.radiusM)) : null,
+      // OpenStreetMap area size (Auto radius); null = a point (address, current location, dragged pin)
+      autoRadiusM: Number.isFinite(Number(body.autoRadiusM)) && Number(body.autoRadiusM) > 0 ? clampRadius(Number(body.autoRadiusM)) : null,
+      autoCheckedAt: body.autoCheckedAt || (body.autoRadiusM !== undefined ? new Date().toISOString() : null),
     };
   }
 
@@ -652,10 +747,36 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
     return place;
   }
 
-  return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey, personalPlace, placesForPrompt, savePlace };
+  /**
+   * Saved places without an area size (saved before 1.2.0): geocode the name near the pin
+   * and take the OpenStreetMap area of the match within 1.5 km. Runs once per place.
+   */
+  async function backfillAreas() {
+    let changed = 0;
+    for (const place of getSaved()) {
+      if (place.autoCheckedAt || place.kind === 'store') continue;
+      let area = null;
+      try {
+        const hits = await geocode(place.name, { near: place, limit: 5 });
+        const hit = hits.find(h => distanceM(h, place) < 1500 && h.areaRadiusM);
+        area = hit ? hit.areaRadiusM : null;
+      } catch (err) {
+        if (!(err instanceof LookupUnavailable)) console.warn(`[places] Area lookup failed: ${err.message}`);
+        continue; // try again next start
+      }
+      updatePlacesConfig(p => ({ ...p, saved: (p.saved || []).map(s => (s.id === place.id ? { ...s, autoRadiusM: area, autoCheckedAt: new Date().toISOString() } : s)) }));
+      if (area) { changed++; console.log(`[places] "${place.name}" is an area: Auto radius ${area} m`); }
+    }
+    if (changed) onPlacesChanged();
+  }
+
+
+
+  return { register, resolve, search, geocode, getHome, getSaved, getErrandSettings, distanceM, branchKey, personalPlace, placesForPrompt, savePlace, radiusFor, backfillAreas, onChange };
 }
 
 module.exports = {
   createPlaces, HOME_SOURCES,
-  _internal: { distanceM, branchKey, addressFromTags, addressFromNominatim, zipOf, logArea, titleCase },
+  RADIUS_PRESETS, MAX_RADIUS_M,
+  _internal: { distanceM, branchKey, areaRadiusFromBox, radiusFor, cleanRadius, addressFromTags, addressFromNominatim, zipOf, logArea, titleCase },
 };

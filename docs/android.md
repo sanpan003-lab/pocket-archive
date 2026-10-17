@@ -213,9 +213,18 @@ leaving a place.
 |---|---|
 | Places | **Home** (always available once set), **Work**, and your own saved places in Settings → *Places & errands* (name + address or *Use my current location*, plus aliases like "the office"). |
 | Unknown place | The note asks once: **Where is "my son's school"?** (current location, search an address, or a saved place). The place is saved with the words you used, so next time it's known. |
-| Trigger | Arrive = about 1 minute inside the place (100 m around home, 150 m elsewhere). Leave = when you exit it. |
+| Size | Auto (default) fits the place: its OpenStreetMap area for big places (airport, campus, mall, park, hospital), at least 150 m (home 100 m), at most 2 km. Or pick Small 100 m / Medium 250 m / Large 500 m / Extra large 1 km per place, or drag the slider. **Pin & radius** (Settings → Places & errands, or Change → Adjust on the map on a reminder) moves the pin on the map. |
+| Trigger | Arrive = on entering the circle; places under 250 m wait ~30 s inside (stores 1 min) so driving past doesn't count. Leave = when you exit. |
+| Backup | While a reminder is active the phone asks for a low-power location about every 15 minutes (and checks at every 30-minute sync and when you open Location reminders). Outside → inside fires an arrival the geofence missed; inside → outside fires a "when I leave". The location stays on the phone. |
+| Re-arming | After a restart, an app update, a location permission change, or turning location back on. |
 | Notification | 🏠 *You're home — Put clothes in the dryer* / 🚪 *Leaving Work — …* / 📍 *You're at …*, with **Done / Snooze 1 hr / Open**, also on the watch. |
-| Settings | *Places & errands → Location reminders*: every reminder with its status, the last trigger, permission checks with fix-it buttons (location all the time, precise location, notifications, battery Unrestricted), and **Test this reminder**. |
+| Settings | *Places & errands → Location reminders*: every reminder with its size, distance from you now (computed on the phone) and last event; checks with fix-it buttons (location all the time, precise location, Google Location Accuracy, notifications and the "Arrival reminders" category, battery Unrestricted), the backup check, and **Test**. *Settings → Notifications*: every notification category with a button to turn it back on, and test notifications for the phone and the watch. |
+| Event log | The phone reports armed / entered / left / stayed / backup check / notified with the time and the place id — never coordinates (`POST /api/location-reminders/events`; shown per reminder). |
+
+Why "lock my car when I get to work" (Work = St. Pete–Clearwater airport) didn't fire before 1.2.0: the airport
+was saved as a point (where OpenStreetMap puts it) with a 150 m circle, and arriving needed a full minute inside
+that circle. The airport is ~3 km across, so arriving at the terminal or a parking lot never came that close.
+Now the circle comes from the airport's area (2 km) and entering it is enough.
 
 Why "when I get home" didn't work before 1.1.0: the note was saved as a plain reminder without a
 place, because arrival reminders only existed for store errands. The phone registered no geofence for it.
