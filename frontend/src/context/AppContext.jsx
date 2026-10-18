@@ -1,12 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
-  authStatus, authLogin, authLogout, deviceLogin, revokeCurrentDevice, fetchMediaToken,
+  authStatus, authLogin, authLogout, deviceLogin, revokeCurrentDevice, fetchMediaToken, getMe,
 } from '../lib/api';
 import { isInstalledApp } from '../lib/pwa';
 import { AppearanceProvider } from './AppearanceContext';
 import { isNative } from '../lib/platform';
 import {
-  saveDeviceToken, clearDeviceToken, startMediaTokens, deviceName,
+  saveDeviceToken, clearDeviceToken, startMediaTokens, deviceName, syncNativeUser,
 } from '../native/nativeSession';
 
 // Remembers the last known sign-in so the app still opens (and Quick Capture
@@ -17,6 +17,14 @@ function rememberAuth(value) {
 }
 function lastKnownAuth() {
   try { return localStorage.getItem(WAS_AUTHED_KEY) === '1'; } catch { return false; }
+}
+// Who is signed in (name, role, plan) — cached so the app opens offline with the right layout
+const USER_KEY = 'pa_user';
+function rememberUser(u) {
+  try { if (u) localStorage.setItem(USER_KEY, JSON.stringify(u)); else localStorage.removeItem(USER_KEY); } catch { /* ignore */ }
+}
+function cachedUser() {
+  try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; }
 }
 
 const AppContext = createContext(null);
@@ -51,6 +59,8 @@ export function AppProvider({ children }) {
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth]   = useState(true);
+  const [user, setUser]                       = useState(() => cachedUser());
+  const [maintenance, setMaintenance]         = useState(null); // server waiting for the accounts migration
 
   // Check session on mount
   useEffect(() => {
@@ -60,9 +70,15 @@ export function AppProvider({ children }) {
         if (isNative && data.authenticated) await startMediaTokens(fetchMediaToken);
         setIsAuthenticated(data.authenticated);
         rememberAuth(data.authenticated);
+        rememberUser(data.authenticated ? data.user : null);
+        setUser(data.authenticated ? data.user : null);
+        if (isNative && data.authenticated && data.user?.id) syncNativeUser(data.user.id);
       })
       // No response at all (offline): trust the last known sign-in
-      .catch(err => setIsAuthenticated(!err.response && lastKnownAuth()))
+      .catch(err => {
+        if (err.response?.data?.maintenance) setMaintenance(err.response.data.error);
+        setIsAuthenticated(!err.response && lastKnownAuth());
+      })
       .finally(() => setIsCheckingAuth(false));
   }, []);
 
@@ -84,21 +100,34 @@ export function AppProvider({ children }) {
     );
   }
 
-  async function login(password) {
+  /** → { twoFactorRequired } (ask for a code, call again) or { mustChangePassword, user } */
+  async function login(username, password, code) {
     if (isNative) {
-      // App: 90-day device token, stored in Keystore-backed native storage
-      const data = await deviceLogin(password, deviceName());
-      await saveDeviceToken(data.token);
+      // App: 90-day device token for this user, stored in Keystore-backed native storage
+      const data = await deviceLogin(username, password, deviceName(), code);
+      if (data.twoFactorRequired) return data;
+      await saveDeviceToken(data.token, data.userId);
       await startMediaTokens(fetchMediaToken);
-      setIsAuthenticated(true);
-      rememberAuth(true);
-      return data; // includes mustChangePassword
+      signedIn(data.user);
+      return data;
     }
-    const data = await authLogin(password, isInstalledApp());
+    const data = await authLogin(username, password, isInstalledApp(), code);
+    if (data.twoFactorRequired) return data;
+    signedIn(data.user);
+    return data;
+  }
+
+  function signedIn(u) {
     setIsAuthenticated(true);
     rememberAuth(true);
-    return data; // includes mustChangePassword
+    rememberUser(u);
+    setUser(u);
   }
+
+  /** After a password change, profile edit or 2FA change */
+  const refreshUser = useCallback(async () => {
+    try { const u = await getMe(); setUser(u); rememberUser(u); return u; } catch { return null; }
+  }, []);
 
   async function logout() {
     if (isNative) {
@@ -106,11 +135,15 @@ export function AppProvider({ children }) {
       await clearDeviceToken();
       setIsAuthenticated(false);
       rememberAuth(false);
+      rememberUser(null);
+      setUser(null);
       return;
     }
     await authLogout();
     setIsAuthenticated(false);
     rememberAuth(false);
+    rememberUser(null);
+    setUser(null);
   }
 
   return (
@@ -120,7 +153,8 @@ export function AppProvider({ children }) {
       sidebarOpen, setSidebarOpen,
       syncVersion, triggerRefresh,
       isAuthenticated, isCheckingAuth,
-      login, logout,
+      login, logout, user, refreshUser, maintenance,
+      isAdmin: user?.role === 'admin',
       mobileMenuOpen, setMobileMenuOpen,
     }}>
       {/* Theme, accent, layout… (shared settings load once signed in) */}

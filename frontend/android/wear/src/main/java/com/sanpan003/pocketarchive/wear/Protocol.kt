@@ -10,7 +10,7 @@ object Protocol {
     /** Capability this watch app advertises. */
     const val CAP_WATCH = "pocket_archive_watch"
 
-    /** ChannelClient: watch → phone audio. Full path: /pa/capture/<clientId>/<capturedAtMillis> */
+    /** ChannelClient: watch → phone audio. Full path: /pa/capture/<clientId>/<capturedAtMillis>[/<userId>] */
     const val CHANNEL_CAPTURE = "/pa/capture"
     /** Message phone → watch: the capture arrived complete. Payload: clientId. */
     const val MSG_CAPTURE_ACK = "/pa/capture-ack"

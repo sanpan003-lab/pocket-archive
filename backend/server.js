@@ -7,16 +7,10 @@ const fs           = require('fs');
 const multer       = require('multer');
 const cookieParser = require('cookie-parser');
 const { randomUUID } = require('crypto');
-const {
-  verifyPassword, generateToken, verifyToken,
-  hashPassword, savePassword, mustChangePassword,
-  createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken,
-  generateMediaToken, verifyMediaToken,
-  getConfig, saveConfig, CONFIG_PATH,
-} = require('./auth');
-const { createQuickCapture } = require('./quickCapture');
+const users = require('./users');
+const { createAccounts } = require('./accounts');
+const { createUserContexts } = require('./userContext');
 const { createMaps } = require('./maps');
-const { createPlaces } = require('./places');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -47,14 +41,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+// Behind the Synology reverse proxy: take the client IP from X-Forwarded-For (login rate limits)
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
-// Serve audio files — Express handles Range/streaming natively
-app.use('/api/audio', express.static(DIRS.recordings, {
-  setHeaders: (res) => {
-    res.set('Accept-Ranges', 'bytes');
-    res.set('Cache-Control', 'public, max-age=86400');
-  },
-}));
 
 // ── Multer — file attachments ──────────────────────────────────────────────
 const attachmentStorage = multer.diskStorage({
@@ -473,180 +462,74 @@ Mermaid syntax rules — a violation causes a render error:
 If no process or workflow was discussed, write this plain text (no code block):
 No sequential process or workflow was described in this recording.`;
 
-// ── Auth ───────────────────────────────────────────────────────────────────
-
-// Browser sessions last 7 days; the installed app gets 30 days
-const SESSION_DAYS = { browser: 7, app: 30 };
-
-function issueSession(res, kind) {
-  const k = SESSION_DAYS[kind] ? kind : 'browser';
-  res.cookie('token', generateToken(k), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: SESSION_DAYS[k] * 24 * 60 * 60 * 1000,
-  });
-}
-
-// Installed-app sessions slide: renewed at most once a day while in use,
-// so the app never signs out mid-drive
-function renewAppSession(payload, res) {
-  if (payload?.kind === 'app' && Date.now() / 1000 - payload.iat > 24 * 60 * 60) {
-    issueSession(res, 'app');
-  }
-}
-
-function bearerToken(req) {
-  const header = req.headers.authorization || '';
-  return header.startsWith('Bearer ') ? header.slice(7).trim() : null;
-}
-
-// Media URLs the Android app loads in <audio>/links (no Authorization header possible)
-const MEDIA_PATH_RE = /^\/(quick\/qn_[\w-]+\/(audio|media)|recordings\/[^/]+\/attachments\/[^/]+|maps\/(tiles|fonts|sprites)\/.+)$/;
-
-function requireAuth(req, res, next) {
-  // Android app: "Authorization: Bearer <device token>"
-  const bearer = bearerToken(req);
-  if (bearer) {
-    const device = verifyDeviceToken(bearer);
-    if (!device) return res.status(401).json({ error: 'Unauthorized' });
-    req.device = device;
-    return next();
-  }
-  // Android app media: short-lived read-only token in ?mt=, GET on media paths only
-  if (req.method === 'GET' && typeof req.query.mt === 'string' && MEDIA_PATH_RE.test(req.path)) {
-    if (verifyMediaToken(req.query.mt)) return next();
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  // Web: session cookie (unchanged)
-  const token = req.cookies?.token;
-  const payload = token && verifyToken(token);
-  if (!payload) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  renewAppSession(payload, res);
-  next();
-}
-
-// Public auth routes — registered BEFORE the blanket middleware
-app.post('/api/auth/login', (req, res) => {
-  const { password, installed } = req.body;
-  if (!verifyPassword(password)) {
-    return res.status(401).json({ error: 'Invalid password' });
-  }
-  issueSession(res, installed === true ? 'app' : 'browser');
-  res.json({ success: true, mustChangePassword: mustChangePassword() });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token');
-  res.json({ success: true });
-});
-
-app.get('/api/auth/status', (req, res) => {
-  const bearer = bearerToken(req);
-  if (bearer) return res.json({ authenticated: !!verifyDeviceToken(bearer) }); // Android app
-  const token = req.cookies?.token;
-  const valid = token && verifyToken(token);
-  if (valid) renewAppSession(valid, res); // app launch keeps the 30-day session fresh
-  res.json({ authenticated: !!valid });
-});
-
-// POST /api/auth/device-token — Android app sign-in: password → 90-day device token
-app.post('/api/auth/device-token', (req, res) => {
-  const { password, deviceName } = req.body || {};
-  if (!verifyPassword(password)) {
-    return res.status(401).json({ error: 'Invalid password' });
-  }
-  const { token, device } = createDeviceToken(deviceName);
-  res.json({ token, device, mustChangePassword: mustChangePassword() });
-});
-
-// Blanket auth guard — all /api/* routes after this point require auth
-app.use('/api', requireAuth);
-
-app.post('/api/auth/change-password', (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!verifyPassword(currentPassword)) {
-    return res.status(401).json({ error: 'Current password incorrect' });
-  }
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-  savePassword(hashPassword(newPassword));
-  res.json({ success: true });
-});
-
-// ── Devices (Android app tokens) ───────────────────────────────────────────
-
-// GET /api/auth/devices — signed-in devices (current one marked when called from it)
-app.get('/api/auth/devices', (req, res) => {
-  res.json(listDeviceTokens().map(d => ({ ...d, current: req.device?.id === d.id })));
-});
-
-// DELETE /api/auth/devices/current — sign this device out (Android app logout)
-app.delete('/api/auth/devices/current', (req, res) => {
-  if (!req.device) return res.status(400).json({ error: 'Not signed in with a device token' });
-  revokeDeviceToken(req.device.id);
-  res.json({ success: true });
-});
-
-// DELETE /api/auth/devices/:id — revoke a device token
-app.delete('/api/auth/devices/:id', (req, res) => {
-  if (!revokeDeviceToken(req.params.id)) return res.status(404).json({ error: 'Device not found' });
-  res.json({ success: true });
-});
-
-// GET /api/auth/media-token — short-lived token for <audio>/attachment URLs in the app
-app.get('/api/auth/media-token', (_req, res) => {
-  res.json({ token: generateMediaToken(), expiresInSec: 12 * 60 * 60 });
-});
-
-// ── Places (home, My Places, store lookups) for errands ────────────────────
-const places = createPlaces({
-  getConfig, saveConfig,
-  cacheFile: path.join(path.dirname(CONFIG_PATH), 'places-cache.json'),
-});
-places.register(app);
-
-// ── Appearance & layout settings (shared across devices; per-device overrides stay on the device) ──
-const APPEARANCE_GROUPS = ['opening', 'inbox', 'look', 'theme', 'capture', 'behavior', 'toolbar', 'icon'];
-app.get('/api/appearance', (_req, res) => {
-  res.json(getConfig().appearance || {});
-});
-app.put('/api/appearance', (req, res) => {
-  const body = req.body;
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Expected an object' });
-  if (JSON.stringify(body).length > 20000) return res.status(413).json({ error: 'Settings too large' });
-  const clean = {};
-  for (const g of APPEARANCE_GROUPS) {
-    const v = body[g];
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      clean[g] = Object.fromEntries(Object.entries(v)
-        .filter(([k, x]) => /^[a-zA-Z]{1,40}$/.test(k) && ['string', 'boolean', 'number'].includes(typeof x))
-        .map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 200) : x]));
-    }
-  }
-  const config = getConfig();
-  config.appearance = { ...(config.appearance || {}), ...clean, updatedAt: new Date().toISOString() };
-  saveConfig(config);
-  res.json(config.appearance);
-});
-
-// ── Self-hosted map (09_Maps/*.pmtiles) ────────────────────────────────────
-createMaps({ archivePath: ARCHIVE_PATH }).register(app);
-
-// ── Quick Capture (07_Quick_Notes) ─────────────────────────────────────────
-const quick = createQuickCapture({
-  places,
-  getConfig, saveConfig,
+// ── Accounts ───────────────────────────────────────────────────────────────
+// Multi-user mode needs the one-time migration (scripts/migrate-users.mjs). Until it ran, the
+// API answers 503 "migration required" (except /health) so no data is served from the old layout.
+let multiUserReady = users.isMigrated();
+let contextsStarted = false;
+const contexts = createUserContexts({
   archivePath:         ARCHIVE_PATH,
+  users,
   getRecentRecordings: limit => getAllIds().slice(0, limit).map(id => ({ id, title: getTitle(id), date: getDate(id) })),
   recordingExists:     id => isValidId(id) && getAllIds().includes(id),
   getRecordingTitle:   id => getTitle(id),
 });
-quick.register(app);
-quick.start(); // background: audio conversion migration + summary backfill
+const accounts = createAccounts({ archivePath: ARCHIVE_PATH, contexts });
+const { requireAuth, requireAdmin } = accounts;
+
+function startContexts() {
+  if (contextsStarted) return;
+  contextsStarted = true;
+  contexts.startAll(); // each user's background jobs (summary backfill, "Add to …?" sweeps)
+}
+if (multiUserReady) startContexts();
+else {
+  console.warn('\n[accounts] ⚠  Multi-user migration has not run yet. The API is paused (503) until it does:');
+  console.warn('[accounts]    docker exec <container> node scripts/migrate-users.mjs --dry-run --admin-username <name>\n');
+}
+
+let migrationCheckedAt = 0;
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  // The migration (or a rollback) can run while the server is up: re-check every 2 s
+  if (Date.now() - migrationCheckedAt > 2000) {
+    migrationCheckedAt = Date.now();
+    const ready = users.isMigrated();
+    if (ready && !multiUserReady) { console.log('[accounts] Migration found — multi-user mode on'); startContexts(); }
+    if (!ready && multiUserReady) console.warn('[accounts] users.json is gone (rollback?) — API paused');
+    multiUserReady = ready;
+  }
+  if (multiUserReady) return next();
+  res.status(503).json({ error: 'Pocket Archive is being upgraded to accounts. The owner needs to run the migration (scripts/migrate-users.mjs).', maintenance: true });
+});
+
+// Public auth routes — registered BEFORE the blanket guard
+accounts.registerPublic(app);
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+// Blanket auth guard — every /api/* route after this point has req.user
+app.use('/api', requireAuth);
+
+// The Hey Pocket archive (recordings, transcripts, AI notes, attachments, search, stats, sync)
+// belongs to the admin and stays at the archive root
+app.use(['/api/recordings', '/api/search', '/api/stats', '/api/sync', '/api/audio'], requireAdmin);
+app.use('/api/audio', express.static(DIRS.recordings, {
+  setHeaders: (res) => {
+    res.set('Accept-Ranges', 'bytes');
+    res.set('Cache-Control', 'private, max-age=86400');
+  },
+}));
+
+accounts.registerPrivate(app);
+
+// ── Self-hosted map (09_Maps/*.pmtiles) — shared, read-only ─────────────────
+createMaps({ archivePath: ARCHIVE_PATH }).register(app);
+
+/** The admin's own Quick Capture (recordings link to the admin's notes) */
+function adminQuick() {
+  const admin = users.listUsers().find(u => u.role === 'admin' && !u.disabled);
+  return admin ? contexts.get(admin.id).quick : null;
+}
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 
@@ -953,7 +836,7 @@ app.post('/api/recordings/:id/delete', (req, res) => {
     );
 
     // Quick notes linked to this recording are kept, just unlinked
-    try { quick.unlinkRecording(id); }
+    try { adminQuick()?.unlinkRecording(id); }
     catch (err) { console.warn(`[quick] Could not unlink notes from ${id}: ${err.message}`); }
 
     res.json({ success: true, recoverable: true });
@@ -996,7 +879,7 @@ app.post('/api/recordings/:id/restore', (req, res) => {
     fs.rmSync(deletedDir, { recursive: true, force: true });
 
     // Re-link quick notes that were unlinked when this recording was deleted
-    try { quick.relinkRecording(id); }
+    try { adminQuick()?.relinkRecording(id); }
     catch (err) { console.warn(`[quick] Could not re-link notes to ${id}: ${err.message}`); }
 
     res.json({ success: true });
@@ -1149,7 +1032,7 @@ app.get('/api/stats', (req, res) => {
       withAiNotes,
       withTranscript,
       withOriginalNotes,
-      quickNotes: quick.countActive(),
+      quickNotes: adminQuick()?.countActive() ?? 0,
       archivePath: ARCHIVE_PATH,
     });
   } catch (err) {
@@ -1157,7 +1040,6 @@ app.get('/api/stats', (req, res) => {
   }
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.get('/health',     (_req, res) => res.json({ ok: true }));
 
 // ── Sync job state ─────────────────────────────────────────────────────────
@@ -1227,6 +1109,11 @@ app.post('/api/sync', (req, res) => {
 });
 
 app.get('/api/sync/status', (_req, res) => res.json(syncStatus));
+
+// ── Per-user data (Quick Capture, projects, places, errands, appearance) ───
+app.use(contexts.route);
+// Unknown /api routes: JSON 404 (never the SPA page)
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // ── Frontend (SPA) ─────────────────────────────────────────────────────────
 const FRONTEND_PATH = path.join(__dirname, 'public');

@@ -149,6 +149,10 @@ function addressFromNominatim(r) {
   return [street, cityLine].filter(Boolean).join(', ') || r.display_name || null;
 }
 
+// One request queue for the whole server (every user's places share Nominatim's 1 request/second limit)
+let nominatimChain = Promise.resolve();
+let lastNominatimAt = 0;
+
 function createPlaces({ getConfig, saveConfig, cacheFile }) {
   // quickCapture updates its reminders when a place moves or its radius changes
   const placesListeners = [];
@@ -180,8 +184,6 @@ function createPlaces({ getConfig, saveConfig, cacheFile }) {
   }
 
   // ── Nominatim: one request at a time, ≥ 1.1 s apart ──────────────────────
-  let nominatimChain = Promise.resolve();
-  let lastNominatimAt = 0;
   function nominatim(pathAndQuery) {
     const run = async () => {
       const wait = lastNominatimAt + NOMINATIM_GAP_MS - Date.now();

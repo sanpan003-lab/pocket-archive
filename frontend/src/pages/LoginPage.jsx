@@ -1,72 +1,88 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Mic2, Eye, EyeOff, Lock } from 'lucide-react';
+import { Mic2, Eye, EyeOff, Lock, User, ShieldCheck, Wrench } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { changePassword } from '../lib/api';
 import { returnPath } from '../lib/returnPath';
 
+const LAST_USER_KEY = 'pa_lastUsername';
+const lastUsername = () => { try { return localStorage.getItem(LAST_USER_KEY) || ''; } catch { return ''; } };
+
+const INPUT = 'w-full bg-white/50 dark:bg-white/10 border border-white/40 dark:border-white/20 rounded-xl py-3 text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/40 outline-none focus:ring-2 focus:ring-gold-400/50 text-sm';
+
+function Spinner({ label }) {
+  return (
+    <span className="flex items-center gap-2 justify-center">
+      <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Sign in: username + password → (2FA code if on) → ("Set your password" after a temporary one).
+ * No public sign-up: the admin creates accounts (Settings → Users).
+ */
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useApp();
+  const { login, refreshUser, maintenance } = useApp();
   // e.g. back to /quick?autostart=1 when the installed app sent you here
   const nextPath = returnPath(location);
 
-  const [password, setPassword]         = useState('');
-  const [showPw, setShowPw]             = useState(false);
-  const [loading, setLoading]           = useState(false);
-  const [error, setError]               = useState('');
+  const [username, setUsername]   = useState(lastUsername);
+  const [password, setPassword]   = useState('');
+  const [showPw, setShowPw]       = useState(false);
+  const [code, setCode]           = useState('');
+  const [step, setStep]           = useState('credentials'); // credentials | code | newPassword
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState('');
 
-  // Change-password step (mustChangePassword flow)
-  const [mustChange, setMustChange]     = useState(false);
-  const [newPw, setNewPw]               = useState('');
-  const [confirmPw, setConfirmPw]       = useState('');
-  const [changingPw, setChangingPw]     = useState(false);
-  const [changeError, setChangeError]   = useState('');
+  const [newPw, setNewPw]         = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
 
-  async function handleLogin(e) {
+  async function submitLogin(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const result = await login(password);
-      if (result.mustChangePassword) {
-        setMustChange(true);
-      } else {
-        navigate(nextPath, { replace: true });
+      const result = await login(username.trim(), password, step === 'code' ? code.trim() : undefined);
+      if (result.twoFactorRequired) {
+        setStep('code');
+        return;
       }
+      try { localStorage.setItem(LAST_USER_KEY, username.trim()); } catch { /* ignore */ }
+      if (result.mustChangePassword) setStep('newPassword');
+      else navigate(nextPath, { replace: true });
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid password');
+      const data = err.response?.data;
+      setError(data?.error || (err.response ? 'Sign-in failed' : "Can't reach your Pocket Archive server"));
+      if (data?.twoFactorRequired) setCode('');
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleChangePassword(e) {
+  async function submitNewPassword(e) {
     e.preventDefault();
-    setChangeError('');
-    if (newPw.length < 8) {
-      setChangeError('Password must be at least 8 characters');
-      return;
-    }
-    if (newPw !== confirmPw) {
-      setChangeError('Passwords do not match');
-      return;
-    }
-    setChangingPw(true);
+    setError('');
+    if (newPw.length < 8) return setError('Password must be at least 8 characters');
+    if (newPw !== confirmPw) return setError('Passwords do not match');
+    setLoading(true);
     try {
       await changePassword(password, newPw);
+      await refreshUser();
       navigate(nextPath, { replace: true });
     } catch (err) {
-      setChangeError(err.response?.data?.error || 'Failed to change password');
+      setError(err.response?.data?.error || 'Failed to change password');
     } finally {
-      setChangingPw(false);
+      setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 dark:bg-black flex items-center justify-center p-4">
-      <div className="backdrop-blur-xl bg-white/40 dark:bg-white/5 border border-white/60 dark:border-white/10 rounded-3xl p-10 shadow-2xl w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 dark:bg-none dark:bg-black flex items-center justify-center p-4">
+      <div className="backdrop-blur-xl bg-white/40 dark:bg-white/5 border border-white/60 dark:border-white/10 rounded-3xl p-8 sm:p-10 shadow-2xl w-full max-w-md">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
@@ -74,95 +90,82 @@ export default function LoginPage() {
             <Mic2 size={26} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-navy-900 dark:text-white tracking-tight">Pocket Archive</h1>
-          <p className="text-sm text-navy-500 dark:text-white/50 mt-1">Your personal voice archive</p>
+          <p className="text-sm text-navy-500 dark:text-white/50 mt-1">Sign in to your account</p>
         </div>
 
-        {/* ── Login form ── */}
-        {!mustChange && (
-          <form onSubmit={handleLogin} className="space-y-4">
+        {maintenance && (
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 px-4 py-3 mb-4 flex gap-2.5" role="status">
+            <Wrench size={16} className="text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800 dark:text-amber-200">{maintenance}</p>
+          </div>
+        )}
+
+        {step === 'credentials' && (
+          <form onSubmit={submitLogin} className="space-y-3" aria-label="Sign in">
+            <div className="relative">
+              <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40 pointer-events-none" />
+              <input
+                type="text" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)}
+                autoFocus={!username} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} required
+                aria-label="Username" className={`${INPUT} pl-10 pr-4`}
+              />
+            </div>
             <div className="relative">
               <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40 pointer-events-none" />
               <input
-                type={showPw ? 'text' : 'password'}
-                placeholder="Enter password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                autoFocus
-                required
-                className="w-full bg-white/50 dark:bg-white/10 border border-white/40 dark:border-white/20 rounded-xl pl-10 pr-11 py-3 text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/40 outline-none focus:ring-2 focus:ring-gold-400/50 text-sm"
+                type={showPw ? 'text' : 'password'} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
+                autoFocus={!!username} autoComplete="current-password" required aria-label="Password"
+                className={`${INPUT} pl-10 pr-11`}
               />
-              <button
-                type="button"
-                tabIndex={-1}
+              <button type="button" tabIndex={-1} aria-label={showPw ? 'Hide password' : 'Show password'}
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40 hover:text-navy-600 dark:hover:text-white/60 transition-colors"
-                onClick={() => setShowPw(v => !v)}
-              >
+                onClick={() => setShowPw(v => !v)}>
                 {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
-
-            {error && (
-              <p className="text-sm text-red-500 dark:text-red-400 text-center">{error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || !password}
-              className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <span className="flex items-center gap-2 justify-center">
-                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Signing in…
-                </span>
-              ) : 'Sign In'}
+            {error && <p className="text-sm text-red-500 dark:text-red-400 text-center" role="alert">{error}</p>}
+            <button type="submit" disabled={loading || !username.trim() || !password}
+              className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed">
+              {loading ? <Spinner label="Signing in…" /> : 'Sign In'}
             </button>
+            <p className="text-xs text-center text-navy-500 dark:text-white/45 pt-1">No account? Ask the person who runs this Pocket Archive.</p>
           </form>
         )}
 
-        {/* ── Must change password ── */}
-        {mustChange && (
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 px-4 py-3 mb-2">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Set a new password</p>
-              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                You're using the default password. Please choose a new one before continuing.
-              </p>
+        {step === 'code' && (
+          <form onSubmit={submitLogin} className="space-y-3" aria-label="Two-step verification">
+            <div className="rounded-xl bg-navy-50/70 dark:bg-white/5 px-4 py-3 flex gap-2.5">
+              <ShieldCheck size={16} className="text-gold-600 dark:text-gold-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-navy-700 dark:text-white/75">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
             </div>
-
             <input
-              type="password"
-              placeholder="New password (min 8 chars)"
-              value={newPw}
-              onChange={e => setNewPw(e.target.value)}
-              autoFocus
-              required
-              className="w-full bg-white/50 dark:bg-white/10 border border-white/40 dark:border-white/20 rounded-xl px-4 py-3 text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/40 outline-none focus:ring-2 focus:ring-gold-400/50 text-sm"
+              type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="123 456" value={code}
+              onChange={e => setCode(e.target.value)} autoFocus required aria-label="Verification code"
+              className={`${INPUT} px-4 text-center text-lg tracking-[0.3em]`}
             />
-            <input
-              type="password"
-              placeholder="Confirm new password"
-              value={confirmPw}
-              onChange={e => setConfirmPw(e.target.value)}
-              required
-              className="w-full bg-white/50 dark:bg-white/10 border border-white/40 dark:border-white/20 rounded-xl px-4 py-3 text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/40 outline-none focus:ring-2 focus:ring-gold-400/50 text-sm"
-            />
+            {error && <p className="text-sm text-red-500 dark:text-red-400 text-center" role="alert">{error}</p>}
+            <button type="submit" disabled={loading || code.trim().length < 6}
+              className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed">
+              {loading ? <Spinner label="Checking…" /> : 'Verify'}
+            </button>
+            <button type="button" className="btn-ghost w-full justify-center text-xs" onClick={() => { setStep('credentials'); setCode(''); setError(''); }}>Back</button>
+          </form>
+        )}
 
-            {changeError && (
-              <p className="text-sm text-red-500 dark:text-red-400 text-center">{changeError}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={changingPw || !newPw || !confirmPw}
-              className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {changingPw ? (
-                <span className="flex items-center gap-2 justify-center">
-                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Saving…
-                </span>
-              ) : 'Set Password & Continue'}
+        {step === 'newPassword' && (
+          <form onSubmit={submitNewPassword} className="space-y-3" aria-label="Set your password">
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 px-4 py-3 mb-1">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Set your password</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">You signed in with a temporary password. Choose your own to continue.</p>
+            </div>
+            <input type="password" placeholder="New password (min 8 characters)" value={newPw} onChange={e => setNewPw(e.target.value)}
+              autoFocus required autoComplete="new-password" aria-label="New password" className={`${INPUT} px-4`} />
+            <input type="password" placeholder="Confirm new password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+              required autoComplete="new-password" aria-label="Confirm new password" className={`${INPUT} px-4`} />
+            {error && <p className="text-sm text-red-500 dark:text-red-400 text-center" role="alert">{error}</p>}
+            <button type="submit" disabled={loading || !newPw || !confirmPw}
+              className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed">
+              {loading ? <Spinner label="Saving…" /> : 'Set Password & Continue'}
             </button>
           </form>
         )}

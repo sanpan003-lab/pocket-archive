@@ -93,7 +93,7 @@ object WearBridge {
         if (token == null || apiBase == null) {
             send(ctx, nodes, MSG_TOKEN_CLEAR, ByteArray(0))
         } else {
-            send(ctx, nodes, MSG_TOKEN, JSONObject().put("token", token).put("apiBase", apiBase).toString().toByteArray())
+            send(ctx, nodes, MSG_TOKEN, JSONObject().put("token", token).put("apiBase", apiBase).put("userId", TokenStore.userId(ctx)).toString().toByteArray())
         }
     }
 

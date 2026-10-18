@@ -23,18 +23,26 @@ class WearListenerService : WearableListenerService() {
     companion object {
         private const val TAG = "WearListener"
 
-        /** "/pa/capture/<clientId>/<capturedAtMillis>" → file "watch_incoming/<capturedAt>_<clientId>.m4a" */
+        /** "/pa/capture/<clientId>/<capturedAtMillis>[/<userId>]" → "watch_incoming[/<userId>]/<capturedAt>_<clientId>.m4a" */
         fun incomingFile(ctx: android.content.Context, path: String): File? {
             val parts = path.removePrefix("${WearBridge.CHANNEL_CAPTURE}/").split('/')
-            if (parts.size != 2) return null
+            if (parts.size != 2 && parts.size != 3) return null
             val clientId = parts[0]
             val capturedAt = parts[1].toLongOrNull() ?: return null
             if (!clientId.startsWith(WearBridge.CLIENT_PREFIX) || !clientId.matches(Regex("[A-Za-z0-9-]{8,80}"))) return null
-            return File(File(ctx.filesDir, "watch_incoming").apply { mkdirs() }, "${capturedAt}_$clientId.m4a")
+            val user = parts.getOrNull(2)?.takeIf { it.matches(Regex("u_[a-f0-9]{6,32}")) }
+            val dir = File(ctx.filesDir, if (user != null) "watch_incoming/$user" else "watch_incoming").apply { mkdirs() }
+            return File(dir, "${capturedAt}_$clientId.m4a")
         }
 
         /** A complete watch recording → the phone's upload pipeline (retry queue + WorkManager). Returns its clientId. */
         fun handOff(ctx: android.content.Context, file: File): String {
+            // Made under another account than the one signed in on the phone: keep it for that user
+            val owner = file.parentFile?.name?.takeIf { it.startsWith("u_") }
+            if (owner != null && owner != TokenStore.userId(ctx)) {
+                PendingStore.holdFile(ctx, owner, file)
+                return file.nameWithoutExtension.substringAfter('_')
+            }
             UploadWorker.enqueue(ctx, file)
             QuickRecorderPlugin.notifyPending(ctx)
             return file.nameWithoutExtension.substringAfter('_')

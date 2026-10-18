@@ -181,6 +181,7 @@ class QuickRecorderPlugin : Plugin() {
 
     @PluginMethod
     fun setToken(call: PluginCall) {
+        switchUser(call.getString("userId"))
         TokenStore.setToken(context, call.getString("token"))
         UploadWorker.retryAllNow(context) // anything waiting on sign-in goes now
         WidgetData.refreshAsync(context)
@@ -190,6 +191,38 @@ class QuickRecorderPlugin : Plugin() {
         call.resolve()
     }
 
+    /** Which user the stored token belongs to (tokens from before accounts learn it here). */
+    @PluginMethod
+    fun setUser(call: PluginCall) {
+        val userId = call.getString("userId")?.takeIf { it.startsWith("u_") } ?: return call.reject("userId is required")
+        if (TokenStore.userId(context) != userId) {
+            switchUser(userId)
+            UploadWorker.retryAllNow(context)
+            ErrandWorker.syncNow(context)
+            WearBridge.async { WearBridge.sendToken(context) }
+        }
+        call.resolve()
+    }
+
+    /**
+     * Accounts: a different user on this phone → clear the previous user's widget list, errands
+     * and geofences, park their queued recordings, and bring back the new user's parked ones.
+     */
+    private fun switchUser(userId: String?) {
+        val ctx = context
+        val previous = TokenStore.userId(ctx) ?: TokenStore.lastUserId(ctx)
+        if (userId != null && previous != null && previous != userId) {
+            PendingStore.hold(ctx, previous)
+            WidgetData.clear(ctx)
+            ErrandSync.clear(ctx)
+            android.util.Log.i("Accounts", "Switched user on this phone; the previous user's data was cleared")
+        }
+        if (userId != null) {
+            TokenStore.setUserId(ctx, userId)
+            PendingStore.release(ctx, userId)
+        }
+    }
+
     @PluginMethod
     fun getToken(call: PluginCall) {
         call.resolve(JSObject().put("token", TokenStore.token(context)))
@@ -197,6 +230,9 @@ class QuickRecorderPlugin : Plugin() {
 
     @PluginMethod
     fun clearToken(call: PluginCall) {
+        // This user's queued recordings wait for them (the next person to sign in won't upload them)
+        TokenStore.userId(context)?.let { PendingStore.hold(context, it) }
+        TokenStore.setUserId(context, null)
         TokenStore.setToken(context, null)
         WidgetData.clear(context) // don't keep note titles on the home screen after signing out
         ErrandWorker.cancelAll(context)

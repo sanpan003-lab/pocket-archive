@@ -35,6 +35,22 @@ inside the Android app (`android/`). The backend lives in
 - Native code gets the server from the web layer (`QuickRecorder.configure`) and falls
   back to `BuildConfig.API_BASE`, which Gradle reads from `.env.android`.
 
+## Accounts (2.0.0) — read docs/accounts.md in the monorepo
+
+- Backend: `users.js` (users.json / sessions.json / devices.json / security-log.jsonl in the config dir; bcrypt,
+  TOTP RFC 6238 with AES-GCM-encrypted secrets, backup codes, lockout, per-IP limit), `accounts.js` (requireAuth
+  sets **req.user**; login/device-token/2FA/sessions/admin routes), `userContext.js` (one instance of
+  quickCapture/places/projects **per user**, rooted at `ARCHIVE/users/<id>/`, mounted as an Express router per user —
+  isolation is structural), `zip.js` (export before delete), `scripts/migrate-users.mjs` (dry-run / run / rollback).
+- Session JWT = { uid, sid, kind }; sessions are revocable server-side. Media tokens carry uid. Device tokens per user.
+- The Hey Pocket archive routes (/api/recordings, /api/search, /api/stats, /api/sync, /api/audio) are admin-only.
+- Until users.json has migratedAt the API answers 503 (except /health, /api/health); re-checked every 2 s.
+- Never start server.js without test env vars (ARCHIVE_PATH, CONFIG_PATH, JWT_SECRET) — and never against the
+  real archive. Tests use a fake archive + `migrate-users.mjs` (scratchpad: accounts-e2e.cjs, fftools/accounts-ui.cjs,
+  fftools/user-switch-app.cjs).
+- Android: `TokenStore.userId/lastUserId`, plugin `setToken({token,userId})` / `setUser`, `PendingStore.hold/release`
+  (`files/quick_held/<userId>/`). Watch: outbox per user, channel path `/pa/capture/<clientId>/<capturedAt>/<userId>`.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

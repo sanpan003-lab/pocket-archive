@@ -31,20 +31,45 @@ function withMediaToken(url) {
 
 // Auth
 export const authStatus     = () => http.get('/auth/status').then(r => r.data);
-// installed: true for the home-screen app → 30-day session (browser: 7 days)
-export const authLogin      = (password, installed = false) =>
-  http.post('/auth/login', { password, installed }).then(r => r.data);
+// installed: true for the home-screen app → 30-day session (browser: 7 days).
+// With 2FA on, the first call answers { twoFactorRequired: true }; repeat it with code.
+export const authLogin      = (username, password, installed = false, code = undefined) =>
+  http.post('/auth/login', { username, password, installed, code }).then(r => r.data);
 export const authLogout     = () => http.post('/auth/logout').then(r => r.data);
 
-// Android app sign-in: password → 90-day device token
-export const deviceLogin         = (password, deviceName) =>
-  http.post('/auth/device-token', { password, deviceName }).then(r => r.data);
+// Android app sign-in: username + password (+ 2FA code) → 90-day device token
+export const deviceLogin         = (username, password, deviceName, code = undefined) =>
+  http.post('/auth/device-token', { username, password, deviceName, code }).then(r => r.data);
 export const revokeCurrentDevice = () => http.delete('/auth/devices/current').then(r => r.data);
 export const getDevices          = () => http.get('/auth/devices').then(r => r.data);
 export const revokeDevice        = id => http.delete(`/auth/devices/${id}`).then(r => r.data);
 export const fetchMediaToken     = () => http.get('/auth/media-token').then(r => r.data);
 export const changePassword = (currentPassword, newPassword) =>
   http.post('/auth/change-password', { currentPassword, newPassword }).then(r => r.data);
+
+// Account + security
+export const getMe              = () => http.get('/auth/me').then(r => r.data);
+export const updateMe           = patch => http.patch('/auth/me', patch).then(r => r.data);
+export const setup2fa           = () => http.post('/auth/2fa/setup').then(r => r.data);
+export const confirm2fa         = code => http.post('/auth/2fa/confirm', { code }).then(r => r.data);
+export const disable2fa         = password => http.post('/auth/2fa/disable', { password }).then(r => r.data);
+export const getSessions        = () => http.get('/auth/sessions').then(r => r.data);
+export const revokeSession      = id => http.delete(`/auth/sessions/${id}`).then(r => r.data);
+export const signOutEverywhere  = () => http.post('/auth/sign-out-everywhere').then(r => r.data);
+export const getSecurityLog     = () => http.get('/auth/security-log').then(r => r.data);
+export const getCalendarSetup   = () => http.get('/calendar/setup').then(r => r.data);
+export const testCalendar       = calendarId => http.post('/calendar/test', { calendarId }).then(r => r.data);
+
+// Admin: Settings → Users
+export const adminUsers         = () => http.get('/admin/users').then(r => r.data);
+export const adminCreateUser    = user => http.post('/admin/users', user).then(r => r.data);
+export const adminUpdateUser    = (id, patch) => http.patch(`/admin/users/${id}`, patch).then(r => r.data);
+export const adminResetPassword = (id, password) => http.post(`/admin/users/${id}/reset-password`, { password }).then(r => r.data);
+export const adminReset2fa      = id => http.post(`/admin/users/${id}/reset-2fa`).then(r => r.data);
+export const adminUnlock        = id => http.post(`/admin/users/${id}/unlock`).then(r => r.data);
+export const adminExportUser    = id => http.post(`/admin/users/${id}/export`).then(r => r.data);
+export const adminDeleteUser    = (id, confirm) => http.delete(`/admin/users/${id}`, { data: { confirm } }).then(r => r.data);
+export const adminSecurityLog   = () => http.get('/admin/security-log').then(r => r.data);
 
 export const getRecordings      = ()        => http.get('/recordings').then(r => r.data);
 export const getRecording       = id        => http.get(`/recordings/${id}`).then(r => r.data);

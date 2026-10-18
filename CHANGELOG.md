@@ -5,7 +5,30 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
-## 1.3.0 — Oct 17, 2026
+## 2.0.0 — Oct 18, 2026
+
+### Accounts
+- Pocket Archive now has accounts: sign in with a username and password. Your current password and data carry over to your (admin) account after a one-time upgrade on the server
+- Everyone has their own private notes, lists, projects, places, location reminders, settings and Google Calendar
+- The Hey Pocket archive (recordings, transcripts, AI notes, sync) stays yours only
+- Settings → Users (admin): create accounts with a temporary password, choose Lite or Full, reset a password or two-step verification, unlock, disable, set a daily limit, export or delete an account (exported to a zip first). You see usage numbers, never anyone's notes
+- New accounts set their own password at first sign-in
+
+### Security
+- Settings → Security: change your password, two-step verification with any authenticator app (QR code + 8 backup codes), and every browser, phone and watch you're signed in on, with Sign out per device or everywhere
+- Too many wrong passwords lock the account for a while; sign-in attempts are limited per network address; error messages never reveal whether a username exists
+- Recording audio now needs sign-in (it used to be reachable with just the link)
+- A security log of sign-ins, lockouts and changes (never passwords or codes)
+
+### Android app and watch
+- Sign in with your username (and 2FA code if it's on)
+- If someone else signs in on the same phone, your lists, widget and geofences are cleared and your queued recordings wait for you; they're never uploaded to someone else's account. Watch recordings follow the account they were made under
+
+### Also
+- Settings → Google Calendar: each person picks their own calendar, shares it with the server, and taps Test
+- The sign-in page works in dark mode
+
+Oct 17, 2026
 
 ### New app icon: Purple Neon Bolt
 - The bolt is now violet → indigo with a neon glow, on your choice of tile: **Dark** (default), **Light** (with a soft purple glow) or **AMOLED black**

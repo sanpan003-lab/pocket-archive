@@ -41,7 +41,9 @@ object PhoneLink {
         val channels = Wearable.getChannelClient(ctx)
         return try {
             messages.addListener(listener).await()
-            val channel = channels.openChannel(node.id, "${Protocol.CHANNEL_CAPTURE}/${meta.clientId}/${meta.capturedAt}").await()
+            // "/<userId>" tells the phone which account it belongs to (it holds it if another user is signed in)
+            val user = meta.userId?.let { "/$it" } ?: ""
+            val channel = channels.openChannel(node.id, "${Protocol.CHANNEL_CAPTURE}/${meta.clientId}/${meta.capturedAt}$user").await()
             try {
                 channels.sendFile(channel, Uri.fromFile(file)).await()
                 withTimeoutOrNull(ACK_TIMEOUT_MS) { ack.await() } == true

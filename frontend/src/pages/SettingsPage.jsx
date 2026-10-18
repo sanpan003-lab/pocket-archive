@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   HardDrive, RefreshCw, Headphones, Sparkles,
-  FileText, Info, Folder, CheckCircle2, XCircle, Lock, Smartphone,
+  FileText, Info, Folder, CheckCircle2, XCircle,
 } from 'lucide-react';
-import { getStats, getHealth, changePassword, getDevices, revokeDevice } from '../lib/api';
+import { getStats, getHealth } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
@@ -12,83 +12,9 @@ import AppearanceSettings from '../components/AppearanceSettings';
 import RecordingSettings from '../components/RecordingSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import { AboutSection } from '../components/WhatsNew';
-
-function shortDate(iso) {
-  return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-}
-
-function DevicesSection() {
-  const { logout } = useApp();
-  const [devices, setDevices] = useState(null);
-  const [error, setError]     = useState('');
-  const [busyId, setBusyId]   = useState(null);
-
-  const load = useCallback(() => {
-    getDevices()
-      .then(list => { setDevices(list); setError(''); })
-      .catch(err => setError(err.response?.data?.error || 'Could not load devices'));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function revoke(device) {
-    const what = device.current ? 'This signs this phone out.' : `"${device.name}" will be signed out.`;
-    if (!window.confirm(`Revoke access? ${what}`)) return;
-    setBusyId(device.id);
-    try {
-      await revokeDevice(device.id);
-      if (device.current) { await logout(); return; }
-      setDevices(list => list.filter(d => d.id !== device.id));
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not revoke device');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return (
-    <div className="glass-panel p-6 mb-4">
-      <div className="flex items-center gap-2 mb-1">
-        <Smartphone size={18} className="text-gold-500" />
-        <h2 className="font-bold text-navy-900 dark:text-white">Devices</h2>
-      </div>
-      <p className="text-sm text-navy-600 dark:text-white/60 mb-4">
-        Phones signed in with the Android app. Sign-ins last 90 days; revoke one to sign that phone out.
-      </p>
-      {error && <p className="text-sm text-red-500 dark:text-red-400 mb-3">{error}</p>}
-      {devices === null && !error ? (
-        <div className="h-14 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />
-      ) : devices?.length === 0 ? (
-        <p className="text-sm text-navy-400 dark:text-white/40">No phones are signed in with the Android app.</p>
-      ) : (
-        <ul className="space-y-2">
-          {devices?.map(d => (
-            <li key={d.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-navy-900 dark:text-white flex items-center gap-2 flex-wrap">
-                  <span className="break-words">{d.name}</span>
-                  {d.current && <span className="badge badge-green">This device</span>}
-                </p>
-                <p className="text-xs text-navy-500 dark:text-white/50 mt-0.5">
-                  Signed in {shortDate(d.createdAt)}
-                  {d.lastUsedAt && ` · last used ${shortDate(d.lastUsedAt)}`}
-                  {` · expires ${shortDate(d.expiresAt)}`}
-                </p>
-              </div>
-              <button
-                className="btn-ghost text-xs text-red-500 dark:text-red-400 shrink-0"
-                onClick={() => revoke(d)}
-                disabled={busyId === d.id}
-              >
-                {busyId === d.id ? 'Revoking…' : 'Revoke'}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+import SecuritySettings from '../components/SecuritySettings';
+import CalendarSettings from '../components/CalendarSettings';
+import UsersAdmin from '../components/UsersAdmin';
 
 function StatRow({ label, value, icon, accent }) {
   return (
@@ -102,72 +28,22 @@ function StatRow({ label, value, icon, accent }) {
   );
 }
 
-function ChangePasswordSection() {
-  const [currentPw, setCurrentPw] = useState('');
-  const [newPw, setNewPw]         = useState('');
-  const [confirmPw, setConfirmPw] = useState('');
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState('');
-  const [success, setSuccess]     = useState(false);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
-    setSuccess(false);
-    if (newPw.length < 8) { setError('New password must be at least 8 characters'); return; }
-    if (newPw !== confirmPw) { setError('New passwords do not match'); return; }
-    setSaving(true);
-    try {
-      await changePassword(currentPw, newPw);
-      setSuccess(true);
-      setCurrentPw(''); setNewPw(''); setConfirmPw('');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to change password');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const inputCls = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
-
-  return (
-    <div className="glass-panel p-6 mb-4">
-      <div className="flex items-center gap-2 mb-5">
-        <Lock size={18} className="text-gold-500" />
-        <h2 className="font-bold text-navy-900 dark:text-white">Change Password</h2>
-      </div>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <input type="password" placeholder="Current password" value={currentPw}
-          onChange={e => setCurrentPw(e.target.value)} required className={inputCls} />
-        <input type="password" placeholder="New password (min 8 chars)" value={newPw}
-          onChange={e => setNewPw(e.target.value)} required className={inputCls} />
-        <input type="password" placeholder="Confirm new password" value={confirmPw}
-          onChange={e => setConfirmPw(e.target.value)} required className={inputCls} />
-        {error   && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
-        {success && <p className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5"><CheckCircle2 size={14} /> Password changed successfully</p>}
-        <button type="submit" disabled={saving || !currentPw || !newPw || !confirmPw}
-          className="btn-gold disabled:opacity-60 disabled:cursor-not-allowed">
-          {saving ? <><RefreshCw size={13} className="animate-spin" /> Saving…</> : 'Change Password'}
-        </button>
-      </form>
-    </div>
-  );
-}
-
 export default function SettingsPage() {
   const [stats, setStats]     = useState(null);
   const [health, setHealth]   = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const { isAdmin } = useApp();
   function refresh() {
     setLoading(true);
-    Promise.all([getStats(), getHealth()])
+    // Archive stats are the admin's (Hey Pocket recordings)
+    Promise.all([isAdmin ? getStats() : Promise.resolve(null), getHealth()])
       .then(([s, h]) => { setStats(s); setHealth(h); })
       .catch(() => setHealth(null))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // /settings#places (e.g. from an errand without a home location)
   const { hash } = useLocation();
@@ -183,7 +59,7 @@ export default function SettingsPage() {
     <div className="p-6 max-w-2xl mx-auto animate-slide-up">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Archive configuration and backend status</p>
+        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Your account, app and server settings</p>
       </div>
 
       <AppearanceSettings />
@@ -215,8 +91,8 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* ── Archive info ────────────────────────────────────────────────────── */}
-      <div className="glass-panel p-6 mb-4">
+      {/* ── Archive info (admin) ────────────────────────────────────────────── */}
+      {isAdmin && <div className="glass-panel p-6 mb-4">
         <div className="flex items-center gap-2 mb-5">
           <HardDrive size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Archive</h2>
@@ -247,18 +123,20 @@ export default function SettingsPage() {
             Could not load archive stats. Make sure the backend is running.
           </p>
         )}
-      </div>
+      </div>}
 
       <SmartAppendSettings />
 
       <PlacesSettings />
 
-      <ChangePasswordSection />
+      <CalendarSettings />
 
-      <DevicesSection />
+      <SecuritySettings />
 
-      {/* ── Sync ────────────────────────────────────────────────────────────── */}
-      <div className="glass-panel p-6">
+      <UsersAdmin />
+
+      {/* ── Sync (admin) ────────────────────────────────────────────────────── */}
+      {isAdmin && <div className="glass-panel p-6 mb-4">
         <div className="flex items-center gap-2 mb-4">
           <RefreshCw size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Syncing Recordings</h2>
@@ -291,7 +169,7 @@ export default function SettingsPage() {
           </code>
           {' '}inside the archive folder.
         </p>
-      </div>
+      </div>}
       <AboutSection />
     </div>
   );

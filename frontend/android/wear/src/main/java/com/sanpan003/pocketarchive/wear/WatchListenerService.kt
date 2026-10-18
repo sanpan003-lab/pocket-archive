@@ -31,7 +31,7 @@ class WatchListenerService : WearableListenerService() {
             Protocol.MSG_RESULT -> runCatching { ResultPresenter.show(this, JSONObject(text)) }
             Protocol.MSG_TOKEN -> runCatching {
                 val o = JSONObject(text)
-                WatchTokenStore.set(this, o.optString("token"), o.optString("apiBase"))
+                WatchTokenStore.set(this, o.optString("token"), o.optString("apiBase"), o.optString("userId").takeIf { it.startsWith("u_") })
             }
             Protocol.MSG_TOKEN_CLEAR -> WatchTokenStore.set(this, null, null)
             Protocol.MSG_ARRIVAL -> runCatching { showArrival(JSONObject(text)) }

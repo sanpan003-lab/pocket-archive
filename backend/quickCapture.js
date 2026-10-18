@@ -750,25 +750,25 @@ function noteLink(note) {
   return base ? `${base}/quick/${encodeURIComponent(note.id)}` : null;
 }
 
-async function syncGoogle(note) {
+async function syncGoogle(note, calendarId = process.env.GOOGLE_CALENDAR_ID) {
   const ids     = note.googleEventIds || [];
   const desired = desiredGoogleEvent(note, { link: noteLink(note) });
 
   if (!desired && !ids.length) { note.googleSync = null; return note; }
-  if (!gcal.isConfigured()) {
+  if (!gcal.isConfigured(calendarId)) {
     note.googleSync = desired ? 'skipped' : note.googleSync;
     return note;
   }
 
   try {
     if (desired && ids.length) {
-      await gcal.updateEvent(ids[0], desired);
-      for (const extra of ids.slice(1)) await gcal.deleteEvent(extra);
+      await gcal.updateEvent(ids[0], desired, calendarId);
+      for (const extra of ids.slice(1)) await gcal.deleteEvent(extra, calendarId);
       note.googleEventIds = [ids[0]];
     } else if (desired) {
-      note.googleEventIds = [await gcal.createEvent(desired)];
+      note.googleEventIds = [await gcal.createEvent(desired, calendarId)];
     } else {
-      for (const id of ids) await gcal.deleteEvent(id);
+      for (const id of ids) await gcal.deleteEvent(id, calendarId);
       note.googleEventIds = [];
     }
     note.googleSync  = desired ? 'synced' : null;
@@ -876,6 +876,10 @@ function describeActions(note, recordingTitle) {
  */
 function createQuickCapture(deps) {
   const store = createStore(deps.archivePath);
+  // Per-user Google Calendar (users.json googleCalendarId; the admin falls back to GOOGLE_CALENDAR_ID)
+  const calendarId = () => (deps.calendarId ? deps.calendarId() : process.env.GOOGLE_CALENDAR_ID) || null;
+  const syncCal = note => syncGoogle(note, calendarId());
+  const usage = kind => { try { deps.onUsage?.(kind); } catch { /* counters are best effort */ } };
   const places = deps.places || null;
   const errandSettings = () => places?.getErrandSettings() || { arrivalForStoreErrands: true, arrivalExpiryDays: 14 };
 
@@ -979,7 +983,7 @@ function createQuickCapture(deps) {
       calendarTimers.delete(id);
       const snapshot = store.read(id);
       if (!snapshot) return;
-      await syncGoogle(snapshot);
+      await syncCal(snapshot);
       // Only copy the Google fields onto the latest copy (items may have changed meanwhile)
       const latest = store.read(id);
       if (!latest) return;
@@ -1121,6 +1125,7 @@ function createQuickCapture(deps) {
         const note = store.read(id);
         if (!note || note.undone || note.kind === 'append' || !(note.transcript || note.content || note.mediaText || (note.items || []).length || (note.updates || []).length)) continue;
         try {
+          usage('summary');
           const summary = await summarize(note);
           updateGroup(id, { summary, summaryStatus: 'done', summaryError: null }, 'summaryUpdatedAt');
         } catch (err) {
@@ -1194,7 +1199,7 @@ function createQuickCapture(deps) {
       note.spokenConfirmation = NEEDS_REVIEW_SPOKEN;
     }
 
-    await syncGoogle(note);
+    await syncCal(note);
     if (note.googleSync === 'failed') {
       note.spokenConfirmation = `${note.spokenConfirmation.replace(/[.!]?$/, '.')} Google Calendar didn't update.`;
     }
@@ -1241,7 +1246,7 @@ function createQuickCapture(deps) {
       note.status = 'needs_review';
       note.spokenConfirmation = 'Saved, but the AI couldn\'t organize it — check your inbox.';
     }
-    await syncGoogle(note);
+    await syncCal(note);
     if (note.kind !== 'append') markSummaryPending(note);
     return finalize(note);
   }
@@ -1717,7 +1722,7 @@ function createQuickCapture(deps) {
       note.undoneLink = null;
       note.actions = (note.actions || []).filter(a => a !== 'Undone');
       rememberOrigin(req);
-      await syncGoogle(note);
+      await syncCal(note);
       res.json(finalize(note));
     });
 
@@ -1777,7 +1782,7 @@ function createQuickCapture(deps) {
         }
         if (note.status === 'needs_review') note.status = 'ok';
         note.unlinkedFrom = null;
-        await syncGoogle(note);
+        await syncCal(note);
         const resummarize = body.regenerateSummary === true && markSummaryPending(note);
         res.json(finalize(note));
         if (resummarize) queueSummary(note.id);
@@ -2167,9 +2172,9 @@ function createQuickCapture(deps) {
       }
 
       const ids = note.googleEventIds || [];
-      if (ids.length && gcal.isConfigured()) {
+      if (ids.length && gcal.isConfigured(calendarId())) {
         try {
-          for (const eventId of ids) await gcal.deleteEvent(eventId);
+          for (const eventId of ids) await gcal.deleteEvent(eventId, calendarId());
           note.googleEventIds = [];
         } catch (err) {
           console.warn(`[quick] Could not delete Google event for ${id}: ${err.message}`);

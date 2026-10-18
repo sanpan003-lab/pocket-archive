@@ -20,6 +20,7 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import NativeBridge from './native/NativeBridge';
 import PermissionGate from './native/PermissionGate';
+import SetPasswordScreen from './components/SetPasswordScreen';
 
 // ── Full-screen spinner (shown while checking session cookie) ─────────────────
 
@@ -34,18 +35,21 @@ function FullScreenSpinner() {
 // ── Route guards ──────────────────────────────────────────────────────────────
 
 function ProtectedRoute({ children }) {
-  const { isAuthenticated, isCheckingAuth } = useApp();
+  const { isAuthenticated, isCheckingAuth, user } = useApp();
   const location = useLocation();
   if (isCheckingAuth)    return <FullScreenSpinner />;
   if (!isAuthenticated)  return <Navigate to="/login" replace state={{ from: location }} />;
+  // Temporary password (e.g. the app was reopened mid sign-in): set your own first
+  if (user?.mustChangePassword) return <SetPasswordScreen />;
   return children;
 }
 
 function LoginRoute() {
-  const { isAuthenticated, isCheckingAuth } = useApp();
+  const { isAuthenticated, isCheckingAuth, user } = useApp();
   const location = useLocation();
   if (isCheckingAuth)   return <FullScreenSpinner />;
-  if (isAuthenticated)  return <Navigate to={returnPath(location)} replace />;
+  // Stay on the login page for its 'Set your password' step after a temporary password
+  if (isAuthenticated && !user?.mustChangePassword) return <Navigate to={returnPath(location)} replace />;
   return <LoginPage />;
 }
 

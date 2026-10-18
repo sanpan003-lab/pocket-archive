@@ -75,6 +75,8 @@ class SendWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     private fun directUpload(ctx: Context, file: File): Direct {
         val (token, apiBase) = WatchTokenStore.get(ctx) ?: return Direct.Retry
         val meta = CaptureQueue.meta(file)
+        // Never upload one user's recording with another user's token: wait for the phone
+        if (meta.userId != null && meta.userId != WatchTokenStore.userId(ctx)) return Direct.Retry
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("audio", "capture.m4a", file.asRequestBody("audio/mp4".toMediaType()))

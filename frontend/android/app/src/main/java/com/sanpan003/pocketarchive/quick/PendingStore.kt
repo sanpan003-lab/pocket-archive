@@ -47,4 +47,28 @@ object PendingStore {
         dir(ctx).listFiles { f -> f.isFile && f.extension == "m4a" }?.sortedBy { it.name } ?: emptyList()
 
     fun count(ctx: Context): Int = pending(ctx).size
+
+    // ── Accounts: another user's queued recordings wait here until they sign in again ──
+    private fun heldDir(ctx: Context, userId: String): File =
+        File(ctx.filesDir, "quick_held/${userId.filter { it.isLetterOrDigit() || it == '_' }}").apply { mkdirs() }
+
+    /** Signed out / another user signed in: park this user's queue (never uploaded with someone else's token). */
+    fun hold(ctx: Context, userId: String) {
+        val files = pending(ctx).toMutableList()
+        if (!RecorderState.recording) recordingDir(ctx).listFiles { f -> f.isFile && f.extension == "m4a" && f.length() > 1_500 }?.let { files += it }
+        for (f in files) f.renameTo(File(heldDir(ctx, userId), f.name))
+    }
+
+    /** One recording (e.g. from the watch) that belongs to someone who isn't signed in on this phone. */
+    fun holdFile(ctx: Context, userId: String, file: File) { file.renameTo(File(heldDir(ctx, userId), file.name)) }
+
+    /** That user signed in again: their parked recordings go back into the upload queue. */
+    fun release(ctx: Context, userId: String): Int {
+        val files = heldDir(ctx, userId).listFiles { f -> f.isFile && f.extension == "m4a" } ?: return 0
+        for (f in files) f.renameTo(File(dir(ctx), f.name))
+        return files.size
+    }
+
+    fun heldCount(ctx: Context): Int =
+        File(ctx.filesDir, "quick_held").listFiles()?.sumOf { d -> d.listFiles()?.size ?: 0 } ?: 0
 }

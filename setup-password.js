@@ -1,21 +1,28 @@
 #!/usr/bin/env node
-// Run once to set your password:
-// node setup-password.js
+// Emergency password reset for an account (e.g. if the admin is locked out):
+//   docker exec -it <container> node setup-password.js <username>
+// Sets a new password, clears the lockout and asks for a new password at next sign-in.
 const readline = require('readline');
-const { hashPassword, savePassword } = require('./auth');
+const users = require('./users');
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+const username = process.argv[2];
+if (!username) {
+  console.log('Usage: node setup-password.js <username>');
+  console.log('Users:', users.listUsers().map(u => u.username).join(', ') || '(none — run scripts/migrate-users.mjs first)');
+  process.exit(1);
+}
+const user = users.findByUsername(username);
+if (!user) { console.log(`No user "${username}"`); process.exit(1); }
 
-rl.question('Enter your new password: ', (password) => {
-  if (password.length < 8) {
-    console.log('Password must be at least 8 characters');
-    process.exit(1);
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+rl.question(`New password for ${user.username}: `, (password) => {
+  try {
+    users.setPassword(user.id, password, { mustChange: true });
+    users.patchUser(user.id, { failedLogins: 0, lockCount: 0, lockedUntil: null });
+    users.logEvent('password_reset', { userId: user.id, by: 'setup-password.js' });
+    console.log('Password saved. You will be asked to choose a new one when you sign in.');
+  } catch (err) {
+    console.log(err.message);
   }
-  savePassword(hashPassword(password));
-  console.log('✅ Password saved successfully!');
-  console.log('Restart your server/container for changes to take effect.');
   rl.close();
 });

@@ -56,9 +56,13 @@ object WatchTokenStore {
         return cached
     }
 
+    /** The phone's signed-in user (accounts): recordings are tagged with it so they upload to the right account. */
+    fun userId(ctx: Context): String? = prefs(ctx).getString("userId", null)
+
     @Synchronized
-    fun set(ctx: Context, token: String?, apiBase: String?) {
+    fun set(ctx: Context, token: String?, apiBase: String?, userId: String? = null) {
         val editor = prefs(ctx).edit()
+        if (userId != null) editor.putString("userId", userId)
         if (token.isNullOrBlank() || apiBase.isNullOrBlank()) {
             editor.remove("token").remove("apiBase")
             cached = null

@@ -31,9 +31,16 @@ export async function initNativeSession() {
   }
 }
 
-export async function saveDeviceToken(token) {
+/** userId: switching users on the phone clears the old user's widget, lists and geofences,
+ *  and holds their queued recordings until they sign in again */
+export async function saveDeviceToken(token, userId) {
   deviceToken = token;
-  await QuickRecorder.setToken({ token });
+  await QuickRecorder.setToken({ token, userId });
+}
+
+/** Tell native code which user this token belongs to (also for tokens from before accounts) */
+export function syncNativeUser(userId) {
+  if (isNative && userId) QuickRecorder.setUser({ userId }).catch(() => {});
 }
 
 export async function clearDeviceToken() {

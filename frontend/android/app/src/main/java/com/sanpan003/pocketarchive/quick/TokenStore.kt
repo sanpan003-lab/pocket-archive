@@ -77,6 +77,17 @@ object TokenStore {
         return cachedToken
     }
 
+    // ── Accounts: whose token this is ─────────────────────────────────────
+    // userId = signed-in user; lastUserId = who was signed in last (recordings made while
+    // signed out belong to them, never to the next person who signs in)
+    fun userId(ctx: Context): String? = prefs(ctx).getString("user_id", null)
+    fun lastUserId(ctx: Context): String? = prefs(ctx).getString("last_user_id", null)
+    fun setUserId(ctx: Context, userId: String?) {
+        val e = prefs(ctx).edit()
+        if (userId == null) e.remove("user_id") else e.putString("user_id", userId).putString("last_user_id", userId)
+        e.commit()
+    }
+
     fun setApiBase(ctx: Context, apiBase: String?) {
         prefs(ctx).edit().putString(PREF_API_BASE, apiBase?.trimEnd('/')).apply()
     }
