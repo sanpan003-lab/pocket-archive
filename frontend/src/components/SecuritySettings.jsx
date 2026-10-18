@@ -19,7 +19,7 @@ function browserName(ua = '') {
   return os ? `${b} on ${os}` : b;
 }
 
-function PasswordBlock() {
+export function PasswordBlock() {
   const [cur, setCur] = useState('');
   const [next, setNext] = useState('');
   const [msg, setMsg] = useState(null);
@@ -47,7 +47,7 @@ function PasswordBlock() {
   );
 }
 
-function TwoFactorBlock() {
+export function TwoFactorBlock() {
   const { user, refreshUser } = useApp();
   const [setup, setSetup] = useState(null);  // { uri, secret, qr }
   const [code, setCode] = useState('');

@@ -10,6 +10,7 @@ import ShareSheet from '../components/quick/ShareSheet';
 import SharedNoteEditor from '../components/quick/SharedNoteEditor';
 import { NOTE_UPDATED } from '../lib/opsQueue';
 import { isSharedNote } from '../lib/sharing';
+import { useLayout } from '../lib/layout';
 import TargetPicker from '../components/quick/TargetPicker';
 import CombineDialog from '../components/quick/CombineDialog';
 import QuickToast from '../components/quick/QuickToast';
@@ -38,6 +39,9 @@ const FILTERS = [
   { key: 'notes',    label: 'Notes',        test: n => !n.undone && (n.type === 'note' || n.type === 'note_link') },
   { key: 'undone',   label: 'Deleted',      test: n => n.undone },
 ];
+
+// The Lists page: errands and checklists (yours and shared with you)
+const LISTS = { key: 'lists', label: 'Lists', test: n => !n.undone && (n.type === 'errand' || n.format === 'list') };
 
 const capturedAt = n => n.capturedAt || n.createdAt;
 const stamp = () => Date.now(); // toast ids
@@ -78,8 +82,13 @@ function buildSections(list, s) {
   return sections;
 }
 
-/** sharedOnly: the "Shared with me" page (notes and projects other people shared with you) */
-export default function QuickInboxPage({ sharedOnly = false }) {
+/**
+ * sharedOnly: the "Shared with me" page (notes and projects other people shared with you)
+ * listsOnly: the Lists page (errands + checklists)
+ */
+export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }) {
+  const { lite } = useLayout();
+  const single = sharedOnly || listsOnly; // one fixed view: no filter tabs, no selecting
   const { settings } = useAppearance();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -197,7 +206,7 @@ export default function QuickInboxPage({ sharedOnly = false }) {
     () => Object.fromEntries(FILTERS.map(f => [f.key, notes.filter(f.test).length])),
     [notes],
   );
-  const visible = useMemo(() => notes.filter(FILTERS.find(f => f.key === filter).test), [notes, filter]);
+  const visible = useMemo(() => notes.filter((listsOnly ? LISTS : FILTERS.find(f => f.key === filter)).test), [notes, filter, listsOnly]);
   const sections = useMemo(() => buildSections(visible, s), [visible, s]);
   const order = useMemo(() => sections.flatMap(sec => sec.notes.map(n => n.id)), [sections]);
 
@@ -404,10 +413,11 @@ export default function QuickInboxPage({ sharedOnly = false }) {
       <Inbox size={30} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
       <p className="text-sm text-navy-600 dark:text-white/50">
         {sharedOnly ? 'Nothing is shared with you yet.'
+          : listsOnly ? 'No lists yet. Say “I need milk and eggs from Publix”, or tap + → List.'
           : filter === 'shared' ? 'Nothing shared yet. Open a list or note and tap “Share with…”.'
             : filter === 'review' ? 'Nothing needs review.' : filter === 'undone' ? 'Nothing deleted.' : 'No notes here yet.'}
       </p>
-      {!sharedOnly && filter !== 'shared' && (
+      {!single && filter !== 'shared' && (
         <Link to="/quick" className="inline-block mt-3 text-sm font-semibold text-gold-600 dark:text-gold-400">
           Record a quick note →
         </Link>
@@ -450,8 +460,8 @@ export default function QuickInboxPage({ sharedOnly = false }) {
     <div className={`p-4 sm:p-6 ${width} mx-auto ${selectMode ? 'pb-32' : 'pb-28'}`}>
       <QuickToast toast={toast} onDismiss={dismissToast} />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">{sharedOnly ? 'Shared with me' : 'Quick Capture'}</h1>
-        {!sharedOnly && <QuickTabs reviewCount={counts.review} />}
+        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">{sharedOnly ? 'Shared with me' : listsOnly ? 'Lists' : lite ? 'Inbox' : 'Quick Capture'}</h1>
+        {!single && <QuickTabs reviewCount={counts.review} />}
       </div>
 
       {sharedOnly && (
@@ -476,7 +486,7 @@ export default function QuickInboxPage({ sharedOnly = false }) {
         </>
       )}
 
-      {!sharedOnly && <div className="overflow-x-auto -mx-1 px-1 mb-4">
+      {!single && <div className="overflow-x-auto -mx-1 px-1 mb-4">
         <div className="tab-bar w-max">
           {FILTERS.map(f => (
             <button key={f.key} className={`tab-item shrink-0 ${filter === f.key ? 'active' : ''}`} onClick={() => setFilter(f.key)}>
@@ -489,7 +499,7 @@ export default function QuickInboxPage({ sharedOnly = false }) {
         </div>
       </div>}
 
-      {!sharedOnly && (
+      {!single && (
         <div className="flex justify-end -mt-2 mb-3">
           {selectMode ? (
             <button className="btn-ghost text-sm" onClick={exitSelect}><X size={15} /> Done selecting</button>

@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   HardDrive, RefreshCw, Headphones, Sparkles,
-  FileText, Info, Folder, CheckCircle2, XCircle,
+  FileText, Info, Folder, CheckCircle2, XCircle, LayoutTemplate, Compass,
 } from 'lucide-react';
+import { useLayout, setLiteOnDevice } from '../lib/layout';
+import { openWelcome } from '../lib/uiBus';
 import { getStats, getHealth } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
@@ -35,16 +37,17 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   const { isAdmin } = useApp();
+  const { lite, archive, liteOnDevice } = useLayout();
   function refresh() {
     setLoading(true);
     // Archive stats are the admin's (Hey Pocket recordings)
-    Promise.all([isAdmin ? getStats() : Promise.resolve(null), getHealth()])
+    Promise.all([archive ? getStats() : Promise.resolve(null), getHealth()])
       .then(([s, h]) => { setStats(s); setHealth(h); })
       .catch(() => setHealth(null))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { refresh(); }, [isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, [archive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // /settings#places (e.g. from an errand without a home location)
   const { hash } = useLocation();
@@ -60,15 +63,34 @@ export default function SettingsPage() {
     <div className="p-6 max-w-2xl mx-auto animate-slide-up">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">Your account, app and server settings</p>
+        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">{archive ? 'Your account, app and server settings' : 'Your account and app settings'}</p>
       </div>
+
+      {/* ── Admin: Full or Lite layout on this device ───────────────────────── */}
+      {isAdmin && (
+        <div id="layout" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
+          <div className="flex items-center gap-2 mb-1">
+            <LayoutTemplate size={18} className="text-gold-500" />
+            <h2 className="font-bold text-navy-900 dark:text-white">Layout on this device</h2>
+          </div>
+          <label className="flex items-start gap-3 mt-2 cursor-pointer">
+            <input type="checkbox" className="accent-amber-500 w-4 h-4 mt-0.5" checked={liteOnDevice} onChange={e => setLiteOnDevice(e.target.checked)} />
+            <span>
+              <span className="block text-sm font-semibold text-navy-900 dark:text-white">Use Lite layout on this device</span>
+              <span className="block text-xs text-navy-500 dark:text-white/50">
+                Pocket Notes: Capture, Inbox, Lists, Projects, Shared with me, Calendar and Search. The archive, sync and admin settings are hidden here until you turn this off. Other devices keep their layout.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
 
       <AppearanceSettings />
       <RecordingSettings />
       <NotificationSettings />
 
-      {/* ── Backend status ──────────────────────────────────────────────────── */}
-      <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">
+      {/* ── Backend status (server details: the archive admin) ───────────────── */}
+      {archive && <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           {loading ? (
             <div className="w-2.5 h-2.5 rounded-full bg-navy-200 dark:bg-white/20 animate-pulse" />
@@ -90,10 +112,10 @@ export default function SettingsPage() {
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           Refresh
         </button>
-      </div>
+      </div>}
 
       {/* ── Archive info (admin) ────────────────────────────────────────────── */}
-      {isAdmin && <div className="glass-panel p-6 mb-4">
+      {archive && <div className="glass-panel p-6 mb-4">
         <div className="flex items-center gap-2 mb-5">
           <HardDrive size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Archive</h2>
@@ -126,7 +148,7 @@ export default function SettingsPage() {
         )}
       </div>}
 
-      <SmartAppendSettings />
+      {!lite && <SmartAppendSettings />}
 
       <PlacesSettings />
 
@@ -136,10 +158,10 @@ export default function SettingsPage() {
 
       <SecuritySettings />
 
-      <UsersAdmin />
+      {!lite && <UsersAdmin />}
 
       {/* ── Sync (admin) ────────────────────────────────────────────────────── */}
-      {isAdmin && <div className="glass-panel p-6 mb-4">
+      {archive && <div className="glass-panel p-6 mb-4">
         <div className="flex items-center gap-2 mb-4">
           <RefreshCw size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Syncing Recordings</h2>
@@ -173,6 +195,15 @@ export default function SettingsPage() {
           {' '}inside the archive folder.
         </p>
       </div>}
+      <div className="glass-panel p-5 sm:p-6 mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Compass size={18} className="text-gold-500" />
+          <h2 className="font-bold text-navy-900 dark:text-white">Welcome tour</h2>
+        </div>
+        <p className="text-sm text-navy-600 dark:text-white/60 mb-3">Password, two-step verification, home, permissions, calendar and a quick tour.</p>
+        <button className="btn-white text-sm" onClick={openWelcome}>Show the welcome tour</button>
+      </div>
+
       <AboutSection />
     </div>
   );

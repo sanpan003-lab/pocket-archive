@@ -4,6 +4,7 @@ import { X, CheckCircle, Undo2, RotateCcw, ExternalLink } from 'lucide-react';
 import {
   updateQuickNote, undoQuickNote, retryQuickNote, quickAudioUrl, getRecordings,
 } from '../../lib/api';
+import { useLayout } from '../../lib/layout';
 import { QUICK_TYPES, TYPE_OPTIONS, toInputValue, describeWhen, timeAgo } from './quickMeta';
 import QuickSummary, { TranscriptToggle } from './QuickSummary';
 import QuickAudio from './QuickAudio';
@@ -39,9 +40,10 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
   const [regenSummary, setRegenSummary] = useState(true);
   const contentChanged = draft.content.trim() !== (note.content || '').trim();
 
+  const { archive } = useLayout();
   useEffect(() => {
-    getRecordings().then(setRecordings).catch(() => {});
-  }, []);
+    if (archive) getRecordings().then(setRecordings).catch(() => {}); // Hey Pocket recordings: the admin only
+  }, [archive]);
 
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };

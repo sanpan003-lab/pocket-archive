@@ -81,6 +81,8 @@ function newUser({ username, displayName, role = 'member', plan = 'full', passwo
     plan: plan === 'lite' ? 'lite' : 'full',
     passwordHash: passwordHash || bcrypt.hashSync(String(password), 10),
     mustChangePassword: !!mustChangePassword,
+    // New accounts get the welcome walkthrough at first sign-in (the migrated admin doesn't)
+    welcomePending: !passwordHash,
     disabled: false,
     createdAt: new Date().toISOString(),
     googleCalendarId: null,

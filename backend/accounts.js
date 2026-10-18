@@ -181,6 +181,8 @@ function createAccounts({ archivePath, contexts }) {
         if (id && !/^[\w.@+-]{3,200}$/.test(id)) return res.status(400).json({ error: 'That doesn’t look like a calendar ID' });
         patch.googleCalendarId = id || null;
       }
+      // Welcome walkthrough finished or skipped
+      if (b.welcomeDone === true) { patch.welcomePending = false; patch.welcomeDoneAt = new Date().toISOString(); }
       res.json(users.publicUser(users.patchUser(req.user.id, patch)));
     });
 

@@ -11,6 +11,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { startQueueFlusher } from '../lib/quickQueue';
 import { startOpsFlusher } from '../lib/opsQueue';
 import { startLiveEvents } from '../lib/liveEvents';
+import { useLayout } from '../lib/layout';
 import LiveToast from './LiveToast';
 
 export default function AppLayout() {
@@ -20,6 +21,8 @@ export default function AppLayout() {
   } = useApp();
   const { darkMode, setDarkMode } = useAppearance();
   const isMobile = useIsMobile();
+  const { appName } = useLayout();
+  useEffect(() => { document.title = appName; }, [appName]);
 
   // Send Quick Capture recordings that were queued while offline
   useEffect(() => startQueueFlusher(), []);
@@ -61,7 +64,7 @@ export default function AppLayout() {
             <Menu size={22} />
           </button>
           <span className="font-bold text-navy-900 dark:text-white text-sm tracking-tight">
-            Pocket Archive
+            {appName}
           </span>
           <button
             className="w-11 h-11 flex items-center justify-center text-navy-600 dark:text-white/60 rounded-xl"

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { getRecordings, getQuickNotes } from '../lib/api';
+import { getRecordings, getQuickNotes, getSharedWithMe } from '../lib/api';
+import { useLayout } from '../lib/layout';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
 import { QUICK_TYPES, quickDay, describeWhen } from '../components/quick/quickMeta';
 import { useSummaryPolling } from '../hooks/useSummaryPolling';
@@ -32,14 +33,18 @@ export default function CalendarPage() {
   const [loading, setLoading]         = useState(true);
   const [editingId, setEditingId]     = useState(null);
 
+  const { archive } = useLayout();
   useEffect(() => {
+    if (!archive) return; // recordings: the admin only
     getRecordings()
       .then(setRecordings)
       .finally(() => setLoading(false));
-  }, []);
+  }, [archive]);
 
-  // Quick Capture events + reminders; the calendar still works without them
-  const loadQuick = useCallback(() => getQuickNotes().then(setQuickNotes).catch(() => {}), []);
+  // Quick Capture events + reminders, yours and shared with you; the calendar still works without them
+  const loadQuick = useCallback(() => Promise.all([getQuickNotes(), getSharedWithMe().catch(() => ({ notes: [] }))])
+    .then(([own, shared]) => setQuickNotes([...own, ...shared.notes.filter(n => !own.some(o => o.id === n.id))]))
+    .catch(() => {}), []);
   useEffect(() => { loadQuick(); }, [loadQuick]);
   useSummaryPolling(quickNotes, loadQuick);
   const editing = editingId ? quickNotes.find(n => n.id === editingId) : null;
@@ -133,7 +138,7 @@ export default function CalendarPage() {
         </div>
 
         {/* Grid */}
-        {loading ? (
+        {loading && archive ? (
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: 35 }, (_, i) => (
               <div key={i} className="h-12 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />
@@ -206,7 +211,7 @@ export default function CalendarPage() {
                     key={note.id}
                     className="glass-card px-5 py-4 text-left flex items-center gap-3 animate-fade-in border-l-4"
                     style={{ borderRadius: 12, borderLeftColor: meta.color }}
-                    onClick={() => setEditingId(note.id)}
+                    onClick={() => (note.sharedFrom ? navigate(`/quick/${note.id}`) : setEditingId(note.id))}
                   >
                     <meta.icon size={16} className="shrink-0" style={{ color: meta.color }} />
                     <div className="flex-1 min-w-0">

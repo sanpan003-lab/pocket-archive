@@ -19,7 +19,7 @@ const OPTIONS = [
   { key: 'drawing', label: 'Drawing', icon: Brush },
 ];
 
-const CAPTURE_ROUTES = /^\/(quick(\/.*)?|projects(\/.*)?)$/;
+const CAPTURE_ROUTES = /^\/(quick(\/.*)?|projects(\/.*)?|lists|shared)$/;
 
 /**
  * Google Keep-style "+" button: speed dial with Voice / Text / List / Image /

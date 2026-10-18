@@ -5,6 +5,21 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.2.0 — Oct 18, 2026
+
+### Pocket Notes (Lite)
+- Lite accounts get a simpler app called **Pocket Notes**: Capture, Inbox, Lists, Projects, Shared with me, Calendar and Search. They keep AI summaries, smart append, errands, location reminders, sharing, the + menu and all appearance settings
+- Lite opens on Capture (or Inbox, in Settings → Appearance). The Hey Pocket archive, recordings, sync and server settings aren't shown
+- Admins: Settings → **Layout on this device** → "Use Lite layout on this device" to see exactly what Lite people see
+
+### Welcome tour
+- New accounts get a short walkthrough at first sign-in: password, optional two-step verification, home location, phone permissions (microphone, notifications, location all the time, precise location, battery), optional Google Calendar, and a 4-card tour. Skip any step; Settings → **Welcome tour** opens it again
+
+### Also
+- New **Lists** page with all your errands and checklists
+- Search and the Calendar include notes and events shared with you
+- Members without the archive no longer see Dashboard, Recordings or Sync in the menu
+
 ## 2.1.0 — Oct 18, 2026
 
 ### Sharing

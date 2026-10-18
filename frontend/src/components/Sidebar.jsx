@@ -4,14 +4,27 @@ import {
   Mic2, LayoutDashboard, Search, Star, Settings, FolderKanban,
   ChevronLeft, ChevronRight, Moon, Sun, RefreshCw, Check, AlertCircle,
   Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2, MonitorDown, X,
-  Smartphone, Monitor, Share, Users,
+  Smartphone, Monitor, Share, Users, Inbox, ListChecks,
 } from 'lucide-react';
+import { useLayout } from '../lib/layout';
 import { useApp } from '../context/AppContext';
 import { useAppearance } from '../context/appearanceStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { getStats, triggerSync, getSyncStatus } from '../lib/api';
 
-// ── Top nav (always visible) ──────────────────────────────────────────────
+// ── Top nav ───────────────────────────────────────────────────────────────
+// Lite (Pocket Notes): note-taking only
+const LITE_NAV = [
+  { to: '/quick',       icon: Mic,          label: 'Capture', end: true },
+  { to: '/quick/inbox', icon: Inbox,        label: 'Inbox' },
+  { to: '/lists',       icon: ListChecks,   label: 'Lists' },
+  { to: '/projects',    icon: FolderKanban, label: 'Projects' },
+  { to: '/shared',      icon: Users,        label: 'Shared with me' },
+  { to: '/calendar',    icon: Calendar,     label: 'Calendar' },
+  { to: '/search',      icon: Search,       label: 'Search' },
+];
+// Archive items (Dashboard, Favorites, Library) are the admin's
+const ARCHIVE_ONLY = new Set(['/', '/favorites']);
 const TOP_NAV = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/quick',     icon: Mic,              label: 'Quick Capture'       },
@@ -122,12 +135,17 @@ export default function Sidebar() {
   const [counts, setCounts] = useState({});
   const sync = useSyncButton(triggerRefresh);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const { lite, archive, appName } = useLayout();
+  const topNav = lite ? LITE_NAV
+    : archive ? TOP_NAV
+      : [...TOP_NAV.filter(n => !ARCHIVE_ONLY.has(n.to)), { to: '/calendar', icon: Calendar, label: 'Calendar' }];
 
   useEffect(() => {
+    if (!archive) return;
     getStats()
       .then(s => setCounts(s))
       .catch(() => {});
-  }, []);
+  }, [archive]);
 
   const W = isMobile ? 280 : (sidebarOpen ? 224 : 64);
   const showLabels = isMobile ? true : sidebarOpen;
@@ -164,7 +182,7 @@ export default function Sidebar() {
         </div>
         {showLabels && (
           <span className="font-bold text-navy-900 dark:text-white text-sm leading-tight whitespace-nowrap animate-fade-in">
-            Pocket<br />Archive
+            {appName.split(' ')[0]}<br />{appName.split(' ')[1]}
           </span>
         )}
       </div>
@@ -173,7 +191,7 @@ export default function Sidebar() {
 
       {/* ── Scrollable nav area ────────────────────────────────────────────── */}
       <nav className="flex flex-col gap-0.5 px-2 flex-1 overflow-y-auto">
-        {TOP_NAV.map(({ to, icon: Icon, label, end }) => (
+        {topNav.map(({ to, icon: Icon, label, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -187,14 +205,14 @@ export default function Sidebar() {
           </NavLink>
         ))}
 
-        {showLabels && (
+        {archive && showLabels && (
           <p className="text-[10px] font-bold uppercase tracking-widest text-navy-400 dark:text-white/30 px-3 pt-4 pb-1 animate-fade-in">
             Library
           </p>
         )}
-        {!showLabels && <div className="divider mx-2 my-2" />}
+        {archive && !showLabels && <div className="divider mx-2 my-2" />}
 
-        {LIBRARY_NAV.map(({ to, icon: Icon, label, countKey }) => (
+        {(archive ? LIBRARY_NAV : []).map(({ to, icon: Icon, label, countKey }) => (
           <NavLink
             key={to}
             to={to}
@@ -217,7 +235,8 @@ export default function Sidebar() {
       <div className="px-2 pb-4 flex flex-col gap-1.5 shrink-0">
         <div className="divider mb-1" />
 
-        {/* Sync Now */}
+        {/* Sync Now (archive) */}
+        {archive && (<>
         <button
           className="btn-gold w-full justify-center transition-all"
           style={{
@@ -273,6 +292,7 @@ export default function Sidebar() {
             {sync.errMsg}
           </p>
         )}
+        </>)}
 
         <div className="divider" />
 
@@ -331,7 +351,8 @@ export default function Sidebar() {
           </button>
         )}
 
-        {/* Trash */}
+        {/* Trash (recordings) */}
+        {archive && (
         <NavLink
           to="/trash"
           className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
@@ -342,6 +363,7 @@ export default function Sidebar() {
           <Trash2 size={18} className="shrink-0" />
           {showLabels && <span className="animate-fade-in">Trash</span>}
         </NavLink>
+        )}
 
         {/* Sign Out */}
         <button

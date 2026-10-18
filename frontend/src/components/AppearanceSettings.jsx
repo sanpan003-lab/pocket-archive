@@ -8,6 +8,7 @@ import { noteColorStyle, resolveOpenStyle } from './quick/noteHelpers';
 import { useIsMobile } from '../hooks/useIsMobile';
 import ToolbarEditor from './quick/ToolbarEditor';
 import AppIconPicker from './AppIconPicker';
+import { useLayout } from '../lib/layout';
 
 const GROUP_INFO = {
   opening:  { title: 'Opening notes' },
@@ -175,6 +176,10 @@ function Preview() {
 
 /** Settings → Appearance & layout */
 export default function AppearanceSettings() {
+  const { lite, archive } = useLayout();
+  // Without the archive there is no Dashboard: the app opens on Capture (or Inbox / Projects)
+  const screens = archive ? OPTIONS.defaultScreen
+    : OPTIONS.defaultScreen.filter(([k]) => k !== 'dashboard').map(([k, l]) => [k, k === 'quick' && lite ? 'Capture' : l]);
   const { settings, update, reset } = useAppearance();
   const [confirmReset, setConfirmReset] = useState(false);
   const set = (g, k) => v => update(g, k, v);
@@ -262,7 +267,7 @@ export default function AppearanceSettings() {
       </Group>
 
       <Group group="behavior">
-        <Segmented id="ap-start" label="Default screen when opening the app" value={behavior.defaultScreen} options={OPTIONS.defaultScreen} onChange={set('behavior', 'defaultScreen')} />
+        <Segmented id="ap-start" label="Default screen when opening the app" value={!archive && behavior.defaultScreen === 'dashboard' ? 'quick' : behavior.defaultScreen} options={screens} onChange={set('behavior', 'defaultScreen')} />
         <Segmented id="ap-tab" label="Default Inbox tab" value={behavior.defaultTab} options={OPTIONS.defaultTab} onChange={set('behavior', 'defaultTab')} />
         <Segmented id="ap-create" label="Create (+) button" value={behavior.createButton} options={OPTIONS.createButton} onChange={set('behavior', 'createButton')} />
         <Switch label="Haptics" hint="Short vibrations on long-press and the create menu (Android)" checked={behavior.haptics} onChange={set('behavior', 'haptics')} />

@@ -1,7 +1,19 @@
 import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, AlertCircle, StickyNote, Image as ImageIcon, ListChecks } from 'lucide-react';
-import { searchRecordings, searchQuickNotes } from '../lib/api';
+import { searchRecordings, searchQuickNotes, getSharedWithMe } from '../lib/api';
+import { useLayout } from '../lib/layout';
+
+/** Notes shared with me that match (the server's search covers your own notes) */
+async function searchShared(q) {
+  const { notes } = await getSharedWithMe();
+  const needle = q.toLowerCase();
+  return notes.flatMap(n => {
+    const hay = [n.title, n.content, n.summary?.text, ...(n.items || []).map(i => i.text)].filter(Boolean);
+    const hit = hay.find(t => String(t).toLowerCase().includes(needle));
+    return hit ? [{ id: n.id, title: n.title, snippet: hit === n.title ? '' : String(hit).slice(0, 160), type: n.type, format: n.format, hasMedia: !!n.media, capturedAt: n.capturedAt || n.createdAt, sharedFrom: n.sharedFrom }] : [];
+  });
+}
 import { QUICK_TYPES, cardTime } from '../components/quick/quickMeta';
 import { useApp } from '../context/AppContext';
 import TimelineView, { TimelineSkeletonRows } from '../components/TimelineView';
@@ -16,22 +28,27 @@ export default function SearchPage() {
   const [loading, setLoading]   = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError]       = useState(null);
+  const { archive } = useLayout(); // recordings: the admin only
 
   const runSearch = useCallback(async (q) => {
     if (q.length < 2) { setResults([]); setQuick([]); setSearched(false); return; }
     setLoading(true);
     setError(null);
     try {
-      const [data, notes] = await Promise.all([searchRecordings(q), searchQuickNotes(q).catch(() => [])]);
+      const [data, notes, shared] = await Promise.all([
+        archive ? searchRecordings(q) : Promise.resolve([]),
+        searchQuickNotes(q).catch(() => []),
+        searchShared(q).catch(() => []),
+      ]);
       setResults(data);
-      setQuick(notes);
+      setQuick([...notes, ...shared.filter(s => !notes.some(n => n.id === s.id))]);
       setSearched(true);
     } catch (err) {
       setError(err.message || 'Search failed');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [archive]);
 
   const timer = useRef(null);
   const debouncedSearch = useCallback(q => {
@@ -59,7 +76,7 @@ export default function SearchPage() {
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40" size={18} />
         <input
           className="search-input pl-11 text-base"
-          placeholder="Search recordings and notes..."
+          placeholder={archive ? 'Search recordings and notes...' : 'Search notes and lists...'}
           value={query}
           onChange={handleChange}
           autoFocus

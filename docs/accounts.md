@@ -95,3 +95,22 @@ Sets a temporary password (must be changed at next sign-in) and clears the locko
 
 Since 2.1.0 people can share lists, notes and projects with each other (Can edit / Can view), with
 live updates and background notifications. See [sharing.md](sharing.md).
+
+## Lite (Pocket Notes) and the welcome tour (2.2.0)
+
+- **Lite layout** (`plan: 'lite'`, app name "Pocket Notes"): Capture, Inbox, Lists, Projects, Shared with me,
+  Calendar (own + shared events), Search (notes only), Settings (Appearance + app icon, Recording &
+  shortcuts, Places & location reminders, Notifications, Shared lists, Google Calendar, Security, Welcome
+  tour, About). Home = Capture (or Inbox / Projects in Settings → Appearance).
+- Hidden for Lite (and, apart from the menu items, for every non-admin): Dashboard stats, Recordings,
+  AI Notes, Hey Pocket, Favorites, Sync Now, recording Trash, archive search, server status, Users /
+  admin settings. Archive URLs redirect to Capture, and the server answers 403 for the archive endpoints
+  anyway. The widget, tile and watch only ever show quick notes.
+- **Admin:** Settings → Layout on this device → "Use Lite layout on this device" (localStorage
+  `pa_liteLayout`, this device only).
+- **Welcome tour**: new accounts (`welcomePending`) see it after setting their password: password →
+  optional 2FA → home (address or current location) → phone permissions (microphone, notifications,
+  location all the time, precise, battery unrestricted; the web shows what the phone will ask) →
+  optional Google Calendar (service account email + Test) → 4-card tour. Skip or Done →
+  `PATCH /api/auth/me {welcomeDone: true}`. Settings → Welcome tour opens it again. The migrated admin
+  doesn't get it automatically.

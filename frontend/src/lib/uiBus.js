@@ -29,3 +29,7 @@ export function onQuickChanged(fn) {
   window.addEventListener('pa:quick-changed', handler);
   return () => window.removeEventListener('pa:quick-changed', handler);
 }
+
+/** Settings → Welcome tour: open the first-sign-in walkthrough again */
+export const OPEN_WELCOME = 'pa:open-welcome';
+export function openWelcome() { window.dispatchEvent(new Event(OPEN_WELCOME)); }

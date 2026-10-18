@@ -60,9 +60,13 @@ function scheduleReopen(ms = 5000) {
   reopenTimer = setTimeout(open, ms);
 }
 
-/** Back from the background / online again: reconnect if needed and catch up on what was missed */
+/**
+ * Hidden tab / app in the background: close the stream (browsers allow only ~6 connections per server,
+ * and the phone's background check covers the app). Visible / online again: reconnect and catch up.
+ */
 function wake() {
-  if (stopped || document.visibilityState === 'hidden') return;
+  if (stopped) return;
+  if (document.visibilityState === 'hidden') { clearTimeout(reopenTimer); close(); return; }
   if (!source || source.readyState === EventSource.CLOSED) open();
   if (Date.now() - lastEventAt > 60000) notifyQuickChanged({ live: true });
 }

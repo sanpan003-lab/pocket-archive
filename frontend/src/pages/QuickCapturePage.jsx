@@ -14,6 +14,7 @@ import { syncFeedbackPref } from '../native/nativeSession';
 import { primeAudio, feedbackSuccess, feedbackWarning } from '../lib/feedback';
 import { useQuickSetting } from '../lib/quickSettings';
 import QuickTabs from '../components/quick/QuickTabs';
+import { useLayout } from '../lib/layout';
 import QuickToast from '../components/quick/QuickToast';
 import QuickSettings from '../components/quick/QuickSettings';
 import { QUICK_TYPES, describeWhen, confirmationFor, errandPlaceName, errandProgress } from '../components/quick/quickMeta';
@@ -82,6 +83,7 @@ function useWakeLock(active) {
 }
 
 export default function QuickCapturePage() {
+  const { lite } = useLayout();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [phase, setPhase]       = useState('idle'); // idle | recording | processing | done | queued | error
@@ -392,7 +394,7 @@ export default function QuickCapturePage() {
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Quick Capture</h1>
+        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">{lite ? 'Capture' : 'Quick Capture'}</h1>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
           <QuickTabs reviewCount={reviewCount} />
           <QuickSettings

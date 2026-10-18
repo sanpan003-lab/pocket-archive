@@ -68,6 +68,16 @@ inside the Android app (`android/`). The backend lives in
 - Tests (scratchpad): `sharing-e2e.cjs` (API, real AI), `fftools/sharing-ui.cjs`, `fftools/sharing-app.cjs` (emulator).
   Puppeteer: use `networkidle2` — the live stream keeps a connection open, so `networkidle0` never settles.
 
+## Lite layout & welcome tour (2.2.0) — docs/accounts.md
+
+- `lib/layout.js` `useLayout()` → { lite, archive, appName }: lite = plan lite or admin + `pa_liteLayout` on this device;
+  archive = admin && !lite. Sidebar (LITE_NAV), Home redirect, `ArchiveRoute` guards, Search/Calendar/Settings/QuickNoteEditor use it.
+  Route `/lists` = QuickInboxPage `listsOnly`.
+- `components/Welcome.jsx` (mounted in ProtectedRoute): shows when `user.welcomePending`; `openWelcome()` in lib/uiBus.
+  Reuses `PasswordBlock`/`TwoFactorBlock` (SecuritySettings) and CalendarSettings; permissions via the existing plugin methods.
+- `liveEvents.js` closes the SSE stream while the tab is hidden (browsers allow ~6 connections per host).
+- Tests: `fftools/lite-ui.cjs`, `fftools/lite-app.cjs` + `lite-battery.cjs` (emulator).
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

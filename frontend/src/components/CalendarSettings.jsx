@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarDays, Copy, Check, FlaskConical, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useLayout } from '../lib/layout';
 import { getCalendarSetup, updateMe, testCalendar, getFamilyCalendar, setFamilyCalendar } from '../lib/api';
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
@@ -55,6 +56,7 @@ function FamilyCalendar() {
 
 export default function CalendarSettings() {
   const { refreshUser, isAdmin } = useApp();
+  const { lite } = useLayout();
   const [info, setInfo] = useState(null);
   const [id, setId] = useState('');
   const [msg, setMsg] = useState(null);
@@ -120,7 +122,7 @@ export default function CalendarSettings() {
           {msg && <p className={`text-xs ${msg.error ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`} role="status">{msg.error || msg.ok}</p>}
         </form>
       )}
-      {info.configured && isAdmin && <FamilyCalendar />}
+      {info.configured && isAdmin && !lite && <FamilyCalendar />}
     </div>
   );
 }
