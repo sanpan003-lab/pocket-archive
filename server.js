@@ -10,6 +10,8 @@ const { randomUUID } = require('crypto');
 const users = require('./users');
 const { createAccounts } = require('./accounts');
 const { createUserContexts } = require('./userContext');
+const { createSharing } = require('./sharing');
+const { getConfig, saveConfig } = require('./auth');
 const { createMaps } = require('./maps');
 
 const app  = express();
@@ -474,6 +476,9 @@ const contexts = createUserContexts({
   recordingExists:     id => isValidId(id) && getAllIds().includes(id),
   getRecordingTitle:   id => getTitle(id),
 });
+// Sharing + live sync between users (shares.json; SSE /api/events)
+const sharing = createSharing({ users, contexts, getConfig });
+contexts.setSharing(sharing);
 const accounts = createAccounts({ archivePath: ARCHIVE_PATH, contexts });
 const { requireAuth, requireAdmin } = accounts;
 
@@ -521,6 +526,18 @@ app.use('/api/audio', express.static(DIRS.recordings, {
 }));
 
 accounts.registerPrivate(app);
+sharing.register(app);
+
+// Family calendar (admin, empty by default): events on shared items go there instead of the creator's calendar
+app.get('/api/admin/family-calendar', requireAdmin, (_req, res) => res.json({ calendarId: getConfig().familyCalendarId || '' }));
+app.put('/api/admin/family-calendar', requireAdmin, (req, res) => {
+  const id = String(req.body?.calendarId || '').trim();
+  if (id && !/^[\w.@+-]{3,200}$/.test(id)) return res.status(400).json({ error: 'That doesn’t look like a calendar ID' });
+  const config = getConfig();
+  config.familyCalendarId = id || null;
+  saveConfig(config);
+  res.json({ calendarId: id });
+});
 
 // ── Self-hosted map (09_Maps/*.pmtiles) — shared, read-only ─────────────────
 createMaps({ archivePath: ARCHIVE_PATH }).register(app);

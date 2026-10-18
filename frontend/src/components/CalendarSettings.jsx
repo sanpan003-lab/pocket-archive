@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, Copy, Check, FlaskConical } from 'lucide-react';
+import { CalendarDays, Copy, Check, FlaskConical, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getCalendarSetup, updateMe, testCalendar } from '../lib/api';
+import { getCalendarSetup, updateMe, testCalendar, getFamilyCalendar, setFamilyCalendar } from '../lib/api';
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
 
@@ -9,8 +9,52 @@ const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:
  * Settings → Google Calendar: events and dated errands go to YOUR calendar. Share it with the
  * server's service account ("Make changes to events"), paste its Calendar ID, Test.
  */
+/**
+ * Admin: optional family calendar. Empty (default) = events on shared lists/notes go to the calendar of
+ * whoever created them; set = they go to this calendar (share it with the service account too).
+ */
+function FamilyCalendar() {
+  const [id, setId] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(null);
+  useEffect(() => { getFamilyCalendar().then(r => setId(r.calendarId || '')).catch(() => setId(null)); }, []);
+  if (id === null) return null;
+
+  async function save(e) {
+    e.preventDefault();
+    setBusy('save'); setMsg(null);
+    try {
+      const r = await setFamilyCalendar(id.trim());
+      setId(r.calendarId || '');
+      setMsg({ ok: r.calendarId ? 'Saved. Events on shared items go to the family calendar.' : 'Cleared. Events on shared items go to the creator’s own calendar.' });
+    } catch (err) { setMsg({ error: err.response?.data?.error || 'Could not save' }); } finally { setBusy(null); }
+  }
+  async function test() {
+    setBusy('test'); setMsg(null);
+    try {
+      const r = await testCalendar(id.trim());
+      setMsg(r.ok ? { ok: `Works: “${r.summary}” is shared with Pocket Archive.` } : { error: r.error });
+    } catch (err) { setMsg({ error: err.response?.data?.error || 'Test failed' }); } finally { setBusy(null); }
+  }
+
+  return (
+    <form onSubmit={save} className="mt-5 pt-4 border-t border-navy-100 dark:border-white/10 space-y-2.5">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-navy-900 dark:text-white"><Users size={15} /> Family calendar <span className="text-xs font-normal text-navy-500 dark:text-white/50">(admin, optional)</span></p>
+      <p className="text-xs text-navy-500 dark:text-white/50">
+        Leave empty and events on shared lists go to the calendar of whoever created them. Set one (shared with the address above) and they all go there.
+      </p>
+      <input className={INPUT} placeholder="…@group.calendar.google.com" value={id} onChange={e => setId(e.target.value)} aria-label="Family calendar ID" />
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-gold text-sm" disabled={busy === 'save'}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn-white text-sm" onClick={test} disabled={!!busy || !id.trim()}><FlaskConical size={13} /> {busy === 'test' ? 'Testing…' : 'Test'}</button>
+      </div>
+      {msg && <p className={`text-xs ${msg.error ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`} role="status">{msg.error || msg.ok}</p>}
+    </form>
+  );
+}
+
 export default function CalendarSettings() {
-  const { refreshUser } = useApp();
+  const { refreshUser, isAdmin } = useApp();
   const [info, setInfo] = useState(null);
   const [id, setId] = useState('');
   const [msg, setMsg] = useState(null);
@@ -76,6 +120,7 @@ export default function CalendarSettings() {
           {msg && <p className={`text-xs ${msg.error ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`} role="status">{msg.error || msg.ok}</p>}
         </form>
       )}
+      {info.configured && isAdmin && <FamilyCalendar />}
     </div>
   );
 }

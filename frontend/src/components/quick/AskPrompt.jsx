@@ -15,12 +15,16 @@ export default function AskPrompt({ note, onResolved, compact = false }) {
   const pending = note.pending;
   if (!pending) return null;
 
-  const question = pending.action === 'cancel' ? `Cancel ${pending.targetTitle}?`
-    : pending.action === 'update' ? `Change ${pending.targetTitle}?`
-      : `Add to ${pending.targetTitle}?`;
+  // Several lists match (e.g. yours and one shared with you): one button per list
+  const alternatives = pending.alternatives?.length > 1 ? pending.alternatives : null;
+  const question = alternatives ? 'Add to which list?'
+    : pending.action === 'cancel' ? `Cancel ${pending.targetTitle}?`
+      : pending.action === 'update' ? `Change ${pending.targetTitle}?`
+        : `Add to ${pending.targetTitle}?`;
 
-  async function answer(choice, dest) {
-    setBusy(choice);
+  async function answer(key, dest) {
+    const choice = key.startsWith('yes:') ? 'yes' : key;
+    setBusy(key);
     setError('');
     try {
       onResolved?.(await decideQuickNote(note.id, choice, dest));
@@ -39,10 +43,27 @@ export default function AskPrompt({ note, onResolved, compact = false }) {
         <HelpCircle size={18} className="text-gold-600 dark:text-gold-400 shrink-0" />
         <span className="break-words">{question}</span>
       </p>
+      {alternatives && (
+        <div className="flex flex-col gap-2 mb-2">
+          {alternatives.map(a => (
+            <button
+              key={a.id}
+              className={`${btn} !flex-none w-full !justify-start text-left text-white`}
+              style={{ background: 'linear-gradient(135deg,#F59E0B,#D97706)' }}
+              onClick={() => answer(`yes:${a.id}`, { targetId: a.id })}
+              disabled={!!busy}
+            >
+              <Check size={16} className="shrink-0" /> <span className="truncate">{busy === `yes:${a.id}` ? 'Saving…' : a.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex gap-2">
-        <button className={`${btn} text-white`} style={{ background: 'linear-gradient(135deg,#F59E0B,#D97706)' }} onClick={() => answer('yes')} disabled={!!busy}>
-          <Check size={16} /> {busy === 'yes' ? 'Saving…' : 'Yes'}
-        </button>
+        {!alternatives && (
+          <button className={`${btn} text-white`} style={{ background: 'linear-gradient(135deg,#F59E0B,#D97706)' }} onClick={() => answer('yes')} disabled={!!busy}>
+            <Check size={16} /> {busy === 'yes' ? 'Saving…' : 'Yes'}
+          </button>
+        )}
         <button className={`${btn} bg-white dark:bg-white/10 text-navy-900 dark:text-white border border-navy-200 dark:border-white/15`} onClick={() => answer('new')} disabled={!!busy}>
           <FilePlus2 size={16} /> New note
         </button>

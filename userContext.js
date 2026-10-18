@@ -34,6 +34,7 @@ const todayNY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Americ
 
 function createUserContexts({ archivePath, users, getRecentRecordings, recordingExists, getRecordingTitle }) {
   const contexts = new Map();
+  let sharing = null; // set by server.js (sharing needs the contexts, contexts need sharing)
   const userRoot = id => {
     if (!/^u_[a-f0-9]{6,32}$/.test(id)) throw new Error('Invalid user id');
     return path.join(archivePath, 'users', id);
@@ -82,6 +83,17 @@ function createUserContexts({ archivePath, users, getRecentRecordings, recording
         return u?.googleCalendarId || (u?.role === 'admin' ? process.env.GOOGLE_CALENDAR_ID : null) || null;
       },
       onUsage: kind => countUsage(userId, kind),
+      self: () => { const u = current(); return u ? { id: u.id, name: u.displayName || u.username } : null; },
+      // Sharing: lists shared with this user, live events, family calendar, people's notification settings
+      foreign: sharing ? sharing.foreignFor(userId) : null,
+      onNoteWrite: note => sharing?.noteWritten(userId, note),
+      calendarIdFor: note => {
+        const u = current();
+        const own = u?.googleCalendarId || (u?.role === 'admin' ? process.env.GOOGLE_CALENDAR_ID : null) || null;
+        return sharing ? sharing.calendarIdFor(userId, note, own) : own;
+      },
+      isSharedNote: note => !!sharing?.isShared(userId, note),
+      userSettings: id => get(id).getSettings(),
     });
 
     const router = express.Router();
@@ -118,6 +130,26 @@ function createUserContexts({ archivePath, users, getRecentRecordings, recording
       res.json(s.appearance);
     });
 
+    // Notifications about other people's changes (phone background check + watch):
+    // mode every | summary | off, quiet hours, and "let people on shared lists know when I'm at the store"
+    const NOTIFY_DEFAULTS = { mode: 'every', quietStart: '22:00', quietEnd: '07:00', shareLocation: false };
+    router.get('/api/notify-settings', (_req, res) => res.json({ ...NOTIFY_DEFAULTS, ...(getSettings().notify || {}) }));
+    router.put('/api/notify-settings', (req, res) => {
+      const b = req.body || {};
+      const cur = { ...NOTIFY_DEFAULTS, ...(getSettings().notify || {}) };
+      const time = v => (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : null);
+      const next = {
+        mode: ['every', 'summary', 'off'].includes(b.mode) ? b.mode : cur.mode,
+        quietStart: b.quietStart === null ? null : time(b.quietStart) ?? cur.quietStart,
+        quietEnd: b.quietEnd === null ? null : time(b.quietEnd) ?? cur.quietEnd,
+        shareLocation: typeof b.shareLocation === 'boolean' ? b.shareLocation : cur.shareLocation,
+      };
+      const st = getSettings();
+      st.notify = next;
+      saveSettings(st);
+      res.json(next);
+    });
+
     places.register(router);
     quick.register(router);
     quick.start();
@@ -137,13 +169,16 @@ function createUserContexts({ archivePath, users, getRecentRecordings, recording
 
   function forget(userId) { contexts.delete(userId); }
 
-  /** Express middleware: hand the request to the signed-in user's own routes */
+  /** Express middleware: hand the request to the signed-in user's own routes (or, for a shared item, the owner's) */
   function route(req, res, next) {
     if (!req.user) return next();
+    if (sharing) return sharing.route(req, res, next);
     return get(req.user.id).router(req, res, next);
   }
 
-  return { get, startAll, forget, route, userRoot, usageSummary };
+  function setSharing(s) { sharing = s; }
+
+  return { get, startAll, forget, route, userRoot, usageSummary, setSharing };
 }
 
 module.exports = { createUserContexts, APPEARANCE_GROUPS };

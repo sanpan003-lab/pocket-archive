@@ -70,10 +70,11 @@ function createAppender(ctx) {
     const n = store.read(id);
     if (!visible(n)) return null;
     const actualType = n.type === 'errand' ? 'errand' : isEventLike(n) ? n.type : 'note';
-    return { type: actualType, id, title: errandName(n) || n.title, note: n };
+    return { type: actualType, id, title: `${errandName(n) || n.title}${ownerHint(n)}`, note: n };
   }
 
   const errandName = n => (n.type === 'errand' ? (n.place?.query || n.placeSpec?.query ? `${n.place?.query || n.placeSpec.query} list` : n.title) : null);
+  const ownerHint = n => (n?.sharedFrom?.name ? ` (${n.sharedFrom.name}'s, shared)` : '');
 
   // ── Candidates for the classifier (kept small) ────────────────────────────
   function candidates(now = new Date()) {
@@ -88,7 +89,7 @@ function createAppender(ctx) {
     const date = n => (n.capturedAt || n.createdAt || '').slice(0, 10);
     const lines = [
       '## Open errands (id | title | place | items | date)',
-      ...errands.map(n => `${n.id} | ${n.title} | ${n.place?.query || n.placeSpec?.query || '-'} | ${(n.items || []).map(i => i.text).join(', ') || '-'} | ${n.start || date(n)}`),
+      ...errands.map(n => `${n.id} | ${n.title}${ownerHint(n)} | ${n.place?.query || n.placeSpec?.query || '-'} | ${(n.items || []).map(i => i.text).join(', ') || '-'} | ${n.start || date(n)}`),
       '## Active projects (id | name | aliases | summary)',
       ...projs.map(p => `${p.id} | ${p.name} | ${(p.aliases || []).join(', ') || '-'} | ${plain(p.livingSummary).slice(0, 110) || '-'}`),
       '## Quick notes, last 14 days, newest first (id | type | title | date | summary)',
@@ -169,6 +170,19 @@ function createAppender(ctx) {
     const noOp = target.note && hasList(target.note) && action === 'append' && payload.addItems.length && !payload.removeItems.length &&
       payload.addItems.every(t => (target.note.items || []).some(i => sameItem(i.text, t)));
 
+    // Several open lists match (e.g. your Publix list and one shared with you): ask which
+    if (action === 'append' && target.note?.type === 'errand') {
+      const key = norm(errandName(target.note));
+      const place = norm(target.note.place?.query || target.note.placeSpec?.query);
+      const others = store.list().filter(n => visible(n) && n.type === 'errand' && !n.errandDone && n.id !== target.id &&
+        (norm(errandName(n)) === key || (place && norm(n.place?.query || n.placeSpec?.query) === place)));
+      if (others.length && confidence >= s.ask) {
+        const alternatives = [target, ...others.slice(0, 3).map(n => readTarget('errand', n.id)).filter(Boolean)]
+          .map(t => ({ id: t.id, title: t.title }));
+        return { mode: 'ask', target, payload, confidence, alternatives };
+      }
+    }
+
     let mode;
     if (noOp && confidence >= s.ask) mode = 'apply';
     else if (action === 'cancel') mode = (confidence >= 0.9 && !s.alwaysAskCancel) ? 'apply' : 'ask';
@@ -193,6 +207,9 @@ function createAppender(ctx) {
       if (!text) continue;
       if (errand.items.some(i => sameItem(i.text, text)) || added.some(i => sameItem(i.text, text))) { already.push(text); continue; }
       const item = { id: uid('it'), text, done: false };
+      // Who added it (shown on shared lists)
+      const me = ctx.self?.();
+      if (me) Object.assign(item, { v: 1, addedBy: me.id, addedAt: new Date().toISOString() });
       errand.items.push(item);
       added.push(item);
     }
@@ -311,6 +328,12 @@ function createAppender(ctx) {
         }
         if (missing.length && !removed.length && !added.length && !already.length) parts.push(`${fmtList(missing)} wasn't on your ${name}`);
         text = parts.join(' · ') || `Updated ${name}`;
+        // Shared lists: "Jane added Yogurt" in the activity log
+        if (n.sharedFrom || n.sharedWith?.length) {
+          const me = ctx.self?.();
+          for (const i of added) ctx.logActivity?.(n, me, 'added', i.text);
+          for (const r of removed) ctx.logActivity?.(n, me, 'removed', r.item.text);
+        }
         const delta = added.length ? `+${added.length}` : removed.length ? `−${removed.length}` : '±0';
         resultLine = `${delta} → ${name}`;
         if (payload.appendText && !added.length && !removed.length && !already.length) {
@@ -473,13 +496,15 @@ function createAppender(ctx) {
   }
 
   /** "Ask" answer: yes | new | other (with dest). */
-  async function resolvePending(capture, choice, dest = null) {
+  async function resolvePending(capture, choice, dest = null, pickedId = null) {
     const pending = capture.pending;
     if (!pending) throw Object.assign(new Error('Nothing to decide'), { status: 409 });
     capture.pending = null;
     capture.status = 'ok';
     if (choice === 'yes') {
-      const target = readTarget(pending.targetType, pending.targetId);
+      // "Which list?" — one of the offered alternatives, or the first (best) match
+      const picked = pickedId && (pending.alternatives || []).some(a => a.id === pickedId) ? pickedId : pending.targetId;
+      const target = readTarget(pending.targetType, picked);
       if (!target) throw Object.assign(new Error('That target no longer exists'), { status: 409 });
       return apply(capture, target, pending.payload, { origin: 'voice' });
     }
@@ -507,14 +532,16 @@ function createAppender(ctx) {
       targetTitle: decision.target.title,
       payload: decision.payload,
       confidence: decision.confidence,
+      alternatives: decision.alternatives || null,
       expiresAt: new Date(Date.now() + ASK_TIMEOUT_MS).toISOString(),
     };
-    const verb = decision.payload.action === 'cancel' ? `Cancel ${decision.target.title}?`
+    const verb = decision.alternatives ? 'Add to which list?'
+      : decision.payload.action === 'cancel' ? `Cancel ${decision.target.title}?`
       : decision.payload.action === 'update' && isEventLike(decision.target) ? `Change ${decision.target.title}?`
         : `Add to ${decision.target.title}?`;
     capture.appendConfirmation = {
       icon: decision.payload.action === 'cancel' ? '🗑️' : '❓', text: verb, tone: 'ask', detail: null,
-      ask: { targetType: decision.target.type, targetId: decision.target.id, targetTitle: decision.target.title, action: decision.payload.action },
+      ask: { targetType: decision.target.type, targetId: decision.target.id, targetTitle: decision.target.title, action: decision.payload.action, alternatives: decision.alternatives || null },
     };
   }
 

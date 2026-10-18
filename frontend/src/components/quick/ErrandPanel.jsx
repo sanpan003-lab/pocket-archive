@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Navigation, CalendarDays, BellRing, Check, Plus, Pencil, Trash2, X } from 'lucide-react';
-import { updateErrandItems } from '../../lib/api';
+import { MapPin, Navigation, CalendarDays, BellRing, Check, Plus, Pencil, Trash2, X, CloudOff, Eye } from 'lucide-react';
+import { queueOps, newItemId, withPendingOps, useOpsQueue, pendingOps, OPS_REJECTED } from '../../lib/opsQueue';
+import { canEdit, isSharedNote, usePeople } from '../../lib/sharing';
+import { useApp } from '../../context/AppContext';
+import { PersonDot } from './SharedBadge';
 import { isNative } from '../../lib/platform';
 import { syncErrands } from '../../native/errands';
 import { errandChips, errandHasArrival, errandPlaceName, errandProgress, directionsUrl } from './quickMeta';
@@ -9,16 +12,34 @@ import { errandChips, errandHasArrival, errandPlaceName, errandProgress, directi
 /**
  * Errand body: place + Directions, trigger chips, and a checkable list
  * (open items first, checked ones struck through at the bottom).
- * Optimistic: taps update instantly, then sync with the server.
+ * Changes are item-level operations (lib/opsQueue): shown at once, kept on this device while
+ * offline and sent when the connection is back. Two people editing the same list never lose items.
+ * The saved note comes back through NOTE_UPDATED (open lists replace their copy).
  */
-export default function ErrandPanel({ note, onChanged, arrivalReady = true }) {
-  const [pending, setPending] = useState(null); // optimistic copy of note.items
+export default function ErrandPanel({ note, arrivalReady = true }) {
   const [error, setError]     = useState(null);
   const [editing, setEditing] = useState(false);
   const [newItem, setNewItem] = useState('');
+  const { user } = useApp();
+  const people = usePeople();
+  useOpsQueue(); // re-render when queued changes are sent
 
-  const items = pending || note.items || [];
-  const readOnly = note.undone;
+  const items = withPendingOps(note).items || [];
+  const waiting = pendingOps(note.id).length > 0;
+  const viewOnly = !canEdit(note);
+  const readOnly = note.undone || viewOnly;
+  const shared = isSharedNote(note);
+  // Who added an item (shared lists; not shown for your own)
+  const adder = item => {
+    if (!shared || !item.addedBy || item.addedBy === user?.id) return null;
+    return people[item.addedBy] || (note.sharedFrom?.ownerId === item.addedBy ? note.sharedFrom : null);
+  };
+
+  useEffect(() => {
+    const onRejected = e => { if (e.detail?.noteId === note.id) setError(e.detail.message); };
+    window.addEventListener(OPS_REJECTED, onRejected);
+    return () => window.removeEventListener(OPS_REJECTED, onRejected);
+  }, [note.id]);
   const place = note.place;
   const placeName = errandPlaceName(note);
   const { done, total } = errandProgress({ items });
@@ -27,31 +48,18 @@ export default function ErrandPanel({ note, onChanged, arrivalReady = true }) {
   // Open items keep their order; checked items move to the bottom
   const ordered = [...items.filter(i => !i.done), ...items.filter(i => i.done)];
 
-  async function change(nextItems, request) {
-    setPending(nextItems);
+  function send(ops) {
     setError(null);
-    try {
-      const updated = await updateErrandItems(note.id, request);
-      onChanged?.(updated);
-      syncErrands(); // arrival notification shows the current list
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not update the list');
-    } finally {
-      setPending(null);
-    }
+    queueOps(note.id, ops).then(() => syncErrands()); // arrival notification shows the current list
   }
 
-  const toggle = item => change(
-    items.map(i => (i.id === item.id ? { ...i, done: !i.done } : i)),
-    { action: 'toggle', itemId: item.id, done: !item.done },
-  );
-
-  const remove = item => change(items.filter(i => i.id !== item.id), { action: 'remove', itemId: item.id });
+  const toggle = item => send([{ op: 'toggleItem', itemId: item.id, done: !item.done }]);
+  const remove = item => send([{ op: 'removeItem', itemId: item.id }]);
 
   function rename(item, text) {
     const clean = text.trim();
     if (!clean || clean === item.text) return;
-    change(items.map(i => (i.id === item.id ? { ...i, text: clean } : i)), { action: 'edit', itemId: item.id, text: clean });
+    send([{ op: 'editItem', itemId: item.id, text: clean }]);
   }
 
   function add(e) {
@@ -59,7 +67,7 @@ export default function ErrandPanel({ note, onChanged, arrivalReady = true }) {
     const text = newItem.trim();
     if (!text) return;
     setNewItem('');
-    change([...items, { id: `tmp_${Date.now()}`, text, done: false }], { action: 'add', text });
+    send([{ op: 'addItem', itemId: newItemId(), text }]);
   }
 
   const chips = errandChips(note);
@@ -174,6 +182,12 @@ export default function ErrandPanel({ note, onChanged, arrivalReady = true }) {
                   >
                     {item.text}
                   </span>
+                  {adder(item) && (
+                    <span className="ml-auto pl-2 flex items-center" title={`Added by ${adder(item).name}`}>
+                      <PersonDot person={adder(item)} size={18} />
+                      <span className="sr-only">added by {adder(item).name}</span>
+                    </span>
+                  )}
                 </button>
               )}
             </li>
@@ -208,6 +222,12 @@ export default function ErrandPanel({ note, onChanged, arrivalReady = true }) {
             </button>
           )}
         </div>
+      )}
+      {viewOnly && !note.undone && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-navy-500 dark:text-white/50"><Eye size={13} /> View only — {note.sharedFrom?.name} can give you edit access.</p>
+      )}
+      {waiting && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300" role="status"><CloudOff size={13} /> Saved on this device — syncs when you’re back online.</p>
       )}
       {error && <p className="mt-2 text-xs text-red-500 dark:text-red-400">{error}</p>}
     </div>

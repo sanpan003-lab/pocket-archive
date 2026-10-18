@@ -4,7 +4,7 @@ import {
   Mic2, LayoutDashboard, Search, Star, Settings, FolderKanban,
   ChevronLeft, ChevronRight, Moon, Sun, RefreshCw, Check, AlertCircle,
   Sparkles, Mic, Calendar, BookOpen, LogOut, Trash2, MonitorDown, X,
-  Smartphone, Monitor, Share,
+  Smartphone, Monitor, Share, Users,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAppearance } from '../context/appearanceStore';
@@ -16,6 +16,7 @@ const TOP_NAV = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/quick',     icon: Mic,              label: 'Quick Capture'       },
   { to: '/projects',  icon: FolderKanban,     label: 'Projects'            },
+  { to: '/shared',    icon: Users,            label: 'Shared with me'      },
   { to: '/search',    icon: Search,           label: 'Search'              },
   { to: '/favorites', icon: Star,             label: 'Favorites'           },
 ];

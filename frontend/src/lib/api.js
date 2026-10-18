@@ -201,3 +201,19 @@ export const getDeletedRecordings   = ()   => http.get('/recordings/deleted').th
 export const deleteRecording        = id   => http.post(`/recordings/${id}/delete`).then(r => r.data);
 export const restoreRecording       = id   => http.post(`/recordings/${id}/restore`).then(r => r.data);
 export const permanentDeleteRecording = id => http.post(`/recordings/${id}/permanent-delete`).then(r => r.data);
+
+// Sharing (2.1.0): people, who has access, share / remove / leave, "Shared with me"
+export const getSharePeople     = () => http.get('/share/people').then(r => r.data);
+export const getShareInfo       = (kind, id) => http.get(`/share/${kind}/${id}`).then(r => r.data);
+export const shareItem          = (kind, id, userId, role) => http.post(`/share/${kind}/${id}`, { userId, role }).then(r => r.data);
+export const unshareItem        = (kind, id, userId) => http.delete(`/share/${kind}/${id}/${userId}`).then(r => r.data);
+export const getSharedWithMe    = () => http.get('/shared').then(r => r.data);
+// Item-level changes (live collaboration): [{ op: addItem|removeItem|toggleItem|editItem|editText|rename, ... }]
+export const applyNoteOps       = (id, ops) => http.post(`/quick/${id}/ops`, { ops }).then(r => r.data);
+export const getChanges         = since => http.get('/changes', { params: { since } }).then(r => r.data);
+export const getNotifySettings  = () => http.get('/notify-settings').then(r => r.data);
+export const saveNotifySettings = s => http.put('/notify-settings', s).then(r => r.data);
+export const getFamilyCalendar  = () => http.get('/admin/family-calendar').then(r => r.data);
+export const setFamilyCalendar  = calendarId => http.put('/admin/family-calendar', { calendarId }).then(r => r.data);
+/** Live updates stream (web: session cookie; app: media token in the URL) */
+export const eventsUrl          = () => withMediaToken(`${new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')}/events`);

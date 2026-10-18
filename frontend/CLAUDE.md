@@ -51,6 +51,23 @@ inside the Android app (`android/`). The backend lives in
 - Android: `TokenStore.userId/lastUserId`, plugin `setToken({token,userId})` / `setUser`, `PendingStore.hold/release`
   (`files/quick_held/<userId>/`). Watch: outbox per user, channel path `/pa/capture/<clientId>/<capturedAt>/<userId>`.
 
+## Sharing & live updates (2.1.0) — read docs/sharing.md in the monorepo
+
+- Backend `sharing.js`: `shares.json` index in the config dir; `route` checks the role and hands a shared note/project
+  request to the OWNER's per-user router (responses get `sharedFrom`); `foreignFor(userId)` = editable shared notes for
+  smart append + errand feeds; SSE hub (`GET /api/events`, heartbeat 25 s, `X-Accel-Buffering: no`); `/api/changes`;
+  family calendar (`config.familyCalendarId`). Item ops: `POST /api/quick/:id/ops` → `applyOps` in quickCapture.js
+  (client item ids, replay-safe, attribution, `note.activity`). Per-user `GET/PUT /api/notify-settings`.
+- Frontend: `lib/opsQueue.js` (offline queue → ops; `NOTE_UPDATED` / `OPS_REJECTED` window events — ErrandPanel no longer
+  PATCHes /items), `lib/liveEvents.js` (EventSource; app uses `?mt=`), `lib/sharing.js` (people cache, roles),
+  `components/quick/ShareSheet|SharedBadge|NoteActivity|SharedNoteEditor`, `LiveToast`, `SharingSettings`, route
+  `/shared` = QuickInboxPage `sharedOnly`. Toolbar actions have `role` (view/edit/owner → `allowedFor`).
+- Android: `quick/ChangesWorker.kt` (15-min WorkManager check of /api/changes → widget + errand sync + notifications on
+  channel `shared_changes`; quiet while the app is visible; first run only sets `since`). Plugin `refreshWidget`,
+  `checkSharedChanges({delayMs})`.
+- Tests (scratchpad): `sharing-e2e.cjs` (API, real AI), `fftools/sharing-ui.cjs`, `fftools/sharing-app.cjs` (emulator).
+  Puppeteer: use `networkidle2` — the live stream keeps a connection open, so `networkidle0` never settles.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

@@ -14,6 +14,7 @@ import NotificationSettings from '../components/NotificationSettings';
 import { AboutSection } from '../components/WhatsNew';
 import SecuritySettings from '../components/SecuritySettings';
 import CalendarSettings from '../components/CalendarSettings';
+import SharingSettings from '../components/SharingSettings';
 import UsersAdmin from '../components/UsersAdmin';
 
 function StatRow({ label, value, icon, accent }) {
@@ -128,6 +129,8 @@ export default function SettingsPage() {
       <SmartAppendSettings />
 
       <PlacesSettings />
+
+      <SharingSettings />
 
       <CalendarSettings />
 

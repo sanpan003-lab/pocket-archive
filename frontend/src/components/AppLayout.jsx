@@ -9,6 +9,9 @@ import { useApp } from '../context/AppContext';
 import { useAppearance } from '../context/appearanceStore';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { startQueueFlusher } from '../lib/quickQueue';
+import { startOpsFlusher } from '../lib/opsQueue';
+import { startLiveEvents } from '../lib/liveEvents';
+import LiveToast from './LiveToast';
 
 export default function AppLayout() {
   const {
@@ -20,6 +23,9 @@ export default function AppLayout() {
 
   // Send Quick Capture recordings that were queued while offline
   useEffect(() => startQueueFlusher(), []);
+  // Checklist changes made offline; live updates from other people (shared lists)
+  useEffect(() => startOpsFlusher(), []);
+  useEffect(() => startLiveEvents(), []);
 
   // Close mobile menu when viewport becomes desktop-size
   useEffect(() => {
@@ -73,6 +79,7 @@ export default function AppLayout() {
         <CreateMenu />
         <WhatsNewSheet />
         <ArrivalPermissionPrompt />
+        <LiveToast />
       </main>
     </div>
   );

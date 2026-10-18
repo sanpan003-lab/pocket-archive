@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Inbox, AlertCircle, CheckSquare, Combine, Trash2, X, FolderInput, Pin } from 'lucide-react';
+import { Inbox, AlertCircle, CheckSquare, Combine, Trash2, X, FolderInput, Pin, FolderKanban } from 'lucide-react';
 import {
   getQuickNotes, getQuickNote, undoQuickNote, restoreQuickNote, summarizeQuickNote, retryQuickNote, setErrandDone,
   setQuickMeta, mergeQuickNote, unmergeQuickNote, moveQuickNote, splitQuickNote, addNotesToProject,
-  removeNoteFromProject, getProjects,
+  removeNoteFromProject, getProjects, getSharedWithMe,
 } from '../lib/api';
+import ShareSheet from '../components/quick/ShareSheet';
+import SharedNoteEditor from '../components/quick/SharedNoteEditor';
+import { NOTE_UPDATED } from '../lib/opsQueue';
+import { isSharedNote } from '../lib/sharing';
 import TargetPicker from '../components/quick/TargetPicker';
 import CombineDialog from '../components/quick/CombineDialog';
 import QuickToast from '../components/quick/QuickToast';
@@ -25,6 +29,7 @@ import { shareNote } from '../lib/shareNote';
 
 const FILTERS = [
   { key: 'all',      label: 'All',          test: n => !n.undone },
+  { key: 'shared',   label: 'Shared',       test: n => !n.undone && isSharedNote(n) },
   { key: 'review',   label: 'Needs review', test: n => !n.undone && n.status === 'needs_review' },
   { key: 'event',    label: 'Events',       test: n => !n.undone && n.type === 'event' },
   { key: 'reminder', label: 'Reminders',    test: n => !n.undone && n.type === 'reminder' },
@@ -73,7 +78,8 @@ function buildSections(list, s) {
   return sections;
 }
 
-export default function QuickInboxPage() {
+/** sharedOnly: the "Shared with me" page (notes and projects other people shared with you) */
+export default function QuickInboxPage({ sharedOnly = false }) {
   const { settings } = useAppearance();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -83,7 +89,9 @@ export default function QuickInboxPage() {
   const [extra, setExtra]     = useState(null);       // opened note that isn't in the list (hidden / brand new)
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
-  const [filter, setFilter]   = useState(() => (FILTERS.some(f => f.key === settings.behavior.defaultTab) ? settings.behavior.defaultTab : 'all'));
+  const [filter, setFilter]   = useState(() => (sharedOnly ? 'all' : FILTERS.some(f => f.key === settings.behavior.defaultTab) ? settings.behavior.defaultTab : 'all'));
+  const [sharing, setSharing] = useState(null);       // note whose share sheet is open
+  const [sharedProjects, setSharedProjects] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [expanded, setExpanded]   = useState(() => new Set());
   const [highlightId, setHighlightId] = useState(null);
@@ -108,14 +116,29 @@ export default function QuickInboxPage() {
 
   const load = useCallback(() => {
     getProjects().then(list => setProjectNames(Object.fromEntries(list.map(p => [p.id, p.name])))).catch(() => {});
-    return getQuickNotes()
-      .then(list => { setNotes(list); setError(null); })
+    // Your notes + notes other people shared with you (marked with sharedFrom)
+    return Promise.all([
+      sharedOnly ? Promise.resolve([]) : getQuickNotes(),
+      getSharedWithMe().catch(() => ({ notes: [], projects: [] })),
+    ])
+      .then(([own, shared]) => {
+        const ids = new Set(own.map(n => n.id));
+        setNotes([...own, ...shared.notes.filter(n => !ids.has(n.id))]);
+        setSharedProjects(shared.projects || []);
+        setError(null);
+      })
       .catch(err => setError(err.message || 'Failed to load quick notes'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [sharedOnly]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => onQuickChanged(() => load()), [load]);
+  // Checklist changes saved by the server (lib/opsQueue)
+  useEffect(() => {
+    const onUpdated = e => { if (e.detail?.id) replace(e.detail); };
+    window.addEventListener(NOTE_UPDATED, onUpdated);
+    return () => window.removeEventListener(NOTE_UPDATED, onUpdated);
+  }, []);
   useSummaryPolling(notes, load);
   useEffect(() => { setFabHidden(selectMode); return () => setFabHidden(false); }, [selectMode]);
 
@@ -231,9 +254,11 @@ export default function QuickInboxPage() {
     });
   }
 
-  function enterSelect(note) { setSelectMode(true); setSelected(new Set(note ? [note.id] : [])); }
+  // Other people's notes can't be combined, moved or deleted, so they aren't selectable
+  function enterSelect(note) { setSelectMode(true); setSelected(new Set(note && !note.sharedFrom ? [note.id] : [])); }
   function exitSelect() { setSelectMode(false); setSelected(new Set()); }
   function toggleSelected(note) {
+    if (note.sharedFrom) return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(note.id)) next.delete(note.id); else next.add(note.id);
@@ -249,6 +274,7 @@ export default function QuickInboxPage() {
   async function onAction(kind, note, arg) {
     switch (kind) {
       case 'edit': setEditingId(note.id); return;
+      case 'people': setSharing(note); return;
       case 'mergeInto': setPicker({ mode: 'merge', ids: [note.id] }); return;
       case 'addToProject': setPicker({ mode: 'project', ids: [note.id] }); return;
       case 'pin':
@@ -377,11 +403,15 @@ export default function QuickInboxPage() {
     <div className="glass-card p-10 text-center">
       <Inbox size={30} className="mx-auto mb-2 text-navy-200 dark:text-white/20" />
       <p className="text-sm text-navy-600 dark:text-white/50">
-        {filter === 'review' ? 'Nothing needs review.' : filter === 'undone' ? 'Nothing deleted.' : 'No notes here yet.'}
+        {sharedOnly ? 'Nothing is shared with you yet.'
+          : filter === 'shared' ? 'Nothing shared yet. Open a list or note and tap “Share with…”.'
+            : filter === 'review' ? 'Nothing needs review.' : filter === 'undone' ? 'Nothing deleted.' : 'No notes here yet.'}
       </p>
-      <Link to="/quick" className="inline-block mt-3 text-sm font-semibold text-gold-600 dark:text-gold-400">
-        Record a quick note →
-      </Link>
+      {!sharedOnly && filter !== 'shared' && (
+        <Link to="/quick" className="inline-block mt-3 text-sm font-semibold text-gold-600 dark:text-gold-400">
+          Record a quick note →
+        </Link>
+      )}
     </div>
   ) : (
     <div className="flex flex-col gap-6">
@@ -420,11 +450,33 @@ export default function QuickInboxPage() {
     <div className={`p-4 sm:p-6 ${width} mx-auto ${selectMode ? 'pb-32' : 'pb-28'}`}>
       <QuickToast toast={toast} onDismiss={dismissToast} />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Quick Capture</h1>
-        <QuickTabs reviewCount={counts.review} />
+        <h1 className="text-2xl font-bold text-navy-900 dark:text-white">{sharedOnly ? 'Shared with me' : 'Quick Capture'}</h1>
+        {!sharedOnly && <QuickTabs reviewCount={counts.review} />}
       </div>
 
-      <div className="overflow-x-auto -mx-1 px-1 mb-4">
+      {sharedOnly && (
+        <>
+          <p className="text-sm text-navy-500 dark:text-white/50 -mt-2 mb-4">
+            Lists, notes and projects other people shared with you. Changes show up for everyone right away.
+          </p>
+          {sharedProjects.length > 0 && (
+            <section aria-label="Shared projects" className="mb-6">
+              <h2 className="mb-2.5 px-1 text-xs font-semibold uppercase tracking-wider text-navy-400 dark:text-white/40">Projects</h2>
+              <div className="flex flex-col gap-2">
+                {sharedProjects.map(p => (
+                  <Link key={p.id} to={`/projects/${p.id}`} className="quick-card flex items-center gap-3 px-4 py-3">
+                    <FolderKanban size={18} className="text-gold-500 shrink-0" />
+                    <span className="flex-1 min-w-0 truncate font-semibold text-navy-900 dark:text-white">{p.name}</span>
+                    {p.sharedFrom && <span className="text-xs text-navy-500 dark:text-white/50 shrink-0">{p.sharedFrom.name}’s{p.sharedFrom.role === 'view' ? ' · view' : ''}</span>}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {!sharedOnly && <div className="overflow-x-auto -mx-1 px-1 mb-4">
         <div className="tab-bar w-max">
           {FILTERS.map(f => (
             <button key={f.key} className={`tab-item shrink-0 ${filter === f.key ? 'active' : ''}`} onClick={() => setFilter(f.key)}>
@@ -435,15 +487,17 @@ export default function QuickInboxPage() {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
-      <div className="flex justify-end -mt-2 mb-3">
-        {selectMode ? (
-          <button className="btn-ghost text-sm" onClick={exitSelect}><X size={15} /> Done selecting</button>
-        ) : (
-          <button className="btn-ghost text-sm" onClick={() => enterSelect(null)}><CheckSquare size={15} /> Select</button>
-        )}
-      </div>
+      {!sharedOnly && (
+        <div className="flex justify-end -mt-2 mb-3">
+          {selectMode ? (
+            <button className="btn-ghost text-sm" onClick={exitSelect}><X size={15} /> Done selecting</button>
+          ) : (
+            <button className="btn-ghost text-sm" onClick={() => enterSelect(null)}><CheckSquare size={15} /> Select</button>
+          )}
+        </div>
+      )}
 
       <ArrivalBanner />
 
@@ -501,8 +555,19 @@ export default function QuickInboxPage() {
       )}
       {combining && <CombineDialog notes={selectedNotes} onClose={() => setCombining(false)} onDone={combined} />}
 
-      {editing && (
-        <QuickNoteEditor note={editing} onClose={() => setEditingId(null)} onChanged={replace} />
+      {editing && (editing.sharedFrom
+        ? <SharedNoteEditor note={editing} onClose={() => setEditingId(null)} onChanged={replace} />
+        : <QuickNoteEditor note={editing} onClose={() => setEditingId(null)} onChanged={replace} />)}
+
+      {sharing && (
+        <ShareSheet
+          kind="note"
+          id={sharing.id}
+          title={sharing.title}
+          onClose={() => setSharing(null)}
+          onChanged={load}
+          onLeft={() => { if (routeId === sharing.id) navigate('/quick/inbox', { replace: true }); load(); }}
+        />
       )}
     </div>
   );

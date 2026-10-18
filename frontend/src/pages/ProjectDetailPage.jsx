@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, FolderKanban, Pencil, Archive, ArchiveRestore, Trash2, Sparkles, Combine, X, Check, RotateCcw } from 'lucide-react';
+import { ArrowLeft, FolderKanban, Pencil, Archive, ArchiveRestore, Trash2, Sparkles, Combine, X, Check, RotateCcw, Users } from 'lucide-react';
 import {
   getProject, updateProject, removeNoteFromProject, resummarizeProject, deleteProject, mergeProject, quickAudioUrl,
 } from '../lib/api';
@@ -9,6 +9,9 @@ import QuickAudio from '../components/quick/QuickAudio';
 import { TranscriptToggle } from '../components/quick/QuickSummary';
 import UpdatesTimeline from '../components/quick/UpdatesTimeline';
 import TargetPicker from '../components/quick/TargetPicker';
+import ShareSheet from '../components/quick/ShareSheet';
+import { onQuickChanged } from '../lib/uiBus';
+import SharedBadge from '../components/quick/SharedBadge';
 import { QUICK_TYPES, cardTime, summaryPreview } from '../components/quick/quickMeta';
 
 /** Project: living summary on top, then the notes (newest first). */
@@ -21,12 +24,14 @@ export default function ProjectDetailPage() {
   const [draft, setDraft] = useState({ name: '', aliases: '' });
   const [merging, setMerging] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(() => {
     getProject(id).then(p => { setProject(p); setError(''); })
       .catch(err => setError(err.response?.data?.error || 'Project not found'));
   }, [id]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => onQuickChanged(() => load()), [load]); // live changes (shared projects)
 
   // The living summary is written in the background: poll while it's pending
   useEffect(() => {
@@ -86,9 +91,16 @@ export default function ProjectDetailPage() {
                 {project.aliases?.length > 0 && ` · also called ${project.aliases.join(', ')}`}
                 {archived && ' · archived'}
               </p>
+              {(project.sharedFrom || project.sharedWith?.length > 0) && <div className="mt-1.5"><SharedBadge note={project} /></div>}
             </div>
           </div>
+          {project.sharedFrom ? (
+            <div className="flex flex-wrap gap-1 mt-2">
+              <button className="btn-ghost text-xs" onClick={() => setSharing(true)}><Users size={13} /> Sharing</button>
+            </div>
+          ) : (
           <div className="flex flex-wrap gap-1 mt-2">
+            <button className="btn-ghost text-xs" onClick={() => setSharing(true)}><Users size={13} /> Share with…</button>
             <button className="btn-ghost text-xs" onClick={() => { setDraft({ name: project.name, aliases: (project.aliases || []).join(', ') }); setEditing(true); }}><Pencil size={13} /> Rename / aliases</button>
             <button className="btn-ghost text-xs" onClick={() => act('archive', async () => setProject(await updateProject(id, { status: archived ? 'active' : 'archived' })))}>
               {archived ? <><ArchiveRestore size={13} /> Unarchive</> : <><Archive size={13} /> Archive</>}
@@ -101,7 +113,11 @@ export default function ProjectDetailPage() {
               <Trash2 size={13} /> Delete
             </button>
           </div>
+          )}
         </div>
+      )}
+      {sharing && (
+        <ShareSheet kind="project" id={id} title={project.name} onClose={() => setSharing(false)} onChanged={load} onLeft={() => navigate('/shared')} />
       )}
       {error && <p className="text-sm text-red-500 dark:text-red-400 mb-3">{error}</p>}
 
@@ -111,9 +127,9 @@ export default function ProjectDetailPage() {
           <h2 className="text-xs font-bold uppercase tracking-wider text-gold-600 dark:text-gold-400 flex items-center gap-1.5">
             <Sparkles size={13} /> Living summary
           </h2>
-          <button className="btn-ghost text-xs" onClick={() => act('resum', async () => setProject({ ...project, ...(await resummarizeProject(id)) }))} disabled={project.livingSummaryStatus === 'pending' || !project.notes.length}>
+          {!project.sharedFrom && <button className="btn-ghost text-xs" onClick={() => act('resum', async () => setProject({ ...project, ...(await resummarizeProject(id)) }))} disabled={project.livingSummaryStatus === 'pending' || !project.notes.length}>
             <RotateCcw size={13} className={project.livingSummaryStatus === 'pending' ? 'animate-spin' : ''} /> Refresh
-          </button>
+          </button>}
         </div>
         {project.livingSummaryStatus === 'pending' && !project.livingSummary ? (
           <div className="space-y-2"><div className="h-3 w-11/12 rounded bg-navy-100 dark:bg-white/10 animate-pulse" /><div className="h-3 w-3/4 rounded bg-navy-100 dark:bg-white/10 animate-pulse" /></div>
@@ -150,13 +166,15 @@ export default function ProjectDetailPage() {
                   <TranscriptToggle transcript={n.transcript} />
                   {n.audioFile && <QuickAudio src={quickAudioUrl(n.id)} durationSec={n.durationSec} />}
                   <UpdatesTimeline note={n} />
-                  <button
-                    className="btn-ghost text-xs mt-2 text-red-500 dark:text-red-400"
-                    onClick={() => act(`rm:${n.id}`, async () => setProject(await removeNoteFromProject(id, n.id)))}
-                    disabled={busy === `rm:${n.id}`}
-                  >
-                    <X size={13} /> Remove from project
-                  </button>
+                  {!project.sharedFrom && (
+                    <button
+                      className="btn-ghost text-xs mt-2 text-red-500 dark:text-red-400"
+                      onClick={() => act(`rm:${n.id}`, async () => setProject(await removeNoteFromProject(id, n.id)))}
+                      disabled={busy === `rm:${n.id}`}
+                    >
+                      <X size={13} /> Remove from project
+                    </button>
+                  )}
                 </div>
               </li>
             );

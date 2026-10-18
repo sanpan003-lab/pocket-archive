@@ -5,6 +5,28 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.1.0 — Oct 18, 2026
+
+### Sharing
+- Share a list, note or project with someone on your server: open it → **Share with…** → pick a person → **Can edit** or **Can view**. Change or remove access any time; the other person can **Leave**
+- People with *Can edit* can add, check off, edit and remove items and change the text; only you can delete, combine, move it or change who it's shared with. Sharing a project shares its notes
+- New **Shared with me** page, a **Shared** filter in the Inbox, and a badge with the owner's initials on shared notes
+- See who did what: initials next to items someone else added, and an **Activity** list on shared notes ("Jane added Eggs · 2 min ago")
+
+### Live updates
+- Changes show up on everyone's screen right away: lists, the Inbox, projects, and the widget while the app is open, with a short "Jane added Eggs" message
+- Two people can edit the same list at the same time without losing anything
+- Offline? Checking, adding or editing items still works; the changes are kept on the device ("Saved on this device") and sent when you're back online
+
+### Notifications
+- Settings → **Shared lists**: get a notification for every change, a summary, or nothing, with quiet hours. The phone checks every 15 minutes in the background, and the watch shows them too
+- Optional (off by default): **let people on shared lists know when you're at the store** — they see "Jane is at Publix", never your location
+
+### Also
+- Location reminders on shared errands go off on both phones
+- Saying "add yogurt to the Publix list" when you have your own Publix list and one shared with you asks **Add to which list?**
+- Admins can set a **Family calendar** (Settings → Google Calendar). Leave it empty and events on shared lists go to the calendar of whoever created them
+
 ## 2.0.0 — Oct 18, 2026
 
 ### Accounts

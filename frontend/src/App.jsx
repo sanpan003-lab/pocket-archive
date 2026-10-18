@@ -91,6 +91,7 @@ export default function App() {
             <Route path="quick/inbox" element={<QuickInboxPage />} />
             {/* One note, opened over the inbox (deep links, widget, Back button) */}
             <Route path="quick/:id"   element={<QuickInboxPage />} />
+            <Route path="shared"       element={<QuickInboxPage key="shared" sharedOnly />} />
             <Route path="projects"     element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="recordings/:id" element={<RecordingDetail />} />

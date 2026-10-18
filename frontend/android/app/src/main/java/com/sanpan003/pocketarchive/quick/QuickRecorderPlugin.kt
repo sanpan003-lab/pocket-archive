@@ -38,6 +38,9 @@ class QuickRecorderPlugin : Plugin() {
         @Volatile private var instance: QuickRecorderPlugin? = null
         @Volatile private var appVisible = false
         @Volatile private var pendingRoute: String? = null
+
+        /** The app's screens are in front (background checks stay quiet then) */
+        fun isAppVisible() = appVisible
         private val main = Handler(Looper.getMainLooper())
 
         /**
@@ -93,6 +96,7 @@ class QuickRecorderPlugin : Plugin() {
         if (TokenStore.token(context) != null) {
             ErrandWorker.schedulePeriodic(context)
             ErrandWorker.syncNow(context)
+            ChangesWorker.schedule(context)
         }
     }
 
@@ -187,7 +191,22 @@ class QuickRecorderPlugin : Plugin() {
         WidgetData.refreshAsync(context)
         ErrandWorker.schedulePeriodic(context)
         ErrandWorker.syncNow(context)
+        ChangesWorker.schedule(context)
         WearBridge.async { WearBridge.sendToken(context) } // the watch's direct-upload fallback
+        call.resolve()
+    }
+
+    /** Someone changed a shared list while the app is open (live event) → redraw the widget now */
+    @PluginMethod
+    fun refreshWidget(call: PluginCall) {
+        if (QuickToggleWidget.hasWidgets(context)) WidgetData.refreshAsync(context)
+        call.resolve()
+    }
+
+    /** Settings → Shared lists → "Check now" (and tests): run the background check once */
+    @PluginMethod
+    fun checkSharedChanges(call: PluginCall) {
+        ChangesWorker.runNow(context, (call.getInt("delayMs") ?: 0).toLong().coerceIn(0, 60_000))
         call.resolve()
     }
 
@@ -236,6 +255,7 @@ class QuickRecorderPlugin : Plugin() {
         TokenStore.setToken(context, null)
         WidgetData.clear(context) // don't keep note titles on the home screen after signing out
         ErrandWorker.cancelAll(context)
+        ChangesWorker.cancel(context)
         ErrandSync.clear(context)
         WearBridge.clearToken(context) // signed out → the watch can't upload either
         call.resolve()

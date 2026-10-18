@@ -7,6 +7,8 @@ import NoteContent from './NoteContent';
 import NoteToolbar from './NoteToolbar';
 import { noteColorStyle, resolveOpenStyle } from './noteHelpers';
 import AskPrompt from './AskPrompt';
+import SharedBadge from './SharedBadge';
+import NoteActivity from './NoteActivity';
 
 const fullDate = iso => (iso ? new Date(iso).toLocaleString('en-US', {
   weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -23,6 +25,7 @@ function NoteHeader({ note, projectName }) {
         {review && <span className="badge badge-orange">Needs review</span>}
         {note.undone && <span className="badge badge-slate">Deleted</span>}
         {note.pinned && <span className="badge badge-gold"><Pin size={11} /> Pinned</span>}
+        <SharedBadge note={note} />
         {projectName && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
         {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
       </div>
@@ -44,6 +47,7 @@ function NotePanelBody({ note, projectName, onChanged, arrivalReady, onReload })
       <div className="px-5 sm:px-6 pt-1 pb-3" data-note-body>
         {pending && <div className="mb-3"><AskPrompt note={note} onResolved={() => onReload?.()} /></div>}
         <NoteContent note={note} onChanged={onChanged} projectName={projectName} arrivalReady={arrivalReady} />
+        <NoteActivity note={note} />
       </div>
     </>
   );

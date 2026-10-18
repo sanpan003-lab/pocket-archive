@@ -90,3 +90,8 @@ Sets a temporary password (must be changed at next sign-in) and clears the locko
   the phone holds a watch recording for a user who isn't signed in, and the watch never uploads one
   user's recording with another user's token.
 - App icon choice and Recording & shortcuts stay per device.
+
+## Sharing
+
+Since 2.1.0 people can share lists, notes and projects with each other (Can edit / Can view), with
+live updates and background notifications. See [sharing.md](sharing.md).

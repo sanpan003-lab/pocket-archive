@@ -23,6 +23,7 @@ object Notifications {
     const val CH_RESULT_REVIEW = "result_review"     // single long buzz
     const val CH_RESULT_SILENT = "result_silent"     // "Sound & vibration" off
     const val CH_ARRIVAL = "errand_arrival"          // "You're at Publix" — double buzz
+    const val CH_SHARED = "shared_changes"           // "Jane added Eggs" (shared lists, background check)
 
     const val ID_RECORDING = 1001
     const val ID_RESULT = 1002
@@ -60,6 +61,9 @@ object Notifications {
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = PATTERN_OK
+            },
+            NotificationChannel(CH_SHARED, "Shared lists", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Changes other people make to lists and notes you share"
             },
             NotificationChannel(CH_RESULT_SILENT, "Saved notes (silent)", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Confirmations when Sound & vibration is turned off in the app"

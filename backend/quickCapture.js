@@ -124,7 +124,7 @@ const FIELD_GROUPS = [
   { stamp: 'audioUpdatedAt',   fields: ['audioFile', 'durationSec', 'audioConverted', 'audioMigration', 'audioUpdatedAt'] },
 ];
 
-function createStore(archivePath) {
+function createStore(archivePath, onWrite = null) {
   const dir      = path.join(archivePath, '07_Quick_Notes');
   const audioDir = path.join(dir, 'audio');
   const mediaDir = path.join(dir, 'media');
@@ -157,6 +157,7 @@ function createStore(archivePath) {
     const tmp = fileFor(note.id) + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(note, null, 2), 'utf8');
     fs.renameSync(tmp, fileFor(note.id));
+    if (onWrite) { try { onWrite(note); } catch { /* listeners never break a save */ } }
     return note;
   }
 
@@ -875,10 +876,101 @@ function describeActions(note, recordingTitle) {
  * }
  */
 function createQuickCapture(deps) {
-  const store = createStore(deps.archivePath);
-  // Per-user Google Calendar (users.json googleCalendarId; the admin falls back to GOOGLE_CALENDAR_ID)
+  const store = createStore(deps.archivePath, note => deps.onNoteWrite?.(note));
+  // Per-user Google Calendar (users.json googleCalendarId; the admin falls back to GOOGLE_CALENDAR_ID).
+  // Shared items can go to a family calendar instead (deps.calendarIdFor).
   const calendarId = () => (deps.calendarId ? deps.calendarId() : process.env.GOOGLE_CALENDAR_ID) || null;
-  const syncCal = note => syncGoogle(note, calendarId());
+  const calendarIdFor = note => (deps.calendarIdFor ? deps.calendarIdFor(note) : calendarId()) || null;
+  const syncCal = note => syncGoogle(note, calendarIdFor(note));
+
+  // Sharing: notes other people shared with this user (editable ones) — { list(), read(id), write(note) }.
+  // Smart append and the errand feeds see them; writes go to the owner's copy.
+  const foreign = deps.foreign || null;
+  const isForeign = id => !!foreign && !store.read(id) && !!foreign.read(id);
+
+  // Who changed what ("She added Eggs · 2 min ago")
+  const actorOf = req => (req?.user ? { id: req.user.id, name: req.user.displayName || req.user.username } : null);
+  function logActivity(note, actor, action, text = null) {
+    if (!actor) return;
+    note.activity = [...(note.activity || []), { at: new Date().toISOString(), by: actor.id, byName: actor.name, action, text: text ? String(text).slice(0, 120) : null }].slice(-50);
+    note.updatedBy = actor.id;
+  }
+
+  /**
+   * Item-level operations (live collaboration). Never replaces the whole list: concurrent edits to
+   * different items all survive; the same field = last write wins. Replays are harmless (client item ids,
+   * missing items skipped). ops: [{ op: addItem|removeItem|toggleItem|editItem|editText|rename, ... }]
+   */
+  function applyOps(note, ops, actor) {
+    const applied = [], skipped = [];
+    const now = new Date().toISOString();
+    const items = note.items = [...(note.items || [])];
+    const find = id => items.findIndex(i => i.id === id);
+    const who = actor?.id || null;
+    for (const raw of (Array.isArray(ops) ? ops : []).slice(0, 100)) {
+      const o = raw || {};
+      const i = o.itemId ? find(o.itemId) : -1;
+      switch (o.op) {
+        case 'addItem': {
+          const text = cleanItemText(o.text);
+          if (!text) { skipped.push({ ...o, reason: 'empty' }); break; }
+          if (o.itemId && i >= 0) { skipped.push({ ...o, reason: 'exists' }); break; } // replay
+          if (items.length >= 100) { skipped.push({ ...o, reason: 'full' }); break; }
+          const id = o.itemId && /^[\w-]{4,40}$/.test(o.itemId) ? o.itemId : newItemId();
+          const item = { id, text, done: false, v: 1, addedBy: who, addedAt: now };
+          if (Number.isInteger(o.index) && o.index >= 0 && o.index < items.length) items.splice(o.index, 0, item); else items.push(item);
+          logActivity(note, actor, 'added', text);
+          applied.push({ op: o.op, itemId: id });
+          break;
+        }
+        case 'removeItem':
+          if (i < 0) { skipped.push({ ...o, reason: 'missing' }); break; }
+          logActivity(note, actor, 'removed', items[i].text);
+          items.splice(i, 1);
+          applied.push({ op: o.op, itemId: o.itemId });
+          break;
+        case 'toggleItem': {
+          if (i < 0) { skipped.push({ ...o, reason: 'missing' }); break; }
+          const done = typeof o.done === 'boolean' ? o.done : !items[i].done;
+          items[i] = { ...items[i], done, v: (items[i].v || 1) + 1, checkedBy: done ? who : null, checkedAt: done ? now : null, updatedBy: who, updatedAt: now };
+          logActivity(note, actor, done ? 'checked' : 'unchecked', items[i].text);
+          applied.push({ op: o.op, itemId: o.itemId });
+          break;
+        }
+        case 'editItem': {
+          const text = cleanItemText(o.text);
+          if (i < 0 || !text) { skipped.push({ ...o, reason: i < 0 ? 'missing' : 'empty' }); break; }
+          if (items[i].text !== text) {
+            logActivity(note, actor, 'edited', `${items[i].text} → ${text}`);
+            items[i] = { ...items[i], text, v: (items[i].v || 1) + 1, updatedBy: who, updatedAt: now };
+          }
+          applied.push({ op: o.op, itemId: o.itemId });
+          break;
+        }
+        case 'editText': {
+          const text = String(o.text ?? '').slice(0, 20000);
+          if (text !== (note.content || '')) { note.content = text; note.contentEdited = true; logActivity(note, actor, 'edited the text'); }
+          applied.push({ op: o.op });
+          break;
+        }
+        case 'rename': {
+          const title = String(o.title || '').trim().slice(0, 120);
+          if (!title) { skipped.push({ ...o, reason: 'empty' }); break; }
+          if (title !== note.title) { logActivity(note, actor, 'renamed', title); note.title = title; }
+          applied.push({ op: o.op });
+          break;
+        }
+        default:
+          skipped.push({ ...o, reason: 'unknown op' });
+      }
+    }
+    if (note.type === 'errand' && applied.some(a => /Item$/.test(a.op))) {
+      const allDone = items.length > 0 && items.every(x => x.done);
+      if (allDone) setErrandDone(note, true);
+      else if (note.errandDone && applied.some(a => a.op !== 'removeItem')) setErrandDone(note, false);
+    }
+    return { applied, skipped };
+  }
   const usage = kind => { try { deps.onUsage?.(kind); } catch { /* counters are best effort */ } };
   const places = deps.places || null;
   const errandSettings = () => places?.getErrandSettings() || { arrivalForStoreErrands: true, arrivalExpiryDays: 14 };
@@ -1040,10 +1132,19 @@ function createQuickCapture(deps) {
 
   // Smart append engine (needs the helpers above; created lazily so all are defined)
   let appender = null;
+  // Your notes + the lists shared with you that you can edit (writes go to the owner's copy)
+  const appendStore = foreign ? {
+    ...store,
+    read: id => store.read(id) || foreign.read(id) || null,
+    list: () => [...store.list(), ...foreign.list()],
+    write: n => (isForeign(n.id) ? foreign.write(n) : store.write(n)),
+  } : store;
   const smart = () => appender || (appender = createAppender({
-    store, projects, deps,
+    store: appendStore, projects, deps,
     finalize, syncGoogle, updateNote, cleanItemText, setErrandDone,
     queueCalendarSync,
+    self: () => deps.self?.() || null,
+    logActivity: (...a) => logActivity(...a),
     markSummaryPending: n => markSummaryPending(n),
     queueSummaryLater: id => setImmediate(() => queueSummary(id)),
     normalizeWhen, parseZoned, toZonedIso, shortWhen, DATE_ONLY_RE,
@@ -1051,6 +1152,7 @@ function createQuickCapture(deps) {
 
   function finalize(note) {
     note.actions = describeActions(note, note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null);
+    if (isForeign(note.id)) return foreign.write(note);
     return store.write(note);
   }
 
@@ -1747,6 +1849,7 @@ function createQuickCapture(deps) {
       }
 
       const wasType = note.type;
+      const before = { title: note.title, content: note.content };
       try {
         if (typeof body.content === 'string' && body.content.trim() !== (note.content || '').trim()) {
           note.contentEdited = true; // the summarizer trusts the user's corrections
@@ -1782,6 +1885,8 @@ function createQuickCapture(deps) {
         }
         if (note.status === 'needs_review') note.status = 'ok';
         note.unlinkedFrom = null;
+        if (before.title !== note.title) logActivity(note, actorOf(req), 'renamed', note.title);
+        if ((before.content || '') !== (note.content || '')) logActivity(note, actorOf(req), 'edited the text');
         await syncCal(note);
         const resummarize = body.regenerateSummary === true && markSummaryPending(note);
         res.json(finalize(note));
@@ -1806,6 +1911,20 @@ function createQuickCapture(deps) {
       return note;
     }
 
+    // POST /api/quick/:id/ops — { ops: [...] } item-level live edits (see applyOps); offline queues replay these
+    app.post('/api/quick/:id/ops', (req, res) => {
+      const note = loadNoteRoute(req, res);
+      if (!note) return;
+      const ops = Array.isArray(req.body?.ops) ? req.body.ops : [];
+      const itemOps = ops.some(o => /Item$/.test(o?.op || ''));
+      if (itemOps && note.type !== 'errand' && note.format !== 'list') return res.status(409).json({ error: 'Only lists and errands have a checklist' });
+      const result = applyOps(note, ops, actorOf(req));
+      rememberOrigin(req);
+      const saved = finalize(note);
+      if (result.applied.length) queueCalendarSync(note.id);
+      res.json({ note: saved, ...result });
+    });
+
     // PATCH /api/quick/:id/items — { action: 'toggle'|'add'|'edit'|'remove', itemId?, text?, done? }
     app.patch('/api/quick/:id/items', (req, res) => {
       const note = loadErrand(req, res);
@@ -1816,20 +1935,17 @@ function createQuickCapture(deps) {
       const needItem = ['toggle', 'edit', 'remove'].includes(action);
       if (needItem && idx < 0) return res.status(404).json({ error: 'Item not found' });
 
-      if (action === 'toggle') {
-        items[idx] = { ...items[idx], done: typeof done === 'boolean' ? done : !items[idx].done };
-      } else if (action === 'add' || action === 'edit') {
-        const clean = cleanItemText(text);
-        if (!clean) return res.status(400).json({ error: 'text is required' });
-        if (action === 'add') {
-          if (items.length >= 100) return res.status(400).json({ error: 'A list can have up to 100 items' });
-          items.push({ id: newItemId(), text: clean, done: false });
-        } else {
-          items[idx] = { ...items[idx], text: clean };
-        }
-      } else if (action === 'remove') {
-        items.splice(idx, 1);
-      } else if (action === 'reorder') {
+      const opName = { toggle: 'toggleItem', add: 'addItem', edit: 'editItem', remove: 'removeItem' }[action];
+      if (opName) {
+        if ((action === 'add' || action === 'edit') && !cleanItemText(text)) return res.status(400).json({ error: 'text is required' });
+        if (action === 'add' && items.length >= 100) return res.status(400).json({ error: 'A list can have up to 100 items' });
+        applyOps(note, [{ op: opName, itemId, text, done }], actorOf(req));
+        rememberOrigin(req);
+        res.json(finalize(note));
+        queueCalendarSync(note.id);
+        return;
+      }
+      if (action === 'reorder') {
         const order = Array.isArray(req.body.order) ? req.body.order : [];
         const byId = new Map(items.map(i => [i.id, i]));
         const sorted = order.map(id => byId.get(id)).filter(Boolean);
@@ -1859,6 +1975,7 @@ function createQuickCapture(deps) {
         note.reminderDone = done;
         return res.json(finalize(note));
       }
+      if (!!note.errandDone !== (req.body?.done !== false)) logActivity(note, actorOf(req), req.body?.done !== false ? 'done' : 'reopened');
       setErrandDone(note, req.body?.done !== false);
       rememberOrigin(req);
       res.json(finalize(note));
@@ -1886,7 +2003,7 @@ function createQuickCapture(deps) {
           branches:  [{ key: `${g.when === 'leave' ? 'lv' : 'ar'}:${g.placeId || 'p'}:${g.lat.toFixed(5)},${g.lng.toFixed(5)}`,
             lat: g.lat, lng: g.lng, name: g.name, address: g.address || null, distanceM: 0 }],
         }));
-        const errands = store.list()
+        const errands = [...store.list(), ...(foreign?.listAll?.() || [])]
           .filter(n => isActiveArrival(n, settings, today))
           .map(n => ({
             id:         n.id,
@@ -1994,7 +2111,7 @@ function createQuickCapture(deps) {
     // GET /api/errands/open — every unfinished errand with its checklist (the watch's Errands screen)
     app.get('/api/errands/open', (_req, res) => {
       try {
-        const errands = store.list()
+        const errands = [...store.list(), ...(foreign?.listAll?.() || [])]
           .filter(n => n.type === 'errand' && !n.undone && !n.errandDone && !n.hidden && !n.cancelled && n.status !== 'pending_decision')
           .slice(0, 20)
           .map(n => ({
@@ -2019,6 +2136,11 @@ function createQuickCapture(deps) {
       if (!note) return;
       if (note.arrival) note.arrival = { ...note.arrival, triggeredOn: todayNY() };
       if (note.geo) note.geo = { ...note.geo, triggeredAt: new Date().toISOString(), triggerCount: (note.geo.triggerCount || 0) + 1 };
+      // "Let people on shared lists know when I'm at the store" (off unless that person turned it on)
+      const actor = actorOf(req);
+      if (actor && note.type === 'errand' && (note.sharedWith || []).length + (deps.isSharedNote?.(note) ? 1 : 0) > 0 && deps.userSettings?.(actor.id)?.notify?.shareLocation) {
+        logActivity(note, actor, 'at-store', note.place?.name || note.place?.query || note.placeSpec?.query || null);
+      }
       res.json({ success: true, expiresOn: arrivalExpiresOn(note, errandSettings()) });
       store.write(note);
     });
@@ -2044,7 +2166,7 @@ function createQuickCapture(deps) {
       const choice = ['yes', 'new', 'other'].includes(req.body?.choice) ? req.body.choice : 'new';
       try {
         rememberOrigin(req);
-        const confirmation = await smart().resolvePending(note, choice, choice === 'other' ? destOf(req.body) : null);
+        const confirmation = await smart().resolvePending(note, choice, choice === 'other' ? destOf(req.body) : null, req.body?.targetId || null);
         if (choice !== 'yes' && note.kind !== 'append' && markSummaryPending(note)) queueSummary(note.id);
         res.json({ ...captureResponse(store.read(note.id)), confirmation: { ...confirmation, captureId: note.id, undoable: true } });
       } catch (err) { fail(res, err); }
@@ -2172,9 +2294,9 @@ function createQuickCapture(deps) {
       }
 
       const ids = note.googleEventIds || [];
-      if (ids.length && gcal.isConfigured(calendarId())) {
+      if (ids.length && gcal.isConfigured(calendarIdFor(note))) {
         try {
-          for (const eventId of ids) await gcal.deleteEvent(eventId, calendarId());
+          for (const eventId of ids) await gcal.deleteEvent(eventId, calendarIdFor(note));
           note.googleEventIds = [];
         } catch (err) {
           console.warn(`[quick] Could not delete Google event for ${id}: ${err.message}`);
@@ -2218,7 +2340,14 @@ function createQuickCapture(deps) {
     return store.list().filter(n => !n.undone && !n.hidden).length;
   }
 
-  return { register, start, unlinkRecording, relinkRecording, countActive, projects };
+  /** A shared note edited through another user's smart append → save + calendar in this (the owner's) context */
+  function saveFromShare(note) {
+    finalize(note);
+    queueCalendarSync(note.id);
+    return note;
+  }
+
+  return { register, start, unlinkRecording, relinkRecording, countActive, projects, store, saveFromShare, logActivity, applyOps };
 }
 
 module.exports = {

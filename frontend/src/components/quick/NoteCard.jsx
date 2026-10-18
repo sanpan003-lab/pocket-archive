@@ -9,6 +9,7 @@ import QuickAudio from './QuickAudio';
 import AskPrompt from './AskPrompt';
 import NoteContent from './NoteContent';
 import NoteToolbar from './NoteToolbar';
+import SharedBadge, { PersonDot } from './SharedBadge';
 import { hasChecklist, previewText, noteColorStyle } from './noteHelpers';
 
 const capturedAt = n => n.capturedAt || n.createdAt;
@@ -89,6 +90,7 @@ export default function NoteCard({
           {selectBox}
           {s.showBadge && <meta.icon size={15} className="shrink-0" style={{ color: meta.color }} aria-hidden="true" />}
           {note.pinned && <Pin size={13} className="shrink-0 text-gold-500 fill-current" aria-label="Pinned" />}
+          {note.sharedFrom && <PersonDot person={note.sharedFrom} size={18} />}
           <span className="flex-1 min-w-0 truncate text-sm font-semibold text-navy-900 dark:text-white">{note.title}</span>
           {hasChecklist(note) && (note.items || []).length > 0 && (
             <span className="shrink-0 text-xs tabular-nums text-navy-400 dark:text-white/45">{note.items.filter(i => i.done).length}/{note.items.length}</span>
@@ -125,7 +127,8 @@ export default function NoteCard({
                 ? <span className={`badge ${meta.badge} !px-1.5`} title={badgeLabel}><meta.icon size={12} /><span className="sr-only">{badgeLabel}</span></span>
                 : <span className={`badge ${meta.badge} whitespace-nowrap`}><meta.icon size={11} /> {badgeLabel}</span>)}
               {note.pinned && <Pin size={13} className="text-gold-500 fill-current" aria-label="Pinned" />}
-              {review && <span className="badge badge-orange">Needs review</span>}
+              <SharedBadge note={note} compact={grid} />
+              {review &&<span className="badge badge-orange">Needs review</span>}
               {pending && <span className="badge badge-gold">Waiting for your answer</span>}
               {note.undone && <span className="badge badge-slate">Deleted</span>}
               {projectName && !grid && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}

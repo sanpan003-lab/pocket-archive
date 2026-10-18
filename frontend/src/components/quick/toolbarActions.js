@@ -1,22 +1,29 @@
 import {
   Pencil, Pin, PinOff, Palette, FolderInput, Merge, Share2, Trash2, RotateCcw, Sparkles,
-  CheckCircle2, Split, RefreshCw,
+  CheckCircle2, Split, RefreshCw, Users,
 } from 'lucide-react';
+import { noteRole } from '../../lib/sharing';
 
 /** Every note action, in the default order. `when` hides it where it doesn't apply. */
 export const TOOLBAR_ACTIONS = [
-  { id: 'edit', label: 'Edit', icon: Pencil },
+  { id: 'edit', label: 'Edit', icon: Pencil, role: 'edit' },
   { id: 'pin', label: n => (n?.pinned ? 'Unpin' : 'Pin'), icon: n => (n?.pinned ? PinOff : Pin) },
   { id: 'color', label: 'Color', icon: Palette },
   { id: 'project', label: n => (n?.projectId ? 'Project…' : 'Add to project'), icon: FolderInput },
   { id: 'merge', label: 'Merge', icon: Merge },
-  { id: 'share', label: 'Share', icon: Share2 },
-  { id: 'done', label: n => (n?.errandDone ? 'Reopen' : 'Mark done'), icon: n => (n?.errandDone ? RotateCcw : CheckCircle2), when: n => n?.type === 'errand' },
-  { id: 'summarize', label: 'Summarize', icon: Sparkles, when: n => !!(n?.transcript || n?.content || n?.mediaText || (n?.items || []).length) },
+  { id: 'people', label: n => (n?.sharedFrom ? 'Sharing' : 'Share with…'), icon: Users, role: 'view' },
+  { id: 'share', label: 'Share', icon: Share2, role: 'view' },
+  { id: 'done', label: n => (n?.errandDone ? 'Reopen' : 'Mark done'), icon: n => (n?.errandDone ? RotateCcw : CheckCircle2), when: n => n?.type === 'errand', role: 'edit' },
+  { id: 'summarize', label: 'Summarize', icon: Sparkles, when: n => !!(n?.transcript || n?.content || n?.mediaText || (n?.items || []).length), role: 'edit' },
   { id: 'split', label: 'Split back', icon: Split, when: n => (n?.combinedGroups || []).length > 0 },
   { id: 'retry', label: 'Retry AI', icon: RefreshCw, when: n => n?.status === 'needs_review' },
   { id: 'delete', label: 'Delete', icon: Trash2, danger: true },
 ];
+
+// Notes shared with you: viewers get Sharing + Share, editors also Edit / Done / Summarize;
+// everything else (pin, color, project, merge, delete, …) is the owner's
+const RANK = { view: 0, edit: 1, owner: 2 };
+export const allowedFor = (action, note) => RANK[noteRole(note)] >= RANK[action.role || 'owner'];
 
 export const DEFAULT_ORDER = TOOLBAR_ACTIONS.map(a => a.id);
 const BY_ID = Object.fromEntries(TOOLBAR_ACTIONS.map(a => [a.id, a]));

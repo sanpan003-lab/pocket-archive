@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Check, Eye, RotateCcw, MoreHorizontal, SlidersHorizontal, X } from 'lucide-react';
 import { NOTE_COLORS } from '../../lib/appearance';
 import { useAppearance } from '../../context/appearanceStore';
-import { actionById, resolve, toolbarLayout, ACTION_KIND } from './toolbarActions';
+import { actionById, resolve, toolbarLayout, ACTION_KIND, allowedFor } from './toolbarActions';
 import ToolbarEditor from './ToolbarEditor';
 
 /** Keep-style color dots */
@@ -70,6 +70,7 @@ export default function NoteToolbar({ note, onAction, busy }) {
   const applies = id => {
     const a = actionById(id);
     if (id === 'color' && !settings.look.noteColors) return false;
+    if (!allowedFor(a, note)) return false;
     return !a.when || a.when(note);
   };
   const visible = order.filter(id => applies(id) && !hidden.has(id));
