@@ -343,6 +343,13 @@ private fun SettingsScreen() {
                     WatchPrefs.edit(ctx) { it.copy(countdown = !it.countdown) }
                 }
             }
+            item { ListHeader { Text("Updates", color = Gold) } }
+            item {
+                val status by WatchUpdater.status.collectAsState()
+                SettingButton("Check for updates", status.ifBlank { "Version ${WatchUpdater.installed(ctx).second}" }) {
+                    WatchUpdater.checkNow(ctx)
+                }
+            }
             item { ListHeader { Text("Home key", color = Gold) } }
             item {
                 Text(

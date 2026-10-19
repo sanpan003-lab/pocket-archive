@@ -5,6 +5,26 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.4.0 — Oct 19, 2026
+
+### Updates without a cable
+- The phone app and the watch app now **update themselves from your NAS**: no more USB or adb for new versions
+- When a new version is out you get a notification and a banner: **Update 2.4.x available · What’s new**, with **Update** or **Later**
+- **Settings → About** shows your version, **Check for updates** and when it last checked. Checks run when you open the app and once a day — on Wi-Fi only, or on any network if you prefer
+- Downloads show progress and pick up where they left off
+- Only real Pocket Archive builds are installed: every download is checked against its fingerprint and must be signed with the same key as the app you have
+- An update never interrupts a recording — it waits until you’re done
+- First time only: Android asks you to allow **Install unknown apps** for Pocket Archive (the app shows you where)
+
+### Watch
+- The watch checks for updates itself, or gets them through your phone when it has no network of its own
+- Watch Settings → **Check for updates**; the phone shows the watch’s version and has **Update watch**
+
+### For the admin
+- **Settings → Users → App updates**: what’s published, a held-back draft to **Publish** when you’re ready, and older versions to **Roll back** to
+- Every device shows its app version and **Up to date / Update available** (Settings → Users and Settings → Security → Devices)
+- Android can’t go back to an older version without uninstalling, so a rollback only stops devices that haven’t updated yet — the fix for a bad release is a newer build
+
 ## 2.3.0 — Oct 19, 2026
 
 ### Phone actions

@@ -528,6 +528,12 @@ app.use('/api/audio', express.static(DIRS.recordings, {
 accounts.registerPrivate(app);
 sharing.register(app);
 
+// Over-the-air updates for the phone and watch apps (ARCHIVE/_updates, device tokens only)
+const { createUpdates } = require('./updates');
+const updates = createUpdates({ archivePath: ARCHIVE_PATH, users });
+users.setDeviceDecorator(updates.annotate);
+updates.register(app, { requireAdmin });
+
 // Family calendar (admin, empty by default): events on shared items go there instead of the creator's calendar
 app.get('/api/admin/family-calendar', requireAdmin, (_req, res) => res.json({ calendarId: getConfig().familyCalendarId || '' }));
 app.put('/api/admin/family-calendar', requireAdmin, (req, res) => {

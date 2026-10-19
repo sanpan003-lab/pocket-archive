@@ -279,6 +279,8 @@ function createAccounts({ archivePath, contexts }) {
       ...users.publicUser(u),
       usage: safeUsage(u.id),
       devices: users.listDeviceTokens(u.id).length,
+      // Phone / watch app versions per device (over-the-air updates)
+      deviceList: users.listDeviceTokens(u.id).map(d => ({ id: d.id, name: d.name, lastUsedAt: d.lastUsedAt, apps: d.apps || {}, updateStatus: d.updateStatus || {} })),
     });
     const safeUsage = id => { try { return contexts.usageSummary(id); } catch { return null; } };
 

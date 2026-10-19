@@ -3,6 +3,7 @@ import { ChevronDown, Sparkles, X } from 'lucide-react';
 import { App as CapApp } from '@capacitor/app';
 import { CHANGELOG, WEB_VERSION, entryFor } from '../lib/changelog';
 import { isNative } from '../lib/platform';
+import AppUpdatePanel from './AppUpdatePanel';
 
 /** "*and*" → <em>and</em> (the changelog uses simple emphasis only) */
 function Rich({ text }) {
@@ -57,6 +58,7 @@ export function AboutSection() {
         <dd className="font-semibold text-navy-900 dark:text-white">{WEB_VERSION}</dd>
       </dl>
 
+      <AppUpdatePanel />
       <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mb-2">What’s new</h3>
       <div className="space-y-2">
         {CHANGELOG.map((e, i) => (

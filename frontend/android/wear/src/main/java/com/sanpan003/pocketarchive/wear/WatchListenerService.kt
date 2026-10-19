@@ -35,8 +35,25 @@ class WatchListenerService : WearableListenerService() {
             }
             Protocol.MSG_TOKEN_CLEAR -> WatchTokenStore.set(this, null, null)
             Protocol.MSG_ARRIVAL -> runCatching { showArrival(JSONObject(text)) }
+            // Phone → "Update watch"
+            WatchUpdater.MSG_UPDATE_NOW -> WatchUpdater.checkNow(this)
             // MSG_CAPTURE_ACK is handled by the live listener in PhoneLink.sendCapture
         }
+    }
+
+    /** An update APK relayed by the phone (the watch had no network of its own) */
+    override fun onChannelOpened(channel: com.google.android.gms.wearable.ChannelClient.Channel) {
+        if (!channel.path.startsWith("${WatchUpdater.CHANNEL_APK}/")) return
+        val ctx = applicationContext
+        Thread {
+            runCatching {
+                val client = com.google.android.gms.wearable.Wearable.getChannelClient(ctx)
+                com.google.android.gms.tasks.Tasks.await(client.getInputStream(channel), 30, java.util.concurrent.TimeUnit.SECONDS).use { input ->
+                    WatchUpdater.receiveFromPhone(ctx, channel.path, input)
+                }
+                client.close(channel)
+            }.onFailure { android.util.Log.w("WatchUpdater", "Relay from the phone failed: ${it.message}") }
+        }.start()
     }
 
     override fun onDataChanged(events: DataEventBuffer) {

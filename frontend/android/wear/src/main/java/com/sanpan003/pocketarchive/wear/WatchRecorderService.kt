@@ -190,6 +190,7 @@ class WatchRecorderService : Service() {
             SendWorker.sendNow(this)
         }
         RecordTileService.requestUpdate(this)
+        WatchUpdater.installPending(this) // an update waited for the recording to end
         finish()
     }
 

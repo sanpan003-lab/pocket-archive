@@ -88,6 +88,23 @@ inside the Android app (`android/`). The backend lives in
   `AccidentalStore.kt` (30 s Restore, weekly count, 3 s cooldown, `PocketCheck`), recorder service `EXTRA_SOURCE` ("app" skips pocket/confirm).
 - Debug build = `com.sanpan003.pocketarchive.debug` / "PA Debug" (src/debug/res) for device tests next to the real app.
 
+## Over-the-air updates (2.4.0) — docs/updates.md
+
+- Backend `updates.js`: `ARCHIVE/_updates/<phone|watch>/` (APKs, newest 3 kept, `latest.json`, `draft.json`); `/api/updates/:target/latest|apk|report`
+  need a DEVICE token (`req.device`; cookie session → 403); admin `/api/admin/updates…` (publish draft, discard, rollback).
+  Versions live on the device-token entry (`users.setDeviceApp`, `apps.phone|watch`); `users.setDeviceDecorator(updates.annotate)`
+  adds `updateStatus` to device lists. Security log: device id + versions only.
+- Publishing: `update-android.bat [draft]` → `scripts/publish-update.mjs` (to `P:\_updates`, or `--dir=`/`PA_UPDATES_DIR`) →
+  adb install only if something is connected → `verify-release --phone --published`. Tests point `--dir` at a fake archive.
+- Android `quick/AppUpdater.kt` (check/download/verify sha+package+version+signer/PackageInstaller session, deferred while
+  `RecorderState.recording`, `UpdateWorker` — one-time work is `app-update-now-*`, the daily check `app-update-daily`; never
+  reuse the periodic name with REPLACE, it cancels the daily check), `quick/WatchUpdates.kt` (watch version + phone→watch relay).
+  Plugin `getUpdateState/checkForUpdates/startUpdate/setUpdateSettings/openInstallSettings/updateWatch`, event `update`.
+  Web: `lib/appUpdate.js`, `UpdateBanner`, `AppUpdatePanel` (About), `AppUpdatesAdmin` (Users).
+- Watch `wear/WatchUpdater.kt` (direct check, or `/pa/update-request` → phone relays over channel `/pa/update-apk/<code>/<sha>`).
+- Device test needs a NEWER debug build signed with the debug key (`ota-dev/build-apks.sh` in the scratchpad builds 15 + 99 +
+  a wrong-key copy). Play Protect scans each new sideloaded build after the confirm ("Scanning…" → Install).
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

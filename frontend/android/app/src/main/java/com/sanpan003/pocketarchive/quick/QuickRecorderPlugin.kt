@@ -57,6 +57,11 @@ class QuickRecorderPlugin : Plugin() {
             main.post { instance?.deliver("navigate", JSObject().put("route", route)) }
         }
 
+        /** Over-the-air update state changed (banner, Settings → About) */
+        fun deliverUpdate(state: JSONObject) {
+            main.post { instance?.deliver("update", JSObject.fromJSONObject(state)) }
+        }
+
         fun notifyPending(ctx: Context) {
             instance?.deliver("pending", JSObject().put("count", PendingStore.count(ctx)))
         }
@@ -98,6 +103,10 @@ class QuickRecorderPlugin : Plugin() {
             ErrandWorker.schedulePeriodic(context)
             ErrandWorker.syncNow(context)
             ChangesWorker.schedule(context)
+            // Over-the-air updates: finish a just-installed update, check on open + daily
+            AppUpdater.afterStart(context)
+            AppUpdater.schedule(context)
+            UpdateWorker.checkNow(context)
         }
     }
 
@@ -200,6 +209,45 @@ class QuickRecorderPlugin : Plugin() {
     /** "Restore" on the in-app toast after a recording was set aside (no speech / too short) */
     @PluginMethod
     fun restoreIgnored(call: PluginCall) = call.resolve(JSObject().put("restored", AccidentalStore.restoreLatest(context)))
+
+    // ── Over-the-air updates (Settings → About, banner) ──────────────────────
+
+    @PluginMethod
+    fun getUpdateState(call: PluginCall) = call.resolve(JSObject.fromJSONObject(AppUpdater.state(context)))
+
+    /** "Check for updates" */
+    @PluginMethod
+    fun checkForUpdates(call: PluginCall) {
+        Thread { val s = AppUpdater.check(context, manual = true); main.post { call.resolve(JSObject.fromJSONObject(s)) } }.start()
+    }
+
+    /** "Update": download (progress events), verify, install */
+    @PluginMethod
+    fun startUpdate(call: PluginCall) {
+        UpdateWorker.updateNow(context)
+        call.resolve(JSObject.fromJSONObject(AppUpdater.state(context)))
+    }
+
+    /** { wifiOnly } */
+    @PluginMethod
+    fun setUpdateSettings(call: PluginCall) {
+        call.getBoolean("wifiOnly")?.let { AppUpdater.setWifiOnly(context, it) }
+        call.resolve(JSObject.fromJSONObject(AppUpdater.state(context)))
+    }
+
+    /** First time: Android → "Install unknown apps" → allow for Pocket Archive */
+    @PluginMethod
+    fun openInstallSettings(call: PluginCall) {
+        activity.startActivity(AppUpdater.installSettingsIntent(context))
+        call.resolve()
+    }
+
+    /** "Update watch" */
+    @PluginMethod
+    fun updateWatch(call: PluginCall) {
+        WatchUpdateRelay.updateNow(context)
+        call.resolve()
+    }
 
     // ── Phone actions (Quick Capture → Actions) ──────────────────────────────
 

@@ -4,6 +4,7 @@ import {
   ShieldCheck, KeyRound, Monitor, Smartphone, Watch, LogOut, RefreshCw, Copy, Check, AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { appVersionLine } from '../lib/appUpdate';
 import {
   changePassword, setup2fa, confirm2fa, disable2fa, getSessions, revokeSession, revokeDevice, signOutEverywhere,
 } from '../lib/api';
@@ -134,7 +135,7 @@ function SessionsBlock() {
 
   const items = data ? [
     ...data.sessions.map(s => ({ key: `s-${s.id}`, id: s.id, kind: 'session', icon: s.kind === 'app' ? Smartphone : Monitor, title: browserName(s.userAgent), sub: `Signed in ${when(s.createdAt)} · last active ${when(s.lastSeenAt)}`, current: s.current })),
-    ...data.devices.map(d => ({ key: `d-${d.id}`, id: d.id, kind: 'device', icon: /watch/i.test(d.name) ? Watch : Smartphone, title: d.name, sub: `Signed in ${when(d.createdAt)} · last used ${when(d.lastUsedAt)}`, current: d.current })),
+    ...data.devices.map(d => ({ key: `d-${d.id}`, id: d.id, kind: 'device', icon: /watch/i.test(d.name) ? Watch : Smartphone, title: d.name, sub: [`Signed in ${when(d.createdAt)} · last used ${when(d.lastUsedAt)}`, appVersionLine(d)].filter(Boolean).join(' · '), current: d.current })),
   ] : [];
 
   async function revoke(item) {

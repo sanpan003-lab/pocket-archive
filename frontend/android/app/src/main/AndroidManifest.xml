@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Over-the-air updates from the NAS: install a verified, same-key APK with PackageInstaller -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- "Open Spotify": find installed apps by name -->
     <queries>
@@ -229,6 +231,8 @@
         <receiver android:name=".quick.AccidentalRestoreReceiver" android:exported="false" />
         <receiver android:name=".quick.DndRestoreReceiver" android:exported="false" />
         <receiver android:name=".quick.ActionUndoReceiver" android:exported="false" />
+        <receiver android:name=".quick.UpdateActionReceiver" android:exported="false" />
+        <receiver android:name=".quick.UpdateInstallReceiver" android:exported="false" />
 
         <service
             android:name=".quick.QuickRecorderService"

@@ -13,6 +13,7 @@ import { startOpsFlusher } from '../lib/opsQueue';
 import { startLiveEvents } from '../lib/liveEvents';
 import { useLayout } from '../lib/layout';
 import LiveToast from './LiveToast';
+import UpdateBanner from './UpdateBanner';
 
 export default function AppLayout() {
   const {
@@ -78,6 +79,7 @@ export default function AppLayout() {
           </button>
         </div>
 
+        <UpdateBanner />
         <Outlet />
         <CreateMenu />
         <WhatsNewSheet />

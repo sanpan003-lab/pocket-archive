@@ -75,6 +75,8 @@ class WearListenerService : WearableListenerService() {
         when (event.path) {
             WearBridge.MSG_TOKEN_REQUEST -> WearBridge.async { WearBridge.sendToken(this, event.sourceNodeId) }
             WearBridge.MSG_SYNC_REQUEST -> ErrandWorker.syncNow(this)
+            // Watch without network: the phone fetches its update and sends it over
+            WatchUpdateRelay.MSG_UPDATE_REQUEST -> UpdateWorker.relayToWatch(this)
             // Watch result screen: Undo, or Yes / New note for "Add to …?"
             WearBridge.MSG_DECIDE -> runCatching {
                 val o = org.json.JSONObject(String(event.data))
@@ -98,6 +100,7 @@ class WearListenerService : WearableListenerService() {
                     if (parts.size == 2) ErrandWorker.toggleItem(this, parts[0], parts[1], map.getBoolean("done"), item.uri.toString())
                 }
                 path == WatchRecSync.DATA_FROM_WATCH -> WatchRecSync.fromWatch(this, map.getString("json") ?: "")
+                path == WatchVersion.DATA_WATCH_INFO -> WatchVersion.set(this, map.getLong("versionCode"), map.getString("versionName"))
                 path.startsWith("${WearBridge.DATA_DONE}/") -> {
                     val id = path.removePrefix("${WearBridge.DATA_DONE}/")
                     ErrandStore.markLocallyDone(this, id)

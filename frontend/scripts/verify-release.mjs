@@ -1,6 +1,6 @@
 // Release check: is the version in the changelog really deployed everywhere?
 //
-//   node scripts/verify-release.mjs [--phone] [--watch=<adb serial>]
+//   node scripts/verify-release.mjs [--phone] [--watch=<adb serial>] [--published [--draft]]
 //
 // Compares the newest CHANGELOG.md entry with: package.json, the NAS build
 // folder (Z:\pocket-archive\frontend — what the NAS image builds from), and,
@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -44,6 +45,25 @@ if (fs.existsSync(NAS_FRONTEND)) {
   line(false, `NAS build folder (${NAS_FRONTEND})`, 'not reachable (map the Z: drive)');
 }
 
+// Over-the-air updates: what the phones and watches will be offered (ARCHIVE/_updates on the NAS)
+let published = false;
+if (args.includes('--published')) {
+  const dir = process.env.PA_UPDATES_DIR || 'P:\\_updates';
+  const which = args.includes('--draft') ? 'draft.json' : 'latest.json';
+  published = true;
+  for (const [target, sub] of [['phone', 'app'], ['watch', 'wear']]) {
+    let built = null;
+    try { built = fs.readFileSync(path.join(root, 'android', sub, 'version.properties'), 'utf8').match(/^VERSION_NAME=(.+)$/m)?.[1]?.trim(); } catch { /* */ }
+    let info = null;
+    try { info = JSON.parse(fs.readFileSync(path.join(dir, target, which), 'utf8')); } catch { /* */ }
+    let intact = false;
+    try { intact = !!info && crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, target, info.file))).digest('hex') === info.sha256; } catch { /* */ }
+    const ok = !!info && info.versionName === built && intact;
+    if (!ok) published = false;
+    line(ok, `OTA ${target} (${which} in ${dir})`, info ? `${info.versionName} (${info.versionCode})${intact ? '' : ', APK missing or damaged'}` : 'not published');
+  }
+}
+
 // Installed Android app(s)
 if (args.includes('--phone') || args.some(a => a.startsWith('--watch='))) {
   const versions = {};
@@ -58,7 +78,7 @@ if (args.includes('--phone') || args.some(a => a.startsWith('--watch='))) {
       .map(l => l.trim().split(/\s+/)).filter(p => p[1] === 'device').map(p => p[0]).filter(s => !s.startsWith('emulator-'));
   } catch { /* adb missing */ }
   const watch = args.find(a => a.startsWith('--watch='))?.split('=')[1];
-  if (!devices.length) line(false, 'Phone connected (adb)', 'none — plug in the phone');
+  if (!devices.length) line(published, 'Phone connected (adb)', published ? 'none — phones and watches update over the air' : 'none — plug in the phone');
   for (const serial of devices) {
     try {
       const dump = execFileSync(ADB, ['-s', serial, 'shell', 'dumpsys', 'package', 'com.sanpan003.pocketarchive'], { encoding: 'utf8' });

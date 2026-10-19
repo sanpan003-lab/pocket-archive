@@ -224,3 +224,9 @@ export const reportActionResult  = (id, body) => http.post(`/actions/${id}/resul
 export const deleteAction        = id => http.delete(`/actions/${id}`).then(r => r.data);
 export const getActionSettings   = () => http.get('/actions/settings').then(r => r.data);
 export const saveActionSettings  = s => http.put('/actions/settings', s).then(r => r.data);
+
+// Over-the-air app updates (admin): drafts, publish, roll back
+export const adminUpdates        = () => http.get('/admin/updates').then(r => r.data);
+export const publishUpdate       = target => http.post(`/admin/updates/${target}/publish`).then(r => r.data);
+export const discardUpdateDraft  = target => http.delete(`/admin/updates/${target}/draft`).then(r => r.data);
+export const rollbackUpdate      = (target, versionCode) => http.post(`/admin/updates/${target}/rollback`, { versionCode }).then(r => r.data);

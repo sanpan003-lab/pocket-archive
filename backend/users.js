@@ -337,8 +337,25 @@ function verifyDeviceToken(token) {
   }
   return publicDevice(entry);
 }
+// Over-the-air updates (updates.js) add "Up to date / Update available" to device lists
+let deviceDecorator = d => d;
+function setDeviceDecorator(fn) { deviceDecorator = fn; }
+
 function listDeviceTokens(userId) {
-  return activeDevices(readDevices()).filter(d => d.userId === userId).map(publicDevice).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return activeDevices(readDevices()).filter(d => d.userId === userId).map(publicDevice).map(d => deviceDecorator(d)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** The app version a device reported (target: phone | watch); written at most once a minute per value */
+function setDeviceApp(id, target, { versionCode, versionName, via } = {}) {
+  if (!['phone', 'watch'].includes(target) || !versionCode) return;
+  const list = readDevices();
+  const entry = list.find(t => t.id === id);
+  if (!entry) return;
+  const prev = entry.apps?.[target];
+  const now = new Date().toISOString();
+  if (prev && prev.versionCode === versionCode && Date.now() - Date.parse(prev.checkedAt || 0) < 60000) return;
+  entry.apps = { ...(entry.apps || {}), [target]: { versionCode, versionName: versionName || prev?.versionName || null, checkedAt: now, ...(via ? { via } : {}) } };
+  try { writeDevices(list); } catch { /* best effort */ }
 }
 function revokeDeviceToken(id, userId) {
   const list = readDevices();
@@ -368,7 +385,7 @@ module.exports = {
   lockState, recordFailure, recordSuccess, rateLimited,
   beginTotp, confirmTotp, disableTotp, checkSecondFactor, totpNow, verifyTotp, base32,
   createSession, getSession, touchSession, listSessions, revokeSession, revokeSessions,
-  createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken, revokeDevices,
+  createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken, revokeDevices, setDeviceApp, setDeviceDecorator,
   logEvent, readLog,
   _internal: { encrypt, decrypt, hotp, unbase32, ghostFails, ipHits },
 };

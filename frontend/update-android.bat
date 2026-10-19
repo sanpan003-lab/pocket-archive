@@ -5,10 +5,14 @@ rem   Pocket Archive - build + install the phone and watch apps
 rem   1. bump versions (android\app\version.properties, android\wear\version.properties)
 rem   2. build both signed release APKs with the existing keystore
 rem   3. copy them to Documents\PocketArchive.apk / PocketArchiveWatch.apk
-rem   4. "adb install -r" on every connected phone and watch (USB or Wi-Fi)
+rem   4. publish both for over-the-air updates (P:\_updates = ARCHIVE/_updates on the NAS);
+rem      "update-android.bat draft" holds it back until Settings -> Users -> App updates -> Publish
+rem   5. "adb install -r" on every connected phone and watch (optional - the apps update themselves)
 rem ============================================================
 
 cd /d "%~dp0"
+set "PUBLISH_ARGS="
+if /i "%~1"=="draft" set "PUBLISH_ARGS=--draft"
 
 set KEYSTORE=C:\Users\sundi\keys\pocketarchive.jks
 set EXPECTED_CERT=F4:41:B0:E3:7B:F5:10:40:73:9B:96:31:70:61:D1:71:F2:E1:C4:49:7F:79:D5:25:33:F3:12:06:5C:35:C7:21
@@ -95,7 +99,12 @@ copy /y "%APK_WATCH%" "%OUTPUT_WATCH%" >nul
 if errorlevel 1 goto :fail
 
 echo.
-echo [4/4] Installing on connected phones and watches...
+echo [4/5] Publishing for over-the-air updates...
+call node scripts\publish-update.mjs %PUBLISH_ARGS%
+if errorlevel 1 goto :fail
+
+echo.
+echo [5/5] Installing on connected phones and watches (optional)...
 if not exist "%ADB%" (
   echo adb not found at %ADB% - install the APKs manually.
   goto :done
@@ -127,13 +136,10 @@ for /f "skip=1 tokens=1,2" %%A in ('"%ADB%" devices') do (
   if "%%B"=="unauthorized" echo %%A is unauthorized - unlock the device and accept the "Allow USB/wireless debugging" prompt.
 )
 if "!PHONES!"=="0" (
-  echo No phone connected. Connect by USB, or over Wi-Fi with:  adb connect ^<phone-ip^>:^<port^>
-  echo Then run:  "%ADB%" install -r "%OUTPUT%"
+  echo No phone connected - phones get it as an over-the-air update ^(or: "%ADB%" install -r "%OUTPUT%"^).
 )
 if "!WATCHES!"=="0" (
-  echo No watch connected. On the watch: Developer options - Wireless debugging, then
-  echo   adb pair ^<watch-ip^>:^<pairing-port^>   and   adb connect ^<watch-ip^>:^<port^>
-  echo Then run:  "%ADB%" -s ^<watch-ip^>:^<port^> install -r "%OUTPUT_WATCH%"
+  echo No watch connected - the watch gets it as an over-the-air update ^(or: "%ADB%" -s ^<watch-ip^>:^<port^> install -r "%OUTPUT_WATCH%"^).
 )
 
 :done
@@ -143,7 +149,7 @@ echo       %OUTPUT_WATCH%  ^(watch !WATCH_VERSION_NAME!, code !WATCH_VERSION_COD
 echo.
 rem Is the CHANGELOG version really on the NAS and the phone now?
 set "ADB=%ADB%"
-call node scripts\verify-release.mjs --phone
+call node scripts\verify-release.mjs --phone --published %PUBLISH_ARGS%
 if errorlevel 1 (
   echo Some parts of this release are not deployed yet - see FAIL lines above.
   endlocal

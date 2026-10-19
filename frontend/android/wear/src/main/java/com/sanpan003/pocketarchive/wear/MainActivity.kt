@@ -46,6 +46,9 @@ class MainActivity : ComponentActivity() {
         WatchNotifications.ensureChannels(this)
         CaptureQueue.recoverOrphans(this)
         WatchState.refreshQueue(this)
+        // Over-the-air updates: finish a just-installed one, tell the phone our version, check daily
+        WatchUpdater.afterStart(this)
+        WatchUpdater.schedule(this)
         micGranted.value = hasMic()
         handleIntent(intent)
 

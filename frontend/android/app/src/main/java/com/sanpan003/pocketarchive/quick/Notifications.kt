@@ -25,6 +25,7 @@ object Notifications {
     const val CH_ARRIVAL = "errand_arrival"          // "You're at Publix" — double buzz
     const val CH_SHARED = "shared_changes"           // "Jane added Eggs" (shared lists, background check)
     const val CH_ACTIONS = "phone_actions"           // "Tap to set alarm 5:30 AM", "Which Minal?"
+    const val CH_UPDATES = "app_updates"             // "Update 2.4.0 available · What's new"
 
     const val ID_RECORDING = 1001
     const val ID_RESULT = 1002
@@ -62,6 +63,9 @@ object Notifications {
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = PATTERN_OK
+            },
+            NotificationChannel(CH_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A new version of Pocket Archive is ready, and download progress"
             },
             NotificationChannel(CH_ACTIONS, "Phone actions", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Alarms, timers, directions or messages you said that need a tap or a choice"

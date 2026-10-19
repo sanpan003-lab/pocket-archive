@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Users, UserPlus, KeyRound, ShieldOff, Lock, Unlock, Download, Trash2, RefreshCw, Ban, CheckCircle2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import AppUpdatesAdmin from './AppUpdatesAdmin';
+import { appVersionLine } from '../lib/appUpdate';
 import {
   adminUsers, adminCreateUser, adminUpdateUser, adminResetPassword, adminReset2fa, adminUnlock, adminExportUser, adminDeleteUser,
 } from '../lib/api';
@@ -88,6 +90,11 @@ function UserRow({ u, me, onChanged }) {
       {open && (
         <div className="mt-2.5 pl-12 space-y-2">
           <p className="text-xs text-navy-500 dark:text-white/50">Created {day(u.createdAt)} · last sign-in {day(u.lastLoginAt)} · {u.devices} device(s) · AI summaries 30 days: {u.usage?.last30?.summaries ?? 0}</p>
+          {(u.deviceList || []).length > 0 && (
+            <ul className="text-xs text-navy-600 dark:text-white/60 space-y-0.5">
+              {u.deviceList.map(d => <li key={d.id}>📱 {d.name}{appVersionLine(d) ? ` — ${appVersionLine(d)}` : ' — version not reported yet'}</li>)}
+            </ul>
+          )}
           {!self && (
             <div className="flex flex-wrap gap-1.5">
               {['lite', 'full'].map(p => (
@@ -146,6 +153,7 @@ export default function UsersAdmin() {
         <ul className="space-y-2 mb-3">{list.map(u => <UserRow key={u.id} u={u} me={user} onChanged={load} />)}</ul>
       )}
       <CreateUser onCreated={load} />
+      <AppUpdatesAdmin />
     </div>
   );
 }
