@@ -13,6 +13,26 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Phone actions: alarms/timers in the Clock app, contacts for "text Minal", Do Not Disturb, opening Clock/Maps from the background -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- "Open Spotify": find installed apps by name -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.sec.android.app.clockpackage" />
+        <package android:name="com.google.android.deskclock" />
+    </queries>
 
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
 
@@ -206,6 +226,9 @@
         </service>
 
         <receiver android:name=".quick.DiscardUndoReceiver" android:exported="false" />
+        <receiver android:name=".quick.AccidentalRestoreReceiver" android:exported="false" />
+        <receiver android:name=".quick.DndRestoreReceiver" android:exported="false" />
+        <receiver android:name=".quick.ActionUndoReceiver" android:exported="false" />
 
         <service
             android:name=".quick.QuickRecorderService"

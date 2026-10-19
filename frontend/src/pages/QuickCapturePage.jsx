@@ -14,6 +14,7 @@ import { syncFeedbackPref } from '../native/nativeSession';
 import { primeAudio, feedbackSuccess, feedbackWarning } from '../lib/feedback';
 import { useQuickSetting } from '../lib/quickSettings';
 import QuickTabs from '../components/quick/QuickTabs';
+import { undoPhoneAction } from '../lib/phoneActions';
 import { useLayout } from '../lib/layout';
 import QuickToast from '../components/quick/QuickToast';
 import QuickSettings from '../components/quick/QuickSettings';
@@ -136,15 +137,18 @@ export default function QuickCapturePage() {
 
   const [moving, setMoving] = useState(false);
   const undoRef = useRef(null);
-  const showResult = useCallback((note, spoken, { fromQueue = false } = {}) => {
+  const showResult = useCallback((note, spoken, { fromQueue = false, override = null } = {}) => {
     setResult(note);
     setMessage(null);
     setPhase('done');
     // "Add to …?" waits for an answer instead of the Undo countdown
     setUndoUntil(note?.status === 'pending_decision' ? 0 : Date.now() + UNDO_WINDOW_MS);
-    const conf = confirmationFor(note);
-    // Smart append: Undo / Move right on the toast for 30 s
-    const actions = conf.undoable && note?.appliedTo ? [
+    // A phone action: what happened on the phone (or, in a browser, that it runs there)
+    const conf = override || confirmationFor(note);
+    // Smart append: Undo / Move right on the toast for 30 s; a phone action: Undo the action
+    const actions = conf.actionUndo ? [
+      { label: 'Undo', onClick: async () => { const r = await undoPhoneAction(conf.actionUndo); notify({ icon: '↩️', text: r?.text || 'Undone', detail: r?.detail, tone: 'queued', duration: 8000 }); } },
+    ] : conf.undoable && note?.appliedTo ? [
       { label: 'Undo', onClick: () => undoRef.current?.() },
       ...(conf.movable ? [{ label: 'Move', onClick: () => setMoving(true) }] : []),
     ] : undefined;
@@ -213,7 +217,7 @@ export default function QuickCapturePage() {
     setMessage(null);
     try {
       const r = await captureQuick(buildCaptureForm(item));
-      showResult(r.note, r.spokenConfirmation);
+      showResult(r.note, r.spokenConfirmation, r.phoneAction ? { override: { ...r.confirmation, detail: 'Runs on your phone — open Pocket Archive there (Quick Capture → Actions)' } } : {});
       flushQueue(); // we have signal — send anything waiting
     } catch (err) {
       if (isRetryable(err)) return queueIt(err.response?.status === 401 ? 'signed_out' : 'offline');
@@ -238,7 +242,7 @@ export default function QuickCapturePage() {
     onResult: r => {
       const busy = phaseRef.current === 'recording';
       if (r.fromQueue && busy) return; // don't interrupt a new recording
-      showResult(r.note, r.spokenConfirmation, { fromQueue: !!r.fromQueue });
+      showResult(r.note, r.spokenConfirmation, { fromQueue: !!r.fromQueue, override: r.actionOutcome ? r.confirmation : null });
     },
     onQueued: () => {
       setPhase('queued');
@@ -250,6 +254,9 @@ export default function QuickCapturePage() {
       setPhase('idle');
       setMessage("Didn't hear anything — tap to try again");
       warn("I didn't hear anything.");
+      // Set aside for 30 s (accidental-recording protection): Restore keeps it as a normal capture
+      setToast({ id: Date.now(), icon: '🎙️', text: 'No speech — set aside for 30 s', tone: 'review', duration: 30000,
+        actions: [{ label: 'Restore', onClick: async () => { const r = await QuickRecorder.restoreIgnored().catch(() => null); setToast({ id: Date.now(), icon: r?.restored ? '↩️' : '⚠️', text: r?.restored ? 'Restored — sending it now' : 'Nothing left to restore', tone: r?.restored ? 'success' : 'review' }); } }] });
     },
     onError: ({ message: m } = {}) => {
       setPhase('error');

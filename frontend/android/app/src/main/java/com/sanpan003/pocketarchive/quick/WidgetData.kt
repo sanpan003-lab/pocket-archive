@@ -28,6 +28,7 @@ object WidgetData {
         val needsReview: Boolean,
         val itemsDone: Int = 0,
         val itemsTotal: Int = 0,
+        val icon: String? = null,               // phone actions: ⏰ ⏲ 📍 …
     ) {
         /** "2/4" for errands with a checklist. */
         val progress get() = if (type == "errand" && itemsTotal > 0) "$itemsDone/$itemsTotal" else null
@@ -123,6 +124,7 @@ object WidgetData {
             needsReview = o.optBoolean("needsReview", false),
             itemsDone = o.optInt("itemsDone", 0),
             itemsTotal = o.optInt("itemsTotal", 0),
+            icon = o.optString("icon").takeIf { it.isNotBlank() && it != "null" },
         )
     }
 
@@ -131,7 +133,7 @@ object WidgetData {
             .recoverCatching { Instant.parse(text).toEpochMilli() }
             .getOrDefault(0L)
 
-    fun typeIcon(type: String) = when (type) {
+    fun typeIcon(type: String, icon: String? = null) = icon ?: when (type) {
         "event" -> "📅"
         "reminder" -> "⏰"
         "errand" -> "🛒"

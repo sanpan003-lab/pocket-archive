@@ -30,6 +30,12 @@ object RecorderPrefs {
         val guardSec: Int = 3,                   // ignore start requests this long after a stop (2–5)
         val doublePressUpStart: Boolean = false, // accessibility shortcut
         val doublePressDownStop: Boolean = false,
+        // Accidental recordings
+        val pocketDetection: Boolean = true,     // proximity NEAR + screen off at launch → don't record
+        val noSpeechDiscard: Boolean = true,     // no speech in the first noSpeechSec → discard (Restore 30 s)
+        val noSpeechSec: Int = 4,                // 3 | 4 | 6
+        val minLengthDiscard: Boolean = true,    // shorter than 2 s → discard (Restore 30 s)
+        val confirmStart: Boolean = false,       // "Press again to confirm" after an outside start
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("preset", preset).put("volumeUp", volumeUp).put("volumeDown", volumeDown)
@@ -37,6 +43,8 @@ object RecorderPrefs {
             .put("silenceSec", silenceSec).put("maxMinutes", maxMinutes).put("feedback", feedback)
             .put("countdown", countdown).put("guardSec", guardSec)
             .put("doublePressUpStart", doublePressUpStart).put("doublePressDownStop", doublePressDownStop)
+            .put("pocketDetection", pocketDetection).put("noSpeechDiscard", noSpeechDiscard).put("noSpeechSec", noSpeechSec)
+            .put("minLengthDiscard", minLengthDiscard).put("confirmStart", confirmStart)
 
         /** Any volume key does something while recording → capture the keys */
         val capturesKeys get() = volumeUp != IGNORE || volumeDown != IGNORE || longPressDownDiscard
@@ -44,6 +52,7 @@ object RecorderPrefs {
 
     private val SILENCE = setOf(0, 3, 4, 6, 10)
     private val MAX = setOf(1, 2, 5, 10)
+    private val NO_SPEECH = setOf(3, 4, 6)
 
     /** Merge a (partial) JSON object from the web layer onto the current settings, validated. */
     fun merge(current: Settings, o: JSONObject): Settings {
@@ -62,6 +71,11 @@ object RecorderPrefs {
             guardSec = o.optInt("guardSec", current.guardSec).coerceIn(2, 5),
             doublePressUpStart = o.optBoolean("doublePressUpStart", current.doublePressUpStart),
             doublePressDownStop = o.optBoolean("doublePressDownStop", current.doublePressDownStop),
+            pocketDetection = o.optBoolean("pocketDetection", current.pocketDetection),
+            noSpeechDiscard = o.optBoolean("noSpeechDiscard", current.noSpeechDiscard),
+            noSpeechSec = o.optInt("noSpeechSec", current.noSpeechSec).takeIf { it in NO_SPEECH } ?: current.noSpeechSec,
+            minLengthDiscard = o.optBoolean("minLengthDiscard", current.minLengthDiscard),
+            confirmStart = o.optBoolean("confirmStart", current.confirmStart),
         )
         // Presets only set the volume keys; everything else stays as chosen
         if (o.has("preset") && o.optString("preset") != current.preset) {

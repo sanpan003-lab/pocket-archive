@@ -8,6 +8,7 @@ import NoteToolbar from './NoteToolbar';
 import { noteColorStyle, resolveOpenStyle } from './noteHelpers';
 import AskPrompt from './AskPrompt';
 import SharedBadge from './SharedBadge';
+import ActionChip from './ActionChip';
 import NoteActivity from './NoteActivity';
 
 const fullDate = iso => (iso ? new Date(iso).toLocaleString('en-US', {
@@ -26,6 +27,7 @@ function NoteHeader({ note, projectName }) {
         {note.undone && <span className="badge badge-slate">Deleted</span>}
         {note.pinned && <span className="badge badge-gold"><Pin size={11} /> Pinned</span>}
         <SharedBadge note={note} />
+        <ActionChip note={note} link />
         {projectName && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
         {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
       </div>

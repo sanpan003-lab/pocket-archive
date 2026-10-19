@@ -58,6 +58,12 @@ class MainActivity : BridgeActivity() {
             swallowKeyUp = keyCode
             return true
         }
+        // "Press again to confirm": volume up starts the waiting recording
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && RecorderState.confirming) {
+            startService(com.sanpan003.pocketarchive.quick.QuickRecorderService.intent(this, com.sanpan003.pocketarchive.quick.QuickRecorderService.ACTION_CONFIRM))
+            swallowKeyUp = keyCode
+            return true
+        }
         if (volume && RecorderState.recording && RecorderPrefs.get(this).capturesKeys) {
             RecorderKeys.onKey(this, if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) RecorderKeys.Key.UP else RecorderKeys.Key.DOWN)
             swallowKeyUp = keyCode

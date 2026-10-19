@@ -10,6 +10,7 @@ import AskPrompt from './AskPrompt';
 import NoteContent from './NoteContent';
 import NoteToolbar from './NoteToolbar';
 import SharedBadge, { PersonDot } from './SharedBadge';
+import ActionChip from './ActionChip';
 import { hasChecklist, previewText, noteColorStyle } from './noteHelpers';
 
 const capturedAt = n => n.capturedAt || n.createdAt;
@@ -128,6 +129,7 @@ export default function NoteCard({
                 : <span className={`badge ${meta.badge} whitespace-nowrap`}><meta.icon size={11} /> {badgeLabel}</span>)}
               {note.pinned && <Pin size={13} className="text-gold-500 fill-current" aria-label="Pinned" />}
               <SharedBadge note={note} compact={grid} />
+              <ActionChip note={note} />
               {review &&<span className="badge badge-orange">Needs review</span>}
               {pending && <span className="badge badge-gold">Waiting for your answer</span>}
               {note.undone && <span className="badge badge-slate">Deleted</span>}

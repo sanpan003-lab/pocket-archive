@@ -228,6 +228,7 @@ function createSharing({ users, contexts, getConfig }) {
       const { kind, id } = req.params;
       const { userId, role } = req.body || {};
       if (!ownsItem(req.user.id, kind, id)) return res.status(403).json({ error: 'Only the owner can share this' });
+      if (kind === 'note' && ctxOf(req.user.id).quick.store.read(id)?.type === 'action') return res.status(400).json({ error: 'Actions are private' });
       if (!ROLES.includes(role)) return res.status(400).json({ error: 'role must be edit or view' });
       if (!userId || userId === req.user.id || !active(userId)) return res.status(400).json({ error: 'Pick someone to share with' });
       const list = readJson(SHARES_PATH, []);

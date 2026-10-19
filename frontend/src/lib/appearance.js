@@ -18,6 +18,7 @@ export const APPEARANCE_DEFAULTS = {
     groupByDay: true,
     sort: 'newest',         // newest | oldest | updated | type
     pinnedSection: true,
+    showActions: false,     // phone actions (alarms, timers, …) live in Quick Capture → Actions
   },
   look: {
     cardStyle: 'glass',     // glass | solid | outlined

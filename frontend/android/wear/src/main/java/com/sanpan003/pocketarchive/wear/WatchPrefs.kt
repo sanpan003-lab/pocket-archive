@@ -23,12 +23,16 @@ object WatchPrefs {
         val feedback: String = "vibrate",               // vibrate | none
         val countdown: Boolean = false,
         val guardSec: Int = 3,
+        val noSpeechDiscard: Boolean = true,            // no speech in the first noSpeechSec → discard (Restore 30 s)
+        val noSpeechSec: Int = 4,                       // 3 | 4 | 6
+        val minLengthDiscard: Boolean = true,           // shorter than 2 s → discard (Restore 30 s)
         val updatedAt: Long = 0,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("quickRecordWhileRecording", quickRecordWhileRecording).put("silenceSec", silenceSec)
             .put("maxMinutes", maxMinutes).put("feedback", feedback).put("countdown", countdown)
             .put("guardSec", guardSec).put("updatedAt", updatedAt)
+            .put("noSpeechDiscard", noSpeechDiscard).put("noSpeechSec", noSpeechSec).put("minLengthDiscard", minLengthDiscard)
     }
 
     val SILENCE = listOf(0, 3, 4, 6, 10)
@@ -56,6 +60,9 @@ object WatchPrefs {
         feedback = o.optString("feedback", base.feedback).takeIf { it == "vibrate" || it == "none" } ?: base.feedback,
         countdown = o.optBoolean("countdown", base.countdown),
         guardSec = o.optInt("guardSec", base.guardSec).coerceIn(2, 5),
+        noSpeechDiscard = o.optBoolean("noSpeechDiscard", base.noSpeechDiscard),
+        noSpeechSec = o.optInt("noSpeechSec", base.noSpeechSec).takeIf { it in setOf(3, 4, 6) } ?: base.noSpeechSec,
+        minLengthDiscard = o.optBoolean("minLengthDiscard", base.minLengthDiscard),
         updatedAt = o.optLong("updatedAt", base.updatedAt),
     )
 

@@ -18,6 +18,7 @@ data class RecentNote(
     val summary: String?,
     val itemsDone: Int,
     val itemsTotal: Int,
+    val icon: String? = null,  // phone actions: ⏰ ⏲ 📍 …
 )
 
 data class ErrandItem(val id: String, val text: String, val done: Boolean)
@@ -136,6 +137,7 @@ object WatchData {
                 summary = o.str("summary"),
                 itemsDone = o.optInt("itemsDone"),
                 itemsTotal = o.optInt("itemsTotal"),
+                icon = o.str("icon"),
             )
         }
     }.getOrDefault(emptyList())
@@ -160,7 +162,7 @@ object WatchData {
         }
     }.getOrDefault(emptyList())
 
-    fun typeIcon(type: String) = when (type) {
+    fun typeIcon(type: String, icon: String? = null) = icon ?: when (type) {
         "event" -> "📅"
         "reminder" -> "⏰"
         "errand" -> "🛒"

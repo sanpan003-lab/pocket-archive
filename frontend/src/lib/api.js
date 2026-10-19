@@ -217,3 +217,10 @@ export const getFamilyCalendar  = () => http.get('/admin/family-calendar').then(
 export const setFamilyCalendar  = calendarId => http.put('/admin/family-calendar', { calendarId }).then(r => r.data);
 /** Live updates stream (web: session cookie; app: media token in the URL) */
 export const eventsUrl          = () => withMediaToken(`${new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')}/events`);
+
+// Phone actions (alarm, timer, directions, message, call, …): entries the phone runs
+export const getActions          = filter => http.get('/actions', { params: filter ? { filter } : {} }).then(r => r.data);
+export const reportActionResult  = (id, body) => http.post(`/actions/${id}/result`, body).then(r => r.data);
+export const deleteAction        = id => http.delete(`/actions/${id}`).then(r => r.data);
+export const getActionSettings   = () => http.get('/actions/settings').then(r => r.data);
+export const saveActionSettings  = s => http.put('/actions/settings', s).then(r => r.data);

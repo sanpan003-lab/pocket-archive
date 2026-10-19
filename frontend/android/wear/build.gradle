@@ -57,6 +57,11 @@ android {
         }
     }
     buildTypes {
+        // Device tests: next to the real watch app (pairs only with the phone's PA Debug build)
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
         release {
             minifyEnabled false
             if (keystoreProps['storeFile']) {

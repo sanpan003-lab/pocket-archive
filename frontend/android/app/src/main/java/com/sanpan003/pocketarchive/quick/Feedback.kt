@@ -33,6 +33,17 @@ object Feedback {
         if (chime(ctx)) tone(ToneGenerator.TONE_PROP_NACK, 200)
     }
 
+    /** Pocket detection: a single short buzz, nothing recorded */
+    fun pocket(ctx: Context) {
+        if (buzz(ctx)) vibrate(ctx, longArrayOf(0, 35))
+    }
+
+    /** "Press again to confirm": a short double buzz + beep */
+    fun confirmPrompt(ctx: Context) {
+        if (buzz(ctx)) vibrate(ctx, longArrayOf(0, 50, 80, 50))
+        if (chime(ctx)) tone(ToneGenerator.TONE_PROP_PROMPT, 150)
+    }
+
     /** "Short countdown beep before recording starts": three beeps over ~0.9 s */
     fun countdown(ctx: Context) {
         for (i in 0..2) main.postDelayed({ tone(if (i == 2) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP, 90) }, i * 300L)

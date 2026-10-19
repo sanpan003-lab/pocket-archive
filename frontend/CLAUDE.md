@@ -78,6 +78,16 @@ inside the Android app (`android/`). The backend lives in
 - `liveEvents.js` closes the SSE stream while the tab is hidden (browsers allow ~6 connections per host).
 - Tests: `fftools/lite-ui.cjs`, `fftools/lite-app.cjs` + `lite-battery.cjs` (emulator).
 
+## Phone actions, Actions tab, accidental recordings (2.3.0) — docs/phone-actions.md
+
+- Backend `phoneActions.js` (classifier field `phoneAction`; pure command → the capture becomes `type:'action'`; command + content → note with
+  `actionRef` chip + entry with `parentId`; `/api/actions…`; cleanup after keepDays). Capture responses carry `phoneAction` while pending.
+- Android `quick/PhoneActions.kt` (run/undo/choices, reports via ActionReportWorker), called from `ResultNotifier.deliver`; plugin
+  `runPhoneAction`/`undoPhoneAction`/`findContacts`/`findApps`/`getActionStatus`/`openActionSetup`. Web: `pages/ActionsPage.jsx`, `lib/phoneActions.js`.
+- Accidental: `SpeechDetector.kt` (same file in wear — keep in sync; JVM test with WAVs in app/src/test/resources/vad),
+  `AccidentalStore.kt` (30 s Restore, weekly count, 3 s cooldown, `PocketCheck`), recorder service `EXTRA_SOURCE` ("app" skips pocket/confirm).
+- Debug build = `com.sanpan003.pocketarchive.debug` / "PA Debug" (src/debug/res) for device tests next to the real app.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single
@@ -171,12 +181,22 @@ Re-run step 4 with the new port; pairing doesn't need repeating.
 
 ## Testing
 
+### Devices — RULE (the emulators freeze this PC; two crashes)
+- **NEVER start an Android or Wear OS emulator.** Older notes below that mention the emulator are history.
+- Test with unit tests (`gradlew :app:testDebugUnitTest`), the web/Puppeteer tests, Gradle build + lint,
+  and checks that don't need a device.
+- Anything that truly needs a device: only on the REAL devices over adb, and only if they're connected
+  (phone `R3GL105L1RV` on USB, the watch on wireless debugging), using a separate debug build
+  (`applicationIdSuffix ".debug"`, launcher name "PA Debug") so it never touches the real app's data —
+  and uninstall it afterwards. **Never install test builds on Minal's phone (its serial is in local memory, not in git).**
+- No device connected → skip device tests and give a short manual test checklist instead.
+
 - Web: `npm run build` (0 errors) and `npx eslint <changed files>`. Known pre-existing lint
   errors: `AppContext.jsx` (react-refresh) and setState-in-effect in `SettingsPage`/`Dashboard`.
 - Check dark mode and a 375px-wide viewport for UI changes.
 - Android: `cd android && gradlew assembleDebug` and `gradlew :app:lintDebug` (0 errors).
   Plain `gradlew lint` also lints Capacitor's own module in node_modules, which has errors that aren't ours.
-- Emulator against a local backend: after `npm run build:android`, point the generated
+- (History — emulators are no longer used, see the rule above.) Emulator against a local backend: after `npm run build:android`, point the generated
   `assets/capacitor.config.json` `server.url` at `http://10.0.2.2:<port>`. Not `localhost`:
   it clashes with Capacitor's local `https://localhost` origin. Plain HTTP needs a temporary
   `app/src/debug/AndroidManifest.xml` with `usesCleartextTraffic="true"`. Delete it afterwards.

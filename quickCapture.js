@@ -16,6 +16,7 @@ const gcal   = require('./googleCalendar');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 const { createProjects } = require('./projects');
 const { createAppender } = require('./quickAppend');
+const { createPhoneActions, PHONE_ACTION_SCHEMA, PHONE_ACTION_PROMPT, ICON: PHONE_ICON } = require('./phoneActions');
 
 const TIMEZONE = gcal.TIMEZONE;
 const QUICK_TYPES = ['event', 'reminder', 'errand', 'note_link', 'note'];
@@ -173,7 +174,17 @@ function createStore(archivePath, onWrite = null) {
     return notes;
   }
 
-  return { dir, audioDir, mediaDir, read, write, list, ensureDirs };
+  /** Delete a note and its files (expired action entries) */
+  function remove(id) {
+    const n = read(id);
+    if (!n) return false;
+    for (const f of [n.audioFile && path.join(audioDir, n.audioFile), n.media?.file && path.join(mediaDir, n.media.file), fileFor(id)]) {
+      if (f) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+    }
+    return true;
+  }
+
+  return { dir, audioDir, mediaDir, read, write, list, ensureDirs, remove };
 }
 
 function newId() {
@@ -339,13 +350,15 @@ const CLASSIFICATION_SCHEMA = {
     geoWhen:            { type: 'string', enum: ['', 'arrive', 'leave'] },
     geoPlace:           { type: 'string' },
     geoPlaceId:         { type: 'string' },
+    // Phone actions: alarm, timer, navigate, message, call, dnd, flashlight, openApp (phoneActions.js)
+    phoneAction:        PHONE_ACTION_SCHEMA,
   },
   required: [
     'type', 'title', 'start', 'end', 'allDay', 'location', 'dueDate',
     'linkedRecordingId', 'linkConfidence', 'items', 'place', 'trigger', 'content', 'spokenConfirmation',
     'action', 'targetId', 'targetType', 'targetName', 'explicitTarget', 'confidence',
     'addItems', 'removeItems', 'changes', 'appendText', 'alsoProjectId', 'newProjectName',
-    'geoWhen', 'geoPlace', 'geoPlaceId',
+    'geoWhen', 'geoPlace', 'geoPlaceId', 'phoneAction',
   ],
   additionalProperties: false,
 };
@@ -406,7 +419,8 @@ Location reminders (any place, not just stores):
 - geoPlaceId: the id from PLACES when the place is clearly one of them (home → "home"; work → the work place; aliases count); otherwise "".
 - Use type "reminder" for a task ("put clothes in the dryer"), "note" for information, "errand" only for things to buy at a store. A shopping trip to a store keeps using errand place/trigger as above (not geoWhen), except when leaving ("when I leave Publix …"), which uses geoWhen "leave".
 - A location reminder with no time has dueDate null; don't invent a date. geoWhen "" and geoPlace "" / geoPlaceId "" when there's no place trigger.
-- spokenConfirmation for location reminders: "I'll remind you when you get home: put clothes in the dryer".`;
+- spokenConfirmation for location reminders: "I'll remind you when you get home: put clothes in the dryer".
+${PHONE_ACTION_PROMPT}`;
 
 async function classify({ transcript, now, recordings, candidates = '', places = '' }) {
   if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY not set');
@@ -804,6 +818,7 @@ function shortWhen(value) {
 
 // { icon, text, tone: 'success'|'review', detail? }
 function confirmationFor(note, recordingTitle) {
+  if (note.type === 'action' && note.action) return { icon: PHONE_ICON[note.action.kind] || '⚡', text: note.title, tone: 'success', actionId: note.id };
   if (note.appendConfirmation) return { ...note.appendConfirmation, captureId: note.id };
   if (note.status === 'needs_review') return { icon: '⚠️', text: 'Saved — needs review', tone: 'review' };
   if (note.geo) {
@@ -845,6 +860,7 @@ function confirmationFor(note, recordingTitle) {
 
 function describeActions(note, recordingTitle) {
   const actions = [];
+  if (note.type === 'action') return ['Phone action'];
   if (note.status === 'needs_review') actions.push('Saved for review');
   else if (note.type === 'event')     actions.push('Added to calendar');
   else if (note.type === 'reminder')  actions.push(note.dueDate ? 'Reminder with due date' : 'Reminder (no due date)');
@@ -1127,8 +1143,14 @@ function createQuickCapture(deps) {
   // Capture/retry response: note + spoken text + short confirmation (for notifications)
   function captureResponse(note) {
     const title = note.linkedRecordingId ? deps.getRecordingTitle(note.linkedRecordingId) : null;
-    return { note, spokenConfirmation: note.spokenConfirmation, confirmation: confirmationFor(note, title) };
+    return { note, spokenConfirmation: note.spokenConfirmation, confirmation: confirmationFor(note, title), phoneAction: phone.pendingFor(note) };
   }
+
+  // Phone actions (alarm, timer, directions, message, call, …): entries the phone runs
+  const phone = createPhoneActions({
+    store, places, getSettings: deps.getConfig, saveSettings: deps.saveConfig,
+    newId, blankNote: (...a) => blankNote(...a),
+  });
 
   // Smart append engine (needs the helpers above; created lazily so all are defined)
   let appender = null;
@@ -1225,7 +1247,7 @@ function createQuickCapture(deps) {
       while (summaryQueue.length) {
         const id = summaryQueue.shift();
         const note = store.read(id);
-        if (!note || note.undone || note.kind === 'append' || !(note.transcript || note.content || note.mediaText || (note.items || []).length || (note.updates || []).length)) continue;
+        if (!note || note.undone || note.kind === 'append' || note.type === 'action' || !(note.transcript || note.content || note.mediaText || (note.items || []).length || (note.updates || []).length)) continue;
         try {
           usage('summary');
           const summary = await summarize(note);
@@ -1244,7 +1266,7 @@ function createQuickCapture(deps) {
   // Notes with no summary yet (or left "pending" by a restart)
   function backfillSummaries() {
     const todo = store.list().filter(n =>
-      !n.undone && n.kind !== 'append' && (n.transcript || (n.typed && n.aiOrganize && (n.content || n.mediaText || (n.items || []).length)))
+      !n.undone && n.kind !== 'append' && n.type !== 'action' && (n.transcript || (n.typed && n.aiOrganize && (n.content || n.mediaText || (n.items || []).length)))
       && (!n.summaryStatus || n.summaryStatus === 'pending'));
     if (!todo.length) return;
     console.log(`[quick] Queueing summaries for ${todo.length} quick note(s)`);
@@ -1263,6 +1285,9 @@ function createQuickCapture(deps) {
         .then(() => projects.backfill())
         .catch(err => console.warn(`[quick] Summary backfill stopped: ${err.message}`));
     }, 3000);
+    // Action entries older than the chosen 7 / 30 days
+    setTimeout(() => { try { phone.cleanup(); } catch (err) { console.warn(`[quick] Action cleanup: ${err.message}`); } }, 5000).unref?.();
+    setInterval(() => { try { phone.cleanup(); } catch { /* next hour */ } }, 60 * 60 * 1000).unref?.();
     // "Add to …?" questions nobody answered within 2 minutes → keep as new notes
     setInterval(() => smart().sweepPending().catch(() => {}), 30_000).unref?.();
   }
@@ -1282,9 +1307,12 @@ function createQuickCapture(deps) {
       try {
         const recordings = deps.getRecentRecordings(100);
         note.classification = await classify({ transcript: note.transcript, now, recordings, candidates: smart().candidates(now), places: places?.placesForPrompt() || '' });
+        const pa = phone.normalize(note.classification.phoneAction);
+        if (pa && !pa.alsoNote) return finalize(await phone.convert(note, pa)); // a command: action entry only
         applyFields(note, note.classification, deps);
         note.spokenConfirmation = String(note.classification.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
         await routeIntent(note, note.classification, now);
+        if (pa) await phone.attach(note, pa, now); // note + action chip
       } catch (err) {
         console.warn(`[quick] Classification failed for ${note.id}: ${err.message}`);
         note.error = `Classification failed: ${err.message}`;
@@ -1328,6 +1356,9 @@ function createQuickCapture(deps) {
       // A typed checklist added to a list: the typed items are the items to add
       if (typed.items?.length && cls.action === 'append' && !(cls.addItems || []).length) cls.addItems = typed.items;
       note.classification = cls;
+      const pa = typed.items?.length || note.media ? null : phone.normalize(cls.phoneAction);
+      if (pa && !pa.alsoNote) return finalize(await phone.convert(note, pa));
+      if (pa) note.pendingAction = pa;
       applyFields(note, cls, deps);
       if (typed.title) note.title = typed.title;
       if (typed.body) note.content = typed.body;
@@ -1339,6 +1370,7 @@ function createQuickCapture(deps) {
       }
       note.spokenConfirmation = String(cls.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
       await routeIntent(note, cls, now);
+      if (note.pendingAction) { await phone.attach(note, note.pendingAction, now); delete note.pendingAction; }
     } catch (err) {
       console.warn(`[quick] Organizing typed note ${note.id} failed: ${err.message}`);
       note.error = `AI organize failed: ${err.message}`;
@@ -1441,6 +1473,8 @@ function createQuickCapture(deps) {
       if (note.undone) { res.status(409).json({ error: 'This note was deleted' }); return null; }
       return note;
     }
+
+    phone.register(app);
 
     // GET /api/quick — newest first; optional ?recordingId=&status=
     app.get('/api/quick', (req, res) => {
@@ -1625,6 +1659,7 @@ function createQuickCapture(deps) {
           .map(n => ({
             id:            n.kind === 'append' && n.appliedTo ? n.appliedTo.id : n.id,
             title:         n.kind === 'append' && n.resultLine ? n.resultLine : n.title,
+            icon:          n.type === 'action' ? PHONE_ICON[n.action?.kind] || '⚡' : undefined, // widget / watch row icon
             type:          n.kind === 'append' && n.appliedTo ? (n.appliedTo.type === 'note' ? 'note' : n.appliedTo.type) : n.type,
             append:        n.kind === 'append' || undefined,
             pending:       n.status === 'pending_decision' || undefined,
@@ -1672,7 +1707,7 @@ function createQuickCapture(deps) {
       if (q.length < 2) return res.json([]);
       const out = [];
       for (const n of store.list()) {
-        if (n.undone || n.hidden) continue;
+        if (n.undone || n.hidden || n.type === 'action') continue;
         const fields = [n.title, n.content, n.transcript, n.summary, n.mediaText,
           (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n')];
         const hit = fields.find(f => f && String(f).toLowerCase().includes(q));

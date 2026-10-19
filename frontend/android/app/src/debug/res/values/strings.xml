@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug build ("PA Debug", package ….debug): installs next to the real app for device tests -->
+<resources>
+    <string name="app_name">PA Debug</string>
+    <string name="title_activity_main">PA Debug</string>
+    <string name="quick_record_label">PA Debug Record</string>
+    <string name="stop_record_label">PA Debug Stop</string>
+    <string name="volume_shortcuts_label">PA Debug volume shortcuts</string>
+    <string name="widget_label">PA Debug Capture</string>
+    <string name="tile_label">PA Debug Capture</string>
+</resources>

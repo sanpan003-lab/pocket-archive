@@ -75,6 +75,10 @@
             android:name=".ArrivalActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".IgnoredRecordings$RestoreReceiver"
+            android:exported="false" />
+
         <service
             android:name=".RecordTileService"
             android:exported="true"

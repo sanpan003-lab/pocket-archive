@@ -26,6 +26,9 @@ object WatchRecSync {
         .put("feedback", "vibrate")               // vibrate | none
         .put("countdown", false)
         .put("guardSec", 3)
+        .put("noSpeechDiscard", true)
+        .put("noSpeechSec", 4)
+        .put("minLengthDiscard", true)
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -44,6 +47,9 @@ object WatchRecSync {
         o.optString("feedback").takeIf { it in setOf("vibrate", "none") }?.let { out.put("feedback", it) }
         if (o.has("countdown")) out.put("countdown", o.optBoolean("countdown"))
         if (o.has("guardSec")) out.put("guardSec", o.optInt("guardSec").coerceIn(2, 5))
+        if (o.has("noSpeechDiscard")) out.put("noSpeechDiscard", o.optBoolean("noSpeechDiscard"))
+        if (o.has("noSpeechSec")) o.optInt("noSpeechSec").takeIf { it in setOf(3, 4, 6) }?.let { out.put("noSpeechSec", it) }
+        if (o.has("minLengthDiscard")) out.put("minLengthDiscard", o.optBoolean("minLengthDiscard"))
         return out
     }
 

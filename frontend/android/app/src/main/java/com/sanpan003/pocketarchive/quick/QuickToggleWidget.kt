@@ -250,7 +250,7 @@ class QuickToggleWidget : AppWidgetProvider() {
                     return@forEachIndexed
                 }
                 setViewVisibility(row, View.VISIBLE)
-                setTextViewText(icon, WidgetData.typeIcon(item.type))
+                setTextViewText(icon, WidgetData.typeIcon(item.type, item.icon))
                 setTextViewText(title, item.title)
                 setViewVisibility(dot, if (item.needsReview) View.VISIBLE else View.GONE)
                 val ago = WidgetData.relativeTime(item.createdAt, now)

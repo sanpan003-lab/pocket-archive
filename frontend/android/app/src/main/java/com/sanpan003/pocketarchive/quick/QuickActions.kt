@@ -34,7 +34,7 @@ object QuickActions {
         if (!RecorderState.recording) {
             // The press that just stopped a recording (e.g. volume up + a Samsung routine) must not start one
             if (!force && source != "app" && !RecorderGuard.canStart(ctx, source)) return true
-            ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START))
+            ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START).putExtra(QuickRecorderService.EXTRA_SOURCE, source))
         }
         return true
     }

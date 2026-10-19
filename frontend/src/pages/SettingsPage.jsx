@@ -12,6 +12,7 @@ import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
 import AppearanceSettings from '../components/AppearanceSettings';
 import RecordingSettings from '../components/RecordingSettings';
+import PhoneActionsSettings from '../components/PhoneActionsSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import { AboutSection } from '../components/WhatsNew';
 import SecuritySettings from '../components/SecuritySettings';
@@ -87,6 +88,7 @@ export default function SettingsPage() {
 
       <AppearanceSettings />
       <RecordingSettings />
+      <PhoneActionsSettings />
       <NotificationSettings />
 
       {/* ── Backend status (server details: the archive admin) ───────────────── */}

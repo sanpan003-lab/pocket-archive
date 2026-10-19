@@ -37,6 +37,10 @@ class QuickRecorderService : Service() {
         const val ACTION_START = "com.sanpan003.pocketarchive.recorder.START"
         const val ACTION_STOP = "com.sanpan003.pocketarchive.recorder.STOP"
         const val ACTION_DISCARD = "com.sanpan003.pocketarchive.recorder.DISCARD"
+        const val ACTION_CONFIRM = "com.sanpan003.pocketarchive.recorder.CONFIRM"
+        const val EXTRA_SOURCE = "source"
+        private const val CONFIRM_MS = 3_000L
+        private const val MIN_LENGTH_MS = 2_000L
         private const val COUNTDOWN_MS = 900L
 
         private const val POLL_MS = 50L         // ~20 level updates a second for the live waveform
@@ -62,19 +66,26 @@ class QuickRecorderService : Service() {
     private var maxMs = 120_000L
     /** Captures the volume keys while recording (screen on or off); released on stop. */
     private var keySession: MediaSessionCompat? = null
+    /** Accidental recordings: speech heard? (voice activity, not just loudness) */
+    private var speech = SpeechDetector()
+    private var checking = false      // pocket check running
+    private var source = "app"         // where the start came from (app | quick-record | widget/tile | shortcut …)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         Notifications.ensureChannels(this)
+        PocketCheck.watchScreen(this)
+        AccidentalStore.cleanup(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> if (recorder == null && !starting) startRecording()
-            ACTION_STOP -> if (starting) cancelCountdown() else stopRecording()
-            ACTION_DISCARD -> if (starting) cancelCountdown() else stopRecording(discard = true)
+            ACTION_START -> if (recorder == null && !starting && !checking && !RecorderState.confirming) startRecording(intent.getStringExtra(EXTRA_SOURCE) ?: "external")
+            ACTION_CONFIRM -> if (RecorderState.confirming) confirmed()
+            ACTION_STOP -> if (RecorderState.confirming) endConfirm(false) else if (starting) cancelCountdown() else stopRecording()
+            ACTION_DISCARD -> if (RecorderState.confirming) endConfirm(false) else if (starting) cancelCountdown() else stopRecording(discard = true)
             else -> if (recorder == null && uploadsInFlight == 0) stopSelf()
         }
         return START_NOT_STICKY
@@ -82,11 +93,12 @@ class QuickRecorderService : Service() {
 
     // ── Recording ──────────────────────────────────────────────────────────
 
-    private fun startRecording() {
+    private fun startRecording(from: String) {
+        source = from
         // Enter the foreground first (Android requires it within seconds of startForegroundService)
         try {
             ServiceCompat.startForeground(
-                this, Notifications.ID_RECORDING, recordingNotification(),
+                this, Notifications.ID_RECORDING, if (source == "app") recordingNotification() else startingNotification(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0,
             )
         } catch (e: Exception) {
@@ -99,6 +111,35 @@ class QuickRecorderService : Service() {
         val prefs = RecorderPrefs.get(this)
         silenceMs = if (prefs.silenceSec > 0) prefs.silenceSec * 1000L else Long.MAX_VALUE
         maxMs = prefs.maxMinutes * 60_000L
+
+        // Accidental recordings — only for starts from outside the app (keys, widget, routines, tile…)
+        val outside = source != "app"
+        if (outside && AccidentalStore.inCooldown()) {
+            RecorderGuard.note("Ignored a start from $source: within 3 s of an ignored recording")
+            finishIfIdle()
+            return
+        }
+        if (outside && prefs.pocketDetection && PocketCheck.screenOffOrJustWoken(this)) {
+            checking = true
+            PocketCheck.isNear(this) { near ->
+                checking = false
+                if (near) {
+                    Feedback.pocket(this)
+                    AccidentalStore.ignore(this, null, "pocket", "In a pocket or bag (proximity sensor)")
+                    finishIfIdle()
+                } else afterChecks(prefs, outside)
+            }
+            return
+        }
+        afterChecks(prefs, outside)
+    }
+
+    private fun afterChecks(prefs: RecorderPrefs.Settings, outside: Boolean) {
+        if (outside && prefs.confirmStart) { askToConfirm(); return }
+        beginOrCountdown(prefs)
+    }
+
+    private fun beginOrCountdown(prefs: RecorderPrefs.Settings) {
         if (prefs.countdown) {
             starting = true
             Feedback.countdown(this)
@@ -107,6 +148,69 @@ class QuickRecorderService : Service() {
             beginRecording()
         }
     }
+
+    // ── "Press again to confirm" ───────────────────────────────────────────
+
+    private fun askToConfirm() {
+        RecorderState.confirming = true
+        RecorderGuard.note("Asking to confirm (3 s)")
+        Feedback.confirmPrompt(this)
+        showForeground(confirmNotification())
+        captureVolumeKeys(confirmOnly = true)
+        main.postDelayed(confirmTimeout, CONFIRM_MS)
+    }
+
+    private val confirmTimeout = Runnable { endConfirm(false) }
+
+    private fun confirmed() = endConfirm(true)
+
+    private fun endConfirm(start: Boolean) {
+        if (!RecorderState.confirming) return
+        main.removeCallbacks(confirmTimeout)
+        RecorderState.confirming = false
+        releaseVolumeKeys()
+        if (start) {
+            RecorderGuard.note("Confirmed — recording")
+            showForeground(recordingNotification())
+            beginOrCountdown(RecorderPrefs.get(this))
+        } else {
+            AccidentalStore.ignore(this, null, "confirm", "Not confirmed within 3 s")
+            finishIfIdle()
+        }
+    }
+
+    /** Swap the foreground notification (a plain notify() update was ignored on Samsung) */
+    private fun showForeground(n: android.app.Notification) {
+        try {
+            ServiceCompat.startForeground(this, Notifications.ID_RECORDING, n,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0)
+        } catch (e: Exception) { Log.w(TAG, "Foreground notification not updated", e) }
+    }
+
+    /** Before the pocket check / confirm prompt: not "Recording…" yet */
+    private fun startingNotification() =
+        NotificationCompat.Builder(this, Notifications.CH_RECORDING)
+            .setSmallIcon(R.drawable.ic_stat_mic)
+            .setColor(Notifications.BRAND)
+            .setContentTitle("Voice note…")
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+
+    private fun confirmNotification() =
+        NotificationCompat.Builder(this, Notifications.CH_RECORDING)
+            .setSmallIcon(R.drawable.ic_stat_mic)
+            .setColor(Notifications.BRAND)
+            .setContentTitle("Record a voice note?")
+            .setContentText("Press volume up or tap within 3 seconds")
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(PendingIntent.getService(this, 3, intent(this, ACTION_CONFIRM), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .addAction(R.drawable.ic_mic_white, "Record", PendingIntent.getService(this, 3, intent(this, ACTION_CONFIRM), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            .build()
 
     private val beginAfterCountdown = Runnable {
         starting = false
@@ -151,6 +255,8 @@ class QuickRecorderService : Service() {
         lastVoiceElapsed = startedElapsed
         heardVoice = false
         noiseFloor = 400.0
+        speech = SpeechDetector()
+        if (source != "app") showForeground(recordingNotification())
         RecorderGuard.started()
         RecorderState.update(this, true, System.currentTimeMillis())
         Feedback.recordingStarted(this)
@@ -165,17 +271,19 @@ class QuickRecorderService : Service() {
      * (not to the ringer/media volume) while it's active. It only exists
      * while recording, so a stray press later can never start anything.
      */
-    private fun captureVolumeKeys() {
+    private fun captureVolumeKeys(confirmOnly: Boolean = false) {
         releaseVolumeKeys()
         try {
             val provider = object : VolumeProviderCompat(VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
                     when {
+                        confirmOnly -> if (direction > 0) main.post { confirmed() }
                         direction < 0 -> main.post { keyFromSession(RecorderKeys.Key.DOWN) }
                         direction > 0 -> main.post { keyFromSession(RecorderKeys.Key.UP) }
                     }
                 }
                 override fun onSetVolumeTo(volume: Int) {
+                    if (confirmOnly) { if (volume > currentVolume) main.post { confirmed() }; return }
                     if (volume < currentVolume) main.post { keyFromSession(RecorderKeys.Key.DOWN) }
                     else if (volume > currentVolume) main.post { keyFromSession(RecorderKeys.Key.UP) }
                 }
@@ -235,8 +343,12 @@ class QuickRecorderService : Service() {
                 noiseFloor = noiseFloor * 0.9875 + amp * 0.0125 // same ~4 s time constant at 50 ms polls
             }
             RecorderState.level(min(1.0, amp / 12_000.0))
+            speech.feed(amp, now - startedElapsed)
+            val prefs = RecorderPrefs.get(this@QuickRecorderService)
 
             when {
+                prefs.noSpeechDiscard && !speech.speech && now - startedElapsed >= prefs.noSpeechSec * 1000L ->
+                    stopRecording(autoReason = "No speech in the first ${prefs.noSpeechSec} s")
                 now - startedElapsed >= maxMs -> stopRecording()
                 now - lastVoiceElapsed >= silenceMs -> stopRecording()
                 else -> main.postDelayed(this, POLL_MS)
@@ -244,7 +356,7 @@ class QuickRecorderService : Service() {
         }
     }
 
-    private fun stopRecording(discard: Boolean = false) {
+    private fun stopRecording(discard: Boolean = false, autoReason: String? = null) {
         val active = recorder
         if (active == null) {
             finishIfIdle()
@@ -265,6 +377,7 @@ class QuickRecorderService : Service() {
         }
         val captured = file
         file = null
+        val lengthMs = SystemClock.elapsedRealtime() - startedElapsed
         RecorderState.update(this, false)
 
         if (discard) {
@@ -273,15 +386,24 @@ class QuickRecorderService : Service() {
             finishIfIdle()
             return
         }
-        Feedback.recordingStopped(this)
-
-        if (!stoppedCleanly || captured == null || !heardVoice || captured.length() < 1_500) {
-            captured?.delete()
+        // Accidental recordings: kept 30 s with "Restore" (never silently deleted)
+        val prefs = RecorderPrefs.get(this)
+        val reason = when {
+            !stoppedCleanly || captured == null || captured.length() < 1_500 -> null.also { captured?.delete() }
+            autoReason != null -> autoReason
+            prefs.minLengthDiscard && lengthMs < MIN_LENGTH_MS -> "Shorter than 2 s"
+            !speech.speech -> "No speech heard"
+            else -> ""
+        }
+        if (reason != "") {
+            Feedback.discarded(this)
+            if (reason != null) AccidentalStore.ignore(this, captured, if (reason.startsWith("Shorter")) "too-short" else "no-speech", reason)
             ResultNotifier.empty(this)
             finishIfIdle()
             return
         }
-        upload(captured)
+        Feedback.recordingStopped(this)
+        upload(captured!!)
     }
 
     // ── Upload (stays in the foreground while sending) ─────────────────────
@@ -317,7 +439,7 @@ class QuickRecorderService : Service() {
     }
 
     private fun finishIfIdle() {
-        if (recorder != null || uploadsInFlight > 0 || starting) return
+        if (recorder != null || uploadsInFlight > 0 || starting || checking || RecorderState.confirming) return
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -325,6 +447,8 @@ class QuickRecorderService : Service() {
     override fun onDestroy() {
         main.removeCallbacks(poll)
         main.removeCallbacks(beginAfterCountdown)
+        main.removeCallbacks(confirmTimeout)
+        RecorderState.confirming = false
         releaseVolumeKeys()
         recorder?.let { active ->
             // Killed mid-recording: keep what we have and queue it

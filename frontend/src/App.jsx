@@ -16,6 +16,7 @@ import TrashPage from './pages/TrashPage';
 import CreateRecordingPage from './pages/CreateRecordingPage';
 import QuickCapturePage from './pages/QuickCapturePage';
 import QuickInboxPage from './pages/QuickInboxPage';
+import ActionsPage from './pages/ActionsPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import NativeBridge from './native/NativeBridge';
@@ -100,6 +101,7 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="quick"       element={<QuickCapturePage />} />
             <Route path="quick/inbox" element={<QuickInboxPage />} />
+            <Route path="quick/actions" element={<ActionsPage />} />
             {/* One note, opened over the inbox (deep links, widget, Back button) */}
             <Route path="quick/:id"   element={<QuickInboxPage />} />
             <Route path="shared"       element={<QuickInboxPage key="shared" sharedOnly />} />

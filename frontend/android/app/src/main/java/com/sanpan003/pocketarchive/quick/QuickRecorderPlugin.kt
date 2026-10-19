@@ -30,6 +30,7 @@ import org.json.JSONObject
         Permission(alias = "notifications", strings = [Manifest.permission.POST_NOTIFICATIONS]),
         Permission(alias = "location", strings = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION]),
         Permission(alias = "backgroundLocation", strings = [Manifest.permission.ACCESS_BACKGROUND_LOCATION]),
+        Permission(alias = "contacts", strings = [Manifest.permission.READ_CONTACTS]),
     ],
 )
 class QuickRecorderPlugin : Plugin() {
@@ -195,6 +196,63 @@ class QuickRecorderPlugin : Plugin() {
         WearBridge.async { WearBridge.sendToken(context) } // the watch's direct-upload fallback
         call.resolve()
     }
+
+    /** "Restore" on the in-app toast after a recording was set aside (no speech / too short) */
+    @PluginMethod
+    fun restoreIgnored(call: PluginCall) = call.resolve(JSObject().put("restored", AccidentalStore.restoreLatest(context)))
+
+    // ── Phone actions (Quick Capture → Actions) ──────────────────────────────
+
+    /** { action, choice? } → { status, icon, text, detail?, undo } (also reported to the server) */
+    @PluginMethod
+    fun runPhoneAction(call: PluginCall) {
+        val action = call.getObject("action") ?: return call.reject("action is required")
+        val choice = call.getObject("choice")
+        main.post { call.resolve(JSObject.fromJSONObject(PhoneActions.run(context, action, choice))) }
+    }
+
+    @PluginMethod
+    fun undoPhoneAction(call: PluginCall) {
+        val action = call.getObject("action") ?: return call.reject("action is required")
+        main.post { call.resolve(JSObject.fromJSONObject(PhoneActions.undo(context, action))) }
+    }
+
+    /** Contacts matching a name; asks for the contacts permission the first time it's needed */
+    @PluginMethod
+    fun findContacts(call: PluginCall) {
+        if (getPermissionState("contacts") != PermissionState.GRANTED) {
+            requestPermissionForAlias("contacts", call, "contactsResult")
+            return
+        }
+        call.resolve(JSObject().put("permission", "granted").put("choices", PhoneActions.contactsOf(context, call.getString("name") ?: "")))
+    }
+
+    @PermissionCallback
+    private fun contactsResult(call: PluginCall) {
+        val granted = getPermissionState("contacts") == PermissionState.GRANTED
+        call.resolve(JSObject().put("permission", if (granted) "granted" else "denied")
+            .put("choices", if (granted) PhoneActions.contactsOf(context, call.getString("name") ?: "") else com.getcapacitor.JSArray()))
+    }
+
+    @PluginMethod
+    fun findApps(call: PluginCall) = call.resolve(JSObject().put("choices", PhoneActions.appsOf(context, call.getString("name") ?: "")))
+
+    @PluginMethod
+    fun getActionStatus(call: PluginCall) = call.resolve(JSObject.fromJSONObject(PhoneActions.status(context)))
+
+    /** Fix-it buttons: overlay (run actions from the background) | dnd | contacts */
+    @PluginMethod
+    fun openActionSetup(call: PluginCall) {
+        when (call.getString("target")) {
+            "contacts" -> if (getPermissionState("contacts") != PermissionState.GRANTED) { requestPermissionForAlias("contacts", call, "setupContactsResult"); return }
+            "dnd" -> activity.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+            "overlay" -> activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+        }
+        call.resolve()
+    }
+
+    @PermissionCallback
+    private fun setupContactsResult(call: PluginCall) = call.resolve()
 
     /** Someone changed a shared list while the app is open (live event) → redraw the widget now */
     @PluginMethod

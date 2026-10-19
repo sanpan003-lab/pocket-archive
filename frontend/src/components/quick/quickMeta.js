@@ -1,4 +1,4 @@
-import { CalendarClock, Bell, Link2, StickyNote, ShoppingCart } from 'lucide-react';
+import { CalendarClock, Bell, Link2, StickyNote, ShoppingCart, Zap } from 'lucide-react';
 
 // color = badge tint and the accent bar on inbox cards (needs review uses REVIEW_ACCENT)
 export const QUICK_TYPES = {
@@ -7,11 +7,13 @@ export const QUICK_TYPES = {
   errand:    { label: 'Errand',      icon: ShoppingCart,  badge: 'badge-green',  color: '#10B981', emoji: '🛒' },
   note_link: { label: 'Linked note', icon: Link2,         badge: 'badge-teal',   color: '#14B8A6' },
   note:      { label: 'Quick note',  icon: StickyNote,    badge: 'badge-gold',   color: 'rgb(var(--accent-500))' },
+  action:    { label: 'Action',      icon: Zap,           badge: 'badge-slate',  color: '#64748B' },
 };
 
 export const REVIEW_ACCENT = '#F97316';
 
-export const TYPE_OPTIONS = Object.entries(QUICK_TYPES).map(([value, t]) => ({ value, label: t.label }));
+// Action entries (Quick Capture → Actions) aren't a type you pick for a note
+export const TYPE_OPTIONS = Object.entries(QUICK_TYPES).filter(([value]) => value !== 'action').map(([value, t]) => ({ value, label: t.label }));
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 

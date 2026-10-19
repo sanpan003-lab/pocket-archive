@@ -5,6 +5,30 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.3.0 — Oct 19, 2026
+
+### Phone actions
+- Say a command and your phone does it: **“wake me at 5:30”**, **“alarm every weekday at 6”**, **“set a timer for 10 minutes”**, **“directions to Publix”**, **“text Minal I’m on my way”**, **“call Mom”**, **“do not disturb for an hour”**, **“flashlight on”**, **“open Spotify”**
+- Alarms and timers go to your Clock app (Samsung Clock shows them on your Galaxy Watch too). Undo opens Clock’s alarm list so you can delete the alarm there
+- Messages and calls open **filled in** — nothing is ever sent or dialed for you. If several contacts or apps match, it asks which
+- Do Not Disturb turns itself back off after the time you said; Do Not Disturb and the flashlight are off until you turn them on in Settings → **Alarms & phone actions**
+- Commands from your watch run on your phone. Works for Lite (Pocket Notes) accounts too
+
+### Actions tab
+- Commands are kept in **Quick Capture → Actions** (Alarms, Timers, Messages & calls, Navigation, Other), not in your Inbox — no note, no AI summary. Kept 7 days (or 30, or forever)
+- If you also said something worth keeping (“alarm at 3 to call the pharmacy about the refill, ask about the copay card”), you get a normal note with a small chip like **⏰ 3 PM**
+- Settings → Appearance → “Show actions in Inbox” if you want them there. On the web the Actions tab is read-only
+
+### Accidental recordings
+- **Pocket detection** (on): a key press with the screen off and the phone in a pocket or bag doesn’t record — just one short buzz
+- **No speech at the start** (on, 4 s): a recording without speech is set aside. It listens for speech, not just noise
+- **Shorter than 2 seconds** (on): set aside too
+- **Press again to confirm** (off): after a key press, press volume up or tap within 3 seconds to record
+- Anything set aside is kept for 30 seconds with **Restore** — real speech is never lost. Settings shows how many were ignored this week
+- After an ignored recording, new key presses are ignored for 3 seconds
+- Tip in Settings: use the side key’s **double press** instead of press-and-hold
+- The watch also sets aside recordings without speech or under 2 seconds (with Restore)
+
 ## 2.2.0 — Oct 18, 2026
 
 ### Pocket Notes (Lite)

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug build ("PA Debug", package ….debug): installs next to the real watch app for device tests -->
+<resources>
+    <string name="app_name">PA Debug</string>
+    <string name="quick_record">PA Debug Record</string>
+    <string name="tile_label">PA Debug Capture</string>
+    <string name="complication_label">PA Debug record</string>
+</resources>

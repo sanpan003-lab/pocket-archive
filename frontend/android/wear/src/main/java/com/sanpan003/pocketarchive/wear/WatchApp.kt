@@ -297,7 +297,7 @@ private fun RecentScreen(onNote: (String) -> Unit) {
                     onClick = { onNote(n.id) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.filledTonalButtonColors(),
-                    icon = { Text(WatchData.typeIcon(n.type), fontSize = 16.sp) },
+                    icon = { Text(WatchData.typeIcon(n.type, n.icon), fontSize = 16.sp) },
                     label = { Text(n.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     secondaryLabel = { Text("$progress${WatchData.ago(n.createdAt)}${if (n.needsReview) " · review" else ""}") },
                 )
@@ -377,7 +377,7 @@ private fun NoteScreen(id: String?) {
         ScalingLazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
             item {
                 Text(
-                    note?.let { "${WatchData.typeIcon(it.type)} ${it.title}" } ?: "Note not found",
+                    note?.let { "${WatchData.typeIcon(it.type, it.icon)} ${it.title}" } ?: "Note not found",
                     fontWeight = FontWeight.Bold, color = Gold, textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )

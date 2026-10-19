@@ -9,6 +9,8 @@ object RecorderState {
         private set
     @Volatile var startedAt = 0L
         private set
+    /** "Press again to confirm": volume up or a tap starts the recording */
+    @Volatile var confirming = false
 
     private val stateListeners = CopyOnWriteArraySet<(Boolean) -> Unit>()
     private val levelListeners = CopyOnWriteArraySet<(Double) -> Unit>()

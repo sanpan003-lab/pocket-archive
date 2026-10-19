@@ -70,6 +70,11 @@ android {
         }
     }
     buildTypes {
+        // Device tests: installs NEXT TO the real app (own package, data and launcher name "PA Debug")
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

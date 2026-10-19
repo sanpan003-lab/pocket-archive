@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Mic, Inbox } from 'lucide-react';
+import { Mic, Inbox, Zap } from 'lucide-react';
 
-// Capture | Inbox switcher shared by the two Quick Capture pages
+// Capture | Inbox | Actions switcher shared by the Quick Capture pages
 export default function QuickTabs({ reviewCount = 0 }) {
   const { pathname } = useLocation();
   const noteOpen = /^\/quick\/qn_/.test(pathname); // /quick/:id is the inbox with a note open
@@ -17,6 +17,9 @@ export default function QuickTabs({ reviewCount = 0 }) {
             {reviewCount}
           </span>
         )}
+      </NavLink>
+      <NavLink to="/quick/actions" className={({ isActive }) => `tab-item flex items-center gap-1.5 ${isActive ? 'active' : ''}`}>
+        <Zap size={13} /> Actions
       </NavLink>
     </div>
   );

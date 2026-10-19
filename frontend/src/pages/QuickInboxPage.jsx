@@ -202,11 +202,13 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
     return () => { cancelled = true; };
   }, [routeId, inline, loading, listNote, navigate, location.state]);
 
+  // Phone actions stay in Quick Capture → Actions unless "Show actions in Inbox" is on
+  const shown = useMemo(() => (s.showActions ? notes : notes.filter(n => n.type !== 'action')), [notes, s.showActions]);
   const counts = useMemo(
-    () => Object.fromEntries(FILTERS.map(f => [f.key, notes.filter(f.test).length])),
-    [notes],
+    () => Object.fromEntries(FILTERS.map(f => [f.key, shown.filter(f.test).length])),
+    [shown],
   );
-  const visible = useMemo(() => notes.filter((listsOnly ? LISTS : FILTERS.find(f => f.key === filter)).test), [notes, filter, listsOnly]);
+  const visible = useMemo(() => shown.filter((listsOnly ? LISTS : FILTERS.find(f => f.key === filter)).test), [shown, filter, listsOnly]);
   const sections = useMemo(() => buildSections(visible, s), [visible, s]);
   const order = useMemo(() => sections.flatMap(sec => sec.notes.map(n => n.id)), [sections]);
 

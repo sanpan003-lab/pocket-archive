@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Mic, Type, ListChecks, Image as ImageIcon, Brush } from 'lucide-react';
 import { useAppearance, useHaptics } from '../../context/appearanceStore';
 import { useFabHidden, notifyQuickChanged } from '../../lib/uiBus';
+import { canRunActions, confirmWithAction, undoPhoneAction } from '../../lib/phoneActions';
 import { decideQuickNote, undoQuickNote } from '../../lib/api';
 import QuickToast from '../quick/QuickToast';
 import { confirmationFor } from '../quick/quickMeta';
@@ -59,10 +60,21 @@ export default function CreateMenu() {
     setComposer(key);
   }
 
-  function saved(result) {
+  async function saved(result) {
     setComposer(null);
     const note = result.note;
     notifyQuickChanged(note);
+    // A phone command ("set a timer for 10 minutes"): run it here, show what happened
+    if (result.phoneAction && canRunActions) {
+      const conf = await confirmWithAction(result);
+      const undoAction = conf?.undo;
+      setToast({ ...conf, id: Date.now(), duration: 30000, actions: [
+        ...(note.type !== 'action' ? [{ label: 'Open', onClick: () => navigate(`/quick/${note.id}`) }] : [{ label: 'Actions', onClick: () => navigate('/quick/actions') }]),
+        ...(undoAction ? [{ label: 'Undo', onClick: async () => { const r = await undoPhoneAction(undoAction); setToast({ id: Date.now(), icon: '↩️', text: r?.text || 'Undone', detail: r?.detail, tone: 'queued', duration: 8000 }); } }] : []),
+      ] });
+      notifyQuickChanged();
+      return;
+    }
     const conf = result.confirmation || confirmationFor(note) || { icon: '📝', text: 'Saved', tone: 'success' };
     const actions = [];
     if (note.status === 'pending_decision') {

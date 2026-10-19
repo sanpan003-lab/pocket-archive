@@ -44,6 +44,7 @@ object ShortcutSetup {
             .put("doublePressService", VolumeShortcutService.isEnabled(ctx))
             .put("batteryUnrestricted", ctx.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(ctx.packageName) == true)
             .put("recording", RecorderState.recording)
+            .put("accidentalWeek", AccidentalStore.weekCount(ctx))
             .put("lastGuardDecision", RecorderGuard.lastDecision)
     }
 

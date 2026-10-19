@@ -224,6 +224,7 @@ export default function AppearanceSettings() {
         </div>
         <Switch label="Group by day" hint="Today / Yesterday / dates" checked={inbox.groupByDay} onChange={set('inbox', 'groupByDay')} />
         <Switch label="Pinned notes at the top" checked={inbox.pinnedSection} onChange={set('inbox', 'pinnedSection')} />
+        <Switch label="Show actions in Inbox" hint="Alarms, timers, directions, messages… normally stay in Quick Capture → Actions" checked={!!inbox.showActions} onChange={set('inbox', 'showActions')} />
       </Group>
 
       <Group group="toolbar">

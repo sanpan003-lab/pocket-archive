@@ -53,7 +53,7 @@ function createAppender(ctx) {
   }
 
   // ── Visibility helpers ────────────────────────────────────────────────────
-  const visible = n => n && !n.undone && !n.hidden && n.status !== 'pending_decision';
+  const visible = n => n && !n.undone && !n.hidden && n.status !== 'pending_decision' && n.type !== 'action';
   const isEventLike = n => n.type === 'event' || n.type === 'reminder';
   const whenOf = n => n.type === 'reminder' ? n.dueDate : n.start;
 

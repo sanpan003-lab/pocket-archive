@@ -54,6 +54,7 @@ const OPTIONS = {
   max: [[1, '1 min'], [2, '2 min'], [5, '5 min'], [10, '10 min']],
   feedback: [['both', 'Vibrate + chime'], ['vibrate', 'Vibrate only'], ['chime', 'Chime only'], ['none', 'None']],
   guard: [[2, '2 s'], [3, '3 s'], [4, '4 s'], [5, '5 s']],
+  noSpeech: [[3, '3 s'], [4, '4 s'], [6, '6 s']],
 };
 
 const PRESETS = [
@@ -79,7 +80,13 @@ function startMethods(status, act) {
     },
     {
       key: 'sideKey', icon: Power, title: 'Samsung side key', ok: null, hidden: !samsung,
-      steps: ['Settings → Advanced features → Side button → Double press → Open app → “Quick Record”.', 'Double-press again while recording to stop (see “Opening Quick Record while recording”).', 'Or choose “Stop Recording” for a key that only stops.'],
+      tip: 'Recommended: double press. Press-and-hold goes off easily in a pocket or bag.',
+      steps: [
+        'Settings → Advanced features → Side button → Double press → Open app → “Quick Record”.',
+        'Using press and hold now? Set Press and hold back to “Wake Bixby” or “Power off menu”, then use Double press as above.',
+        'Double-press again while recording to stop (see “Opening Quick Record while recording”).',
+        'Or choose “Stop Recording” for a key that only stops.',
+      ],
       actions: [{ label: 'Open side button settings', onClick: () => act('open', 'sideKey') }],
     },
     {
@@ -129,6 +136,7 @@ function MethodRow({ m }) {
       </button>
       {open && (
         <div className="px-3 pb-3 -mt-1">
+          {m.tip && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-1.5">{m.tip}</p>}
           <p className="text-[11px] font-bold uppercase tracking-wider text-navy-400 dark:text-white/40 mb-1">How to set up</p>
           <ol className="list-decimal pl-5 space-y-1 text-sm text-navy-700 dark:text-white/75">
             {m.steps.map((s, i) => <li key={i}>{s}</li>)}
@@ -348,6 +356,19 @@ export default function RecordingSettings() {
       <Segmented id="rs-feedback" label="Start/stop feedback" value={s.feedback} options={OPTIONS.feedback} onChange={set('feedback')} />
       <Switch label="Countdown beep before recording starts" hint="Three short beeps, then it records." checked={s.countdown} onChange={set('countdown')} />
 
+      <h3 id="accidental" className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-5 mb-1 scroll-mt-20">Accidental recordings</h3>
+      <p className="text-xs text-navy-500 dark:text-white/50">
+        For starts you didn’t mean (a side key pressed in a pocket). Anything ignored is kept for 30 seconds with a
+        “Restore” notification, so real speech is never lost.
+        {status.accidentalWeek > 0 && <b className="block mt-1 text-navy-700 dark:text-white/75">{status.accidentalWeek} accidental recording{status.accidentalWeek === 1 ? '' : 's'} ignored this week</b>}
+      </p>
+      <Switch label="Pocket detection" hint="Screen off and something right on the sensor (pocket, bag): don’t record — just one short buzz." checked={s.pocketDetection} onChange={set('pocketDetection')} />
+      <Switch label="Discard if no speech at the start" hint="Listens for speech (not just noise) in the first seconds." checked={s.noSpeechDiscard} onChange={set('noSpeechDiscard')} />
+      {s.noSpeechDiscard && <Segmented id="rs-nospeech" label="No speech within" value={s.noSpeechSec} options={OPTIONS.noSpeech} onChange={set('noSpeechSec')} />}
+      <Switch label="Discard recordings shorter than 2 seconds" checked={s.minLengthDiscard} onChange={set('minLengthDiscard')} />
+      <Switch label="Press again to confirm" hint="After a start from a key, widget or routine: a 3-second prompt and a buzz — press volume up or tap the notification to record, otherwise nothing happens." checked={s.confirmStart} onChange={set('confirmStart')} />
+      <p className="text-xs text-navy-500 dark:text-white/50 mt-1">After anything is ignored, new start presses are ignored for 3 seconds.</p>
+
       <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-5 mb-1">Prevent double actions</h3>
       <p className="text-xs text-navy-500 dark:text-white/50">
         One press can reach both the app and a Samsung routine. Starts right after a stop are the same press and are ignored;
@@ -383,6 +404,9 @@ export default function RecordingSettings() {
       <Segmented id="rw-max" label="Maximum length" value={w.maxMinutes} options={OPTIONS.max} onChange={v => saveWatch({ maxMinutes: v })} />
       <Switch label="Start/stop vibration" checked={w.feedback !== 'none'} onChange={on => saveWatch({ feedback: on ? 'vibrate' : 'none' })} />
       <Switch label="Countdown before recording starts" checked={!!w.countdown} onChange={on => saveWatch({ countdown: on })} />
+      <Switch label="Discard if no speech at the start" hint="Kept for 30 seconds with Restore on the watch" checked={w.noSpeechDiscard !== false} onChange={on => saveWatch({ noSpeechDiscard: on })} />
+      {w.noSpeechDiscard !== false && <Segmented id="rw-nospeech" label="No speech within" value={w.noSpeechSec || 4} options={OPTIONS.noSpeech} onChange={v => saveWatch({ noSpeechSec: v })} />}
+      <Switch label="Discard recordings shorter than 2 seconds" checked={w.minLengthDiscard !== false} onChange={on => saveWatch({ minLengthDiscard: on })} />
       <p className="text-[11px] text-navy-400 dark:text-white/40 mt-1"><Smartphone size={11} className="inline" /> Changes reach the watch the next time it’s connected.</p>
 
       {explain && (

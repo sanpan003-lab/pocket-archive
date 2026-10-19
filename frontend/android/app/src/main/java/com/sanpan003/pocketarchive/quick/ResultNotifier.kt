@@ -7,6 +7,8 @@ import androidx.core.app.NotificationManagerCompat
 import com.getcapacitor.JSObject
 import com.sanpan003.pocketarchive.R
 import org.json.JSONObject
+import android.app.PendingIntent
+import android.content.Intent
 
 /**
  * Tells you what happened to a recording. When the app is open on screen it
@@ -20,7 +22,11 @@ object ResultNotifier {
     private const val ASK_TIMEOUT_MS = 2 * 60_000L     // "Add to …?" — no answer in 2 min → new note
 
     fun deliver(ctx: Context, response: JSONObject, fromQueue: Boolean) {
-        val conf = response.optJSONObject("confirmation")
+        // A phone action ("wake me at 5:30"): do it now; the result replaces the confirmation
+        val action = response.optJSONObject("phoneAction")
+        val actionOutcome = action?.let { PhoneActions.run(ctx, it) }
+        val conf = if (action != null && actionOutcome != null) actionConfirmation(action, actionOutcome, response.optJSONObject("note"))
+            else response.optJSONObject("confirmation")
         val icon = conf?.optString("icon")?.takeIf { it.isNotBlank() } ?: "📝"
         val text = conf?.optString("text")?.takeIf { it.isNotBlank() } ?: "Voice note saved"
         val tone = conf?.optString("tone") ?: "success"
@@ -31,6 +37,7 @@ object ResultNotifier {
             put("spokenConfirmation", response.optString("spokenConfirmation"))
             put("confirmation", conf)
             put("fromQueue", fromQueue)
+            if (actionOutcome != null) put("actionOutcome", actionOutcome)
         }
         // Smart append: the capture lives inside another note → open that one; Undo/answer by capture id
         val note = response.optJSONObject("note")
@@ -55,7 +62,22 @@ object ResultNotifier {
         post(
             ctx, "$icon $text", detail ?: if (fromWatch) "From your watch" else if (fromQueue) "Sent from queue" else null, tone,
             localOnly = shownOnWatch, captureId = captureId, ask = ask, undoable = undoable,
+            undoAction = action?.takeIf { actionOutcome?.optBoolean("undo") == true },
+            chooseAction = action?.takeIf { actionOutcome?.optString("status") in setOf("needs_choice", "needs_permission") },
         )
+    }
+
+    /** "⏰ Alarm · 5:30 AM set" (+ "Note saved: …" when the capture also kept a note) */
+    private fun actionConfirmation(action: JSONObject, out: JSONObject, note: JSONObject?): JSONObject {
+        val status = out.optString("status")
+        val noteLine = action.optString("noteId").takeIf { it.isNotBlank() && it != "null" }?.let { "Note saved: ${note?.optString("title")}" }
+        return JSONObject()
+            .put("icon", out.optString("icon", "⚡"))
+            .put("text", out.optString("text"))
+            .put("tone", if (status == "failed" || status == "needs_permission") "review" else "success")
+            .put("detail", listOfNotNull(out.optString("detail").takeIf { it.isNotBlank() }, noteLine).joinToString(" · ").ifBlank { null } ?: JSONObject.NULL)
+            .put("actionId", action.optString("id"))
+            .apply { if (out.optBoolean("undo")) put("actionUndo", action) }
     }
 
     /** After Undo from a notification / the widget / the watch */
@@ -89,6 +111,7 @@ object ResultNotifier {
     private fun post(
         ctx: Context, title: String, text: String?, tone: String, localOnly: Boolean = false,
         captureId: String? = null, ask: Boolean = false, undoable: Boolean = false,
+        undoAction: JSONObject? = null, chooseAction: JSONObject? = null,
     ) {
         Notifications.ensureChannels(ctx)
         val success = tone == "success"
@@ -119,7 +142,7 @@ object ResultNotifier {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
             .setAutoCancel(true)
-            .setTimeoutAfter(if (ask) ASK_TIMEOUT_MS else if (undoable) UNDO_TIMEOUT_MS else TIMEOUT_MS)
+            .setTimeoutAfter(if (ask) ASK_TIMEOUT_MS else if (undoable || undoAction != null || chooseAction != null) UNDO_TIMEOUT_MS else TIMEOUT_MS)
             .setContentIntent(Notifications.openApp(ctx, "/quick/inbox"))
             .setLocalOnly(localOnly) // already shown by the watch app
             .apply {
@@ -127,6 +150,16 @@ object ResultNotifier {
                     addAction(0, "Yes", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_YES, captureId))
                     addAction(0, "New note", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_NEW, captureId))
                     addAction(0, "Other…", Notifications.openApp(ctx, "/quick/inbox?note=$captureId"))
+                } else if (undoAction != null) {
+                    // Alarm/timer: Undo opens Clock's list (the alarm is deleted there); flashlight/DND: switched back
+                    addAction(0, "Undo", PendingIntent.getBroadcast(
+                        ctx, undoAction.optString("id").hashCode(),
+                        Intent(ctx, ActionUndoReceiver::class.java).putExtra(ActionUndoReceiver.EXTRA_ACTION, undoAction.toString()),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ))
+                    addAction(0, "Actions", Notifications.openApp(ctx, "/quick/actions?focus=${undoAction.optString("id")}"))
+                } else if (chooseAction != null) {
+                    addAction(0, "Choose", Notifications.openApp(ctx, "/quick/actions?choose=${chooseAction.optString("id")}"))
                 } else if (captureId != null && undoable) {
                     addAction(0, "Undo", QuickActionReceiver.intent(ctx, QuickActionReceiver.ACTION_UNDO, captureId))
                     addAction(0, "Move", Notifications.openApp(ctx, "/quick/inbox?move=$captureId"))

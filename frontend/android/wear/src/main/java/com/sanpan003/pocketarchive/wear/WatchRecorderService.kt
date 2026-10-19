@@ -64,6 +64,7 @@ class WatchRecorderService : Service() {
     private var starting = false
     private var silenceMs = 4_000L
     private var maxMs = 120_000L
+    private var speech = SpeechDetector()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,6 +79,7 @@ class WatchRecorderService : Service() {
 
     private fun startRecording() {
         WatchNotifications.ensureChannels(this)
+        IgnoredRecordings.cleanup(this)
         try {
             ServiceCompat.startForeground(this, WatchNotifications.ID_RECORDING, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } catch (e: Exception) {
@@ -126,6 +128,7 @@ class WatchRecorderService : Service() {
         lastVoiceElapsed = startedElapsed
         heardVoice = false
         noiseFloor = 400.0
+        speech = SpeechDetector()
         WatchState.set(Phase.Recording(startedElapsed))
         WatchPrefs.started()
         Haptics.start(this)
@@ -145,7 +148,11 @@ class WatchRecorderService : Service() {
                 noiseFloor = noiseFloor * 0.95 + amp * 0.05
             }
             WatchState.level(min(1.0, amp / 12_000.0).toFloat())
+            speech.feed(amp, now - startedElapsed)
+            val prefs = WatchPrefs.get(this@WatchRecorderService)
             when {
+                prefs.noSpeechDiscard && !speech.speech && now - startedElapsed >= prefs.noSpeechSec * 1000L ->
+                    stopRecording("No speech in the first ${prefs.noSpeechSec} s")
                 now - startedElapsed >= maxMs -> stopRecording()
                 now - lastVoiceElapsed >= silenceMs -> stopRecording()
                 else -> main.postDelayed(this, POLL_MS)
@@ -153,7 +160,7 @@ class WatchRecorderService : Service() {
         }
     }
 
-    private fun stopRecording() {
+    private fun stopRecording(autoReason: String? = null) {
         val active = recorder ?: return finish()
         main.removeCallbacks(poll)
         recorder = null
@@ -161,14 +168,24 @@ class WatchRecorderService : Service() {
         val clean = try { active.stop(); true } catch (_: RuntimeException) { false } finally { active.release() }
         val captured = file
         file = null
+        val lengthMs = SystemClock.elapsedRealtime() - startedElapsed
         Haptics.stop(this)
         WatchState.level(0f)
 
-        if (!clean || captured == null || !heardVoice || captured.length() < 1_500) {
-            captured?.delete()
-            WatchState.set(Phase.Result("🎙️", "Didn't hear anything", "review", "Nothing was saved"))
+        // Accidental recordings: kept 30 s with Restore (never silently deleted)
+        val prefs = WatchPrefs.get(this)
+        val reason = when {
+            !clean || captured == null || captured.length() < 1_500 -> null
+            autoReason != null -> autoReason
+            prefs.minLengthDiscard && lengthMs < 2_000 -> "Shorter than 2 s"
+            !speech.speech -> "No speech heard"
+            else -> ""
+        }
+        if (reason != "") {
+            if (reason == null) captured?.delete() else IgnoredRecordings.keep(this, captured!!, reason)
+            WatchState.set(Phase.Result("🎙️", if (reason == null) "Didn't hear anything" else "Ignored — tap the notification to restore", "review", reason ?: "Nothing was saved"))
         } else {
-            CaptureQueue.enqueue(this, captured)
+            CaptureQueue.enqueue(this, captured!!)
             WatchState.set(Phase.Sending)
             SendWorker.sendNow(this)
         }
