@@ -45,6 +45,7 @@ object Uploader {
             .addFormDataPart("audio", "capture.m4a", file.asRequestBody("audio/mp4".toMediaType()))
             .addFormDataPart("clientId", meta.clientId)
             .addFormDataPart("capturedAt", meta.capturedAtIso)
+            .apply { RecordingLog.triggerFor(ctx, meta.clientId)?.let { addFormDataPart("trigger", it) } }
             .build()
         val request = Request.Builder()
             .url("$apiBase/api/quick/capture")

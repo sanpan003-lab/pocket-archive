@@ -75,6 +75,8 @@ class WearListenerService : WearableListenerService() {
         when (event.path) {
             WearBridge.MSG_TOKEN_REQUEST -> WearBridge.async { WearBridge.sendToken(this, event.sourceNodeId) }
             WearBridge.MSG_SYNC_REQUEST -> ErrandWorker.syncNow(this)
+            // The watch's recording starts → Settings → Accidental recordings
+            WearBridge.MSG_REC_LOG -> runCatching { RecordingLog.fromWatch(this, org.json.JSONObject(String(event.data))) }
             // Watch without network: the phone fetches its update and sends it over
             WatchUpdateRelay.MSG_UPDATE_REQUEST -> UpdateWorker.relayToWatch(this)
             // Watch result screen: Undo, or Yes / New note for "Add to …?"

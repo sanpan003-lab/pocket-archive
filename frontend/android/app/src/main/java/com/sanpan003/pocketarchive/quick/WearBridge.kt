@@ -30,6 +30,8 @@ object WearBridge {
     const val MSG_TOKEN = "/pa/token"
     const val MSG_TOKEN_CLEAR = "/pa/token-clear"
     const val MSG_TOKEN_REQUEST = "/pa/token-request"
+    /** Watch → phone: one recording start for the log (keep in sync with wear Protocol.MSG_REC_LOG) */
+    const val MSG_REC_LOG = "/pa/rec-log"
     const val MSG_SYNC_REQUEST = "/pa/sync-request"
     const val MSG_ARRIVAL = "/pa/arrival"
     const val MSG_DECIDE = "/pa/decide"

@@ -84,6 +84,7 @@ class RecordTileService : TileService() {
                     .setPackageName(packageName)
                     .setClassName(MainActivity::class.java.name)
                     .addKeyToExtraMapping(MainActivity.EXTRA_RECORD, ActionBuilders.booleanExtra(true))
+                    .addKeyToExtraMapping(MainActivity.EXTRA_FROM, ActionBuilders.stringExtra("tile"))
                     .build(),
             )
             .build()

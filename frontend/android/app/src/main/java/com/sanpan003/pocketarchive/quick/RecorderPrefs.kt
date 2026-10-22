@@ -36,6 +36,7 @@ object RecorderPrefs {
         val noSpeechSec: Int = 4,                // 3 | 4 | 6
         val minLengthDiscard: Boolean = true,    // shorter than 2 s → discard (Restore 30 s)
         val confirmStart: Boolean = false,       // "Press again to confirm" after an outside start
+        val unlockedOnly: Boolean = false,       // strict: side key / shortcuts / volume keys only while the phone is unlocked and in use
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("preset", preset).put("volumeUp", volumeUp).put("volumeDown", volumeDown)
@@ -44,7 +45,7 @@ object RecorderPrefs {
             .put("countdown", countdown).put("guardSec", guardSec)
             .put("doublePressUpStart", doublePressUpStart).put("doublePressDownStop", doublePressDownStop)
             .put("pocketDetection", pocketDetection).put("noSpeechDiscard", noSpeechDiscard).put("noSpeechSec", noSpeechSec)
-            .put("minLengthDiscard", minLengthDiscard).put("confirmStart", confirmStart)
+            .put("minLengthDiscard", minLengthDiscard).put("confirmStart", confirmStart).put("unlockedOnly", unlockedOnly)
 
         /** Any volume key does something while recording → capture the keys */
         val capturesKeys get() = volumeUp != IGNORE || volumeDown != IGNORE || longPressDownDiscard
@@ -76,6 +77,7 @@ object RecorderPrefs {
             noSpeechSec = o.optInt("noSpeechSec", current.noSpeechSec).takeIf { it in NO_SPEECH } ?: current.noSpeechSec,
             minLengthDiscard = o.optBoolean("minLengthDiscard", current.minLengthDiscard),
             confirmStart = o.optBoolean("confirmStart", current.confirmStart),
+            unlockedOnly = o.optBoolean("unlockedOnly", current.unlockedOnly),
         )
         // Presets only set the volume keys; everything else stays as chosen
         if (o.has("preset") && o.optString("preset") != current.preset) {

@@ -127,6 +127,30 @@ export const quickMediaUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/
 export const restoreQuickNote   = id => http.post(`/quick/${id}/restore`).then(r => r.data);
 export const setQuickMeta       = (id, meta) => http.patch(`/quick/${id}/meta`, meta).then(r => r.data);
 export const searchQuickNotes   = q => http.get('/quick/search', { params: { q } }).then(r => r.data);
+// Attachments on a note (photos, scans, any file ≤ 25 MB) — returns the updated note
+export function uploadNoteAttachment(noteId, file, { name, thumb, source = 'file', pages, read } = {}, onProgress) {
+  const fd = new FormData();
+  fd.append('name', name || file.name || 'Attachment');
+  fd.append('source', source);
+  if (pages) fd.append('pages', String(pages));
+  if (read) fd.append('read', '1');
+  if (thumb) fd.append('thumb', thumb, 'thumb.jpg');
+  fd.append('file', file, name || file.name || 'attachment');
+  return http.post(`/quick/${noteId}/attachments`, fd, {
+    timeout: 0,
+    onUploadProgress: e => onProgress?.(e.total ? Math.round((e.loaded * 100) / e.total) : 0),
+  }).then(r => r.data);
+}
+export const renameNoteAttachment = (noteId, aid, name) => http.patch(`/quick/${noteId}/attachments/${aid}`, { name }).then(r => r.data);
+export const deleteNoteAttachment = (noteId, aid) => http.delete(`/quick/${noteId}/attachments/${aid}`).then(r => r.data);
+export const readNoteAttachment  = (noteId, aid) => http.post(`/quick/${noteId}/attachments/${aid}/read`).then(r => r.data);
+export const attachmentFileUrl = (noteId, aid) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}`);
+export const attachmentThumbUrl = (noteId, aid) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/thumb`);
+export const attachmentDownloadUrl = (noteId, aid) => {
+  const u = attachmentFileUrl(noteId, aid);
+  return `${u}${u.includes('?') ? '&' : '?'}download=1`;
+};
+
 export const convertHandwriting = id => http.post(`/quick/${id}/handwriting`, null, { timeout: 90000 }).then(r => r.data);
 
 // "+" create menu: typed note / checklist, photo / drawing (same AI pipeline as voice)

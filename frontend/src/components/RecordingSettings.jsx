@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { QuickRecorder } from '../native/quickRecorder';
 import { isNative } from '../lib/platform';
+import RecordingStartsLog from './RecordingStartsLog';
 
 // ── Small controls ────────────────────────────────────────────────────────────
 function Segmented({ label, hint, value, options, onChange, id }) {
@@ -362,12 +363,19 @@ export default function RecordingSettings() {
         “Restore” notification, so real speech is never lost.
         {status.accidentalWeek > 0 && <b className="block mt-1 text-navy-700 dark:text-white/75">{status.accidentalWeek} accidental recording{status.accidentalWeek === 1 ? '' : 's'} ignored this week</b>}
       </p>
+      {/* The strongest fix, one tap away */}
+      <div className={`mt-2 rounded-2xl border px-3 ${s.confirmStart ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-gold-400/60 bg-gold-500/10'}`}>
+        <Switch label={s.confirmStart ? 'Press again to confirm — on' : 'Getting notes you didn’t mean? Turn on “Press again to confirm”'}
+          hint="After a start from a key, widget or routine: a 3-second prompt and a buzz — press volume up or tap the notification to record, otherwise nothing happens. Starts from inside the app never ask."
+          checked={s.confirmStart} onChange={set('confirmStart')} />
+      </div>
+      <Switch label="Side key & volume keys: only when unlocked (strict)" hint="Quick Record from the side key, shortcuts and volume keys only starts when the phone is already unlocked and in use — not when the press wakes or is on the lock screen. Widget, tile and the app aren’t affected." checked={!!s.unlockedOnly} onChange={set('unlockedOnly')} />
       <Switch label="Pocket detection" hint="Screen off and something right on the sensor (pocket, bag): don’t record — just one short buzz." checked={s.pocketDetection} onChange={set('pocketDetection')} />
-      <Switch label="Discard if no speech at the start" hint="Listens for speech (not just noise) in the first seconds." checked={s.noSpeechDiscard} onChange={set('noSpeechDiscard')} />
+      <Switch label="Discard if no speech at the start" hint="Listens for a real voice — syllables with a moving pitch — so steady road noise, a fan or music don’t count." checked={s.noSpeechDiscard} onChange={set('noSpeechDiscard')} />
       {s.noSpeechDiscard && <Segmented id="rs-nospeech" label="No speech within" value={s.noSpeechSec} options={OPTIONS.noSpeech} onChange={set('noSpeechSec')} />}
       <Switch label="Discard recordings shorter than 2 seconds" checked={s.minLengthDiscard} onChange={set('minLengthDiscard')} />
-      <Switch label="Press again to confirm" hint="After a start from a key, widget or routine: a 3-second prompt and a buzz — press volume up or tap the notification to record, otherwise nothing happens." checked={s.confirmStart} onChange={set('confirmStart')} />
       <p className="text-xs text-navy-500 dark:text-white/50 mt-1">After anything is ignored, new start presses are ignored for 3 seconds.</p>
+      <RecordingStartsLog />
 
       <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-5 mb-1">Prevent double actions</h3>
       <p className="text-xs text-navy-500 dark:text-white/50">

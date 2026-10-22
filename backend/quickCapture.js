@@ -16,6 +16,7 @@ const gcal   = require('./googleCalendar');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 const { createProjects } = require('./projects');
 const { createAppender } = require('./quickAppend');
+const { registerAttachments, attachmentSearchText, removeAttachments } = require('./attachments');
 const { createPhoneActions, PHONE_ACTION_SCHEMA, PHONE_ACTION_PROMPT, ICON: PHONE_ICON } = require('./phoneActions');
 
 const TIMEZONE = gcal.TIMEZONE;
@@ -123,6 +124,7 @@ function describeNow(date) {
 const FIELD_GROUPS = [
   { stamp: 'summaryUpdatedAt', fields: ['summary', 'summaryStatus', 'summaryError', 'summaryUpdatedAt'] },
   { stamp: 'audioUpdatedAt',   fields: ['audioFile', 'durationSec', 'audioConverted', 'audioMigration', 'audioUpdatedAt'] },
+  { stamp: 'attachmentsAt',    fields: ['attachments', 'attachmentsAt'] },
 ];
 
 function createStore(archivePath, onWrite = null) {
@@ -181,6 +183,7 @@ function createStore(archivePath, onWrite = null) {
     for (const f of [n.audioFile && path.join(audioDir, n.audioFile), n.media?.file && path.join(mediaDir, n.media.file), fileFor(id)]) {
       if (f) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
     }
+    removeAttachments(dir, id);
     return true;
   }
 
@@ -257,16 +260,21 @@ const IMAGE_PROMPTS = {
     'Text:\n<every readable word, verbatim, keeping line breaks and numbers; "(none)" if there is no text>\n\n' +
     'Description:\n<one or two sentences on what the photo shows; for a receipt: store, date, total; ' +
     'for a whiteboard or list: what it is about>.\nNo other commentary.',
+  document:
+    'You read documents saved into a personal notes app (scans, letters, forms, receipts, manuals). Output plain text in two parts:\n' +
+    'Text:\n<every readable word, verbatim, keeping line breaks, numbers and page order; "(none)" if there is no text>\n\n' +
+    'Description:\n<one or two sentences on what the document is (sender, date, subject, totals)>.\nNo other commentary.',
   handwriting:
     'This is a hand drawing or handwritten note. Output only the handwritten text, verbatim, keeping line breaks. ' +
     'If there is no readable writing, output one short sentence describing the drawing, starting with "Drawing:".',
 };
 
-async function readImage(filePath, ext, mode = 'organize') {
+async function readImage(filePath, ext, mode = 'organize', mimeType = null) {
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not set');
   const { GoogleGenAI } = await import('@google/genai');
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const image = { type: 'image', data: fs.readFileSync(filePath, { encoding: 'base64' }), mime_type: IMAGE_MIME[ext] || 'image/jpeg' };
+  const mime = mimeType || IMAGE_MIME[ext] || 'image/jpeg';
+  const image = { type: mime === 'application/pdf' ? 'document' : 'image', data: fs.readFileSync(filePath, { encoding: 'base64' }), mime_type: mime };
   const models = [...new Set([
     process.env.GEMINI_MODEL || 'gemini-3.8-flash',
     process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
@@ -278,7 +286,7 @@ async function readImage(filePath, ext, mode = 'organize') {
       const interaction = await client.interactions.create({
         model,
         system_instruction: IMAGE_PROMPTS[mode] || IMAGE_PROMPTS.organize,
-        input: [{ type: 'text', text: mode === 'handwriting' ? 'Read the handwriting.' : 'Read this photo.' }, image],
+        input: [{ type: 'text', text: mode === 'handwriting' ? 'Read the handwriting.' : mode === 'document' ? 'Read this document.' : 'Read this photo.' }, image],
       }, {
         timeout_ms: 30000,
         retries: isLast
@@ -1619,6 +1627,8 @@ function createQuickCapture(deps) {
           capturedAt: now.toISOString(),
           audioFile:  `${id}.${ext}`,
           source:     'voice',
+          // What started the recording (side key, routine, widget, watch…) — for spotting accidental notes
+          trigger:    typeof req.body.trigger === 'string' ? req.body.trigger.replace(/[^\w ./()&,'-]/g, '').slice(0, 60) || null : null,
           transcript: null,
           classification: null,
           type: 'note', status: 'ok', title: 'Quick note', content: '',
@@ -1709,14 +1719,14 @@ function createQuickCapture(deps) {
       for (const n of store.list()) {
         if (n.undone || n.hidden || n.type === 'action') continue;
         const fields = [n.title, n.content, n.transcript, n.summary, n.mediaText,
-          (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n')];
+          (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n'), attachmentSearchText(n)];
         const hit = fields.find(f => f && String(f).toLowerCase().includes(q));
         if (!hit) continue;
         const raw = String(hit);
         const i = raw.toLowerCase().indexOf(q);
         out.push({
           id: n.id, title: n.title, type: n.type, source: n.source || 'voice', format: n.format || null,
-          capturedAt: n.capturedAt || n.createdAt, projectId: n.projectId || null, hasMedia: !!n.media,
+          capturedAt: n.capturedAt || n.createdAt, projectId: n.projectId || null, hasMedia: !!n.media, attachments: (n.attachments || []).length,
           snippet: raw === n.title ? '' : raw.slice(Math.max(0, i - 60), i + 140).replace(/\s+/g, ' ').trim(),
         });
         if (out.length >= 50) break;
@@ -1808,6 +1818,13 @@ function createQuickCapture(deps) {
       if (!fs.existsSync(file)) return res.status(404).json({ error: 'Image not found' });
       res.set('Cache-Control', 'private, max-age=86400');
       res.sendFile(path.resolve(file));
+    });
+
+    // Attachments: photos, scans, any file (attachments.js)
+    registerAttachments(app, {
+      store,
+      readText: (file, mime) => readImage(file, null, mime === 'application/pdf' ? 'document' : 'organize', mime),
+      loadNote: loadNoteRoute,
     });
 
     // POST /api/quick/:id/handwriting — "Convert handwriting" (Gemini) for a drawing or photo

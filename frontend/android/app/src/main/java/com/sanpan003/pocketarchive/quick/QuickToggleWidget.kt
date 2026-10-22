@@ -127,6 +127,7 @@ class QuickToggleWidget : AppWidgetProvider() {
             ctx, 1,
             Intent(ctx, RecordTrampolineActivity::class.java)
                 .setAction(QuickActions.ACTION_TOGGLE_RECORDING)
+                .putExtra(RecordTrampolineActivity.EXTRA_FROM, RecordingLog.WIDGET)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )

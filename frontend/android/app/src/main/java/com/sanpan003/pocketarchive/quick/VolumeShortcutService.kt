@@ -72,6 +72,7 @@ class VolumeShortcutService : AccessibilityService() {
                 // Microphone services may only start from the foreground: the invisible trampoline does it
                 startActivity(Intent(this, RecordTrampolineActivity::class.java)
                     .setAction(QuickActions.ACTION_START_RECORDING)
+                    .putExtra(RecordTrampolineActivity.EXTRA_FROM, RecordingLog.VOLUME_KEYS)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 return true
             }

@@ -23,9 +23,11 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_RECORD = "record"
         const val EXTRA_ERRAND = "errand"
+        const val EXTRA_FROM = "from"   // tile | complication (the Quick Record launcher = the watch key)
     }
 
     private var startOnResume = false
+    private var startSource = "app"
     private val micGranted = mutableStateOf(false)
     private val openErrand = mutableStateOf<String?>(null)
 
@@ -33,7 +35,7 @@ class MainActivity : ComponentActivity() {
         micGranted.value = hasMic()
         if (micGranted.value && startOnResume) {
             startOnResume = false
-            WatchRecorderService.start(this)
+            WatchRecorderService.start(this, startSource)
         }
     }
 
@@ -80,12 +82,13 @@ class MainActivity : ComponentActivity() {
         intent ?: return
         val quickRecord = intent.component?.className?.endsWith(".QuickRecord") == true
         if (quickRecord || intent.getBooleanExtra(EXTRA_RECORD, false)) {
+            startSource = intent.getStringExtra(EXTRA_FROM) ?: if (quickRecord) "key" else "app"
             when {
                 // The press that started it (e.g. a key also bound elsewhere): nothing to do
                 WatchState.isRecording && WatchPrefs.justStarted() -> Unit
                 WatchState.isRecording -> when (WatchPrefs.get(this).quickRecordWhileRecording) {
                     "stop" -> WatchRecorderService.stop(this)
-                    "new" -> WatchRecorderService.restart(this)
+                    "new" -> WatchRecorderService.restart(this, startSource)
                     else -> Unit
                 }
                 // Same press as the stop that just happened: don't start again
@@ -103,7 +106,7 @@ class MainActivity : ComponentActivity() {
         if (startOnResume) {
             if (micGranted.value) {
                 startOnResume = false
-                WatchRecorderService.start(this)
+                WatchRecorderService.start(this, startSource)
             } // otherwise the permission screen shows; recording starts after "Allow"
         }
     }

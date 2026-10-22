@@ -1,12 +1,13 @@
 import {
   Pencil, Pin, PinOff, Palette, FolderInput, Merge, Share2, Trash2, RotateCcw, Sparkles,
-  CheckCircle2, Split, RefreshCw, Users,
+  CheckCircle2, Split, RefreshCw, Users, Paperclip,
 } from 'lucide-react';
 import { noteRole } from '../../lib/sharing';
 
 /** Every note action, in the default order. `when` hides it where it doesn't apply. */
 export const TOOLBAR_ACTIONS = [
   { id: 'edit', label: 'Edit', icon: Pencil, role: 'edit' },
+  { id: 'attach', label: 'Attach', icon: Paperclip, role: 'edit' },
   { id: 'pin', label: n => (n?.pinned ? 'Unpin' : 'Pin'), icon: n => (n?.pinned ? PinOff : Pin) },
   { id: 'color', label: 'Color', icon: Palette },
   { id: 'project', label: n => (n?.projectId ? 'Project…' : 'Add to project'), icon: FolderInput },

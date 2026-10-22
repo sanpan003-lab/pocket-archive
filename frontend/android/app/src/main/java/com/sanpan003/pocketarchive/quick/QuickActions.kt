@@ -29,12 +29,22 @@ object QuickActions {
      * Android only lets microphone services start from the foreground.
      * Returns false when the app has to be opened first (permission / sign-in).
      */
-    fun start(ctx: Context, source: String = "external", force: Boolean = false): Boolean {
+    fun start(
+        ctx: Context, source: String = "external", force: Boolean = false,
+        referrer: String? = null, screen: RecordingLog.Screen? = null,
+    ): Boolean {
         if (blocker(ctx) != null) return false
         if (!RecorderState.recording) {
             // The press that just stopped a recording (e.g. volume up + a Samsung routine) must not start one
-            if (!force && source != "app" && !RecorderGuard.canStart(ctx, source)) return true
-            ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START).putExtra(QuickRecorderService.EXTRA_SOURCE, source))
+            if (!force && source != "app" && !RecorderGuard.canStart(ctx, source)) {
+                RecordingLog.ignoredStart(ctx, source, referrer, "Same key press as the stop just before")
+                return true
+            }
+            val i = QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START)
+                .putExtra(QuickRecorderService.EXTRA_SOURCE, source)
+                .putExtra(QuickRecorderService.EXTRA_REFERRER, referrer)
+            screen?.let { i.putExtra(QuickRecorderService.EXTRA_SCREEN, it.state).putExtra(QuickRecorderService.EXTRA_WOKEN, it.justWoken) }
+            ContextCompat.startForegroundService(ctx, i)
         }
         return true
     }
@@ -47,9 +57,9 @@ object QuickActions {
     }
 
     /** "Start a new note": save this one and start the next right away */
-    fun restart(ctx: Context) {
+    fun restart(ctx: Context, source: String = "notification") {
         stop(ctx)
-        ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START))
+        ContextCompat.startForegroundService(ctx, QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START).putExtra(QuickRecorderService.EXTRA_SOURCE, source))
     }
 
     /** Stops and uploads. Does nothing when not recording (never starts one). */
@@ -59,6 +69,6 @@ object QuickActions {
         }
     }
 
-    fun toggle(ctx: Context, source: String = "external"): Boolean =
-        if (RecorderState.recording) { stop(ctx); true } else start(ctx, source)
+    fun toggle(ctx: Context, source: String = "external", referrer: String? = null, screen: RecordingLog.Screen? = null): Boolean =
+        if (RecorderState.recording) { stop(ctx); true } else start(ctx, source, referrer = referrer, screen = screen)
 }

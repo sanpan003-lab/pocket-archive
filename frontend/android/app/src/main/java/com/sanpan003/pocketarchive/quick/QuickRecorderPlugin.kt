@@ -17,6 +17,12 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import org.json.JSONObject
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 
 /**
  * Bridge between the web app and the native recorder, secure token storage,
@@ -93,8 +99,15 @@ class QuickRecorderPlugin : Plugin() {
         }
     }
 
+    /** Document scanner (ML Kit): registered while the activity is being created */
+    private var scanLauncher: ActivityResultLauncher<IntentSenderRequest>? = null
+    private var pendingScan: PluginCall? = null
+
     override fun load() {
         instance = this
+        scanLauncher = runCatching {
+            activity.registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result -> onScanned(result.resultCode, result.data) }
+        }.getOrNull()
         Notifications.ensureChannels(context)
         PendingStore.recoverOrphans(context)
         RecorderState.addStateListener(stateListener)
@@ -247,6 +260,61 @@ class QuickRecorderPlugin : Plugin() {
     fun updateWatch(call: PluginCall) {
         WatchUpdateRelay.updateNow(context)
         call.resolve()
+    }
+
+    // ── Attachments on notes ────────────────────────────────────────────────
+
+    /** "Scan document": Google ML Kit scanner (on-device, auto-crop, multi-page) → { pdf, thumb, pages, name } */
+    @PluginMethod
+    fun scanDocument(call: PluginCall) {
+        val launcher = scanLauncher ?: return call.reject("The scanner isn't available on this phone")
+        if (pendingScan != null) return call.reject("The scanner is already open")
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit((call.getInt("pageLimit") ?: 30).coerceIn(1, 50))
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        GmsDocumentScanning.getClient(options).getStartScanIntent(activity)
+            .addOnSuccessListener { sender ->
+                pendingScan = call
+                launcher.launch(IntentSenderRequest.Builder(sender).build())
+            }
+            .addOnFailureListener { e -> call.reject("The scanner couldn't start: ${e.message ?: "Google Play services needed"}") }
+    }
+
+    private fun onScanned(resultCode: Int, data: Intent?) {
+        val call = pendingScan ?: return
+        pendingScan = null
+        if (resultCode != android.app.Activity.RESULT_OK) return call.reject("Cancelled", "CANCELLED")
+        val result = GmsDocumentScanningResult.fromActivityResultIntent(data) ?: return call.reject("No scan came back")
+        val pdf = result.pdf ?: return call.reject("No PDF came back")
+        Thread {
+            try {
+                val out = NoteFiles.scanResult(context, pdf.uri, pdf.pageCount, result.pages?.firstOrNull()?.imageUri)
+                val js = JSObject()
+                out.forEach { (k, v) -> js.put(k, v) }
+                main.post { call.resolve(js) }
+            } catch (e: Exception) {
+                main.post { call.reject(e.message ?: "The scan couldn't be read") }
+            }
+        }.start()
+    }
+
+    /** Open an attachment in the app Android picks for it: { url, name, mime } */
+    @PluginMethod
+    fun openFile(call: PluginCall) {
+        val url = call.getString("url") ?: return call.reject("url?")
+        val name = call.getString("name") ?: "attachment"
+        val mime = call.getString("mime") ?: "*/*"
+        Thread {
+            try {
+                NoteFiles.open(context, url, name, mime)
+                main.post { call.resolve() }
+            } catch (e: Exception) {
+                main.post { call.reject(e.message ?: "Couldn't open it") }
+            }
+        }.start()
     }
 
     // ── Phone actions (Quick Capture → Actions) ──────────────────────────────
@@ -587,6 +655,20 @@ class QuickRecorderPlugin : Plugin() {
         .put("settings", RecorderPrefs.get(context).toJson())
         .put("watch", WatchRecSync.get(context))
         .put("status", ShortcutSetup.status(context)))
+
+    /** Settings → Accidental recordings: the last 20 recording starts (phone + watch), newest first */
+    @PluginMethod
+    fun getRecordingLog(call: PluginCall) {
+        val out = JSObject()
+        out.put("entries", RecordingLog.recent(context, call.getInt("limit") ?: 20))
+        call.resolve(out)
+    }
+
+    @PluginMethod
+    fun clearRecordingLog(call: PluginCall) {
+        RecordingLog.clear(context)
+        call.resolve()
+    }
 
     @PluginMethod
     fun getRecorderSettings(call: PluginCall) = call.resolve(recorderJson())

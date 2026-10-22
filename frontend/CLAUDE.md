@@ -105,6 +105,24 @@ inside the Android app (`android/`). The backend lives in
 - Device test needs a NEWER debug build signed with the debug key (`ota-dev/build-apks.sh` in the scratchpad builds 15 + 99 +
   a wrong-key copy). Play Protect scans each new sideloaded build after the confirm ("Scanning…" → Install).
 
+## Attachments, voice detection, recording log (2.5.0) — docs/attachments.md, docs/phone-actions.md
+
+- Backend `attachments.js` (registered from quickCapture's routes): `note.attachments`, files in `07_Quick_Notes/attachments/<noteId>/`,
+  25 MB multer limit, optional Gemini read (`readImage(..., mime)` takes PDFs as `type: 'document'`). `sharing.js` route regex
+  allows `/attachments/at_…(/thumb)`; `allowedNote` view = GET, edit = POST/PATCH/DELETE. `MEDIA_PATH_RE` includes them.
+  Voice captures accept a `trigger` field → `note.trigger`.
+- Web: `lib/attachments.js` (pick, thumbs, upload, open), `quick/AttachSheet.jsx` (portal), `quick/NoteAttachments.jsx`
+  (viewer portal, rename/delete/read). API helpers are `*NoteAttachment` — `uploadAttachment`/`deleteAttachment` are the
+  RECORDING attachment helpers. Toolbar action `attach` (role edit) is handled inside NoteToolbar (needs `onChanged`).
+- Android: `quick/NoteFiles.kt` + plugin `scanDocument` (ML Kit `play-services-mlkit-document-scanner`, launcher registered in
+  `load()`) and `openFile` (download with the device token → FileProvider `${applicationId}.fileprovider`, cache/attachments).
+- Recorder: `PcmRecorder` (AudioRecord → MediaCodec AAC → MediaMuxer) feeds `VoiceDetector` (pitch + syllables); MediaRecorder +
+  `SpeechDetector` is the fallback. Both files are copied into `wear` (keep in sync). Tune `VoiceDetector` with the scratchpad
+  prototype `vad/vad.cjs` first (seconds per run), then `VoiceDetectorTest`.
+- `RecordingLog` (phone prefs, last 50): every start incl. guard-ignored ones; trigger from `source` + Activity referrer;
+  `RecordTrampolineActivity.EXTRA_FROM` (widget / tile / volume-key); watch sends `/pa/rec-log`. Plugin `getRecordingLog`/`clearRecordingLog`.
+  Strict setting `unlockedOnly` applies to `RecordingLog.KEY_TRIGGERS`.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

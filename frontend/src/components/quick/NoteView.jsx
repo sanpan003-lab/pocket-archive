@@ -152,7 +152,7 @@ export default function NoteView({
   const body = <NotePanelBody note={note} projectName={projectName} onChanged={onChanged} arrivalReady={arrivalReady} onReload={onReload} />;
   const toolbar = (
     <div className="quick-card-divider px-3 sm:px-4 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      <NoteToolbar note={note} onAction={onAction} busy={busy} />
+      <NoteToolbar note={note} onAction={onAction} busy={busy} onChanged={onChanged} />
     </div>
   );
 

@@ -30,6 +30,7 @@ class QuickCaptureTileService : TileService() {
         super.onClick()
         val intent = Intent(this, RecordTrampolineActivity::class.java)
             .setAction(QuickActions.ACTION_TOGGLE_RECORDING)
+            .putExtra(RecordTrampolineActivity.EXTRA_FROM, RecordingLog.TILE)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
         if (Build.VERSION.SDK_INT >= 34) {
             startActivityAndCollapse(

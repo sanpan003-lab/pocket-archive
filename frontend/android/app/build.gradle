@@ -117,6 +117,8 @@ dependencies {
     implementation "androidx.media:media:1.7.0"
     // Errands: geofences for arrival reminders
     implementation "com.google.android.gms:play-services-location:21.3.0"
+    // Attachments: "Scan document" (Google ML Kit Document Scanner, on-device, free)
+    implementation "com.google.android.gms:play-services-mlkit-document-scanner:16.0.0"
     // Galaxy Watch app link (Data Layer)
     implementation "com.google.android.gms:play-services-wearable:20.0.1"
     implementation project(':capacitor-android')

@@ -60,9 +60,10 @@ Settings → Recording & shortcuts → Accidental recordings. These settings are
 | Setting | Default | What it does |
 |---|---|---|
 | Pocket detection | on | A start from outside the app (side key, routine, widget, tile…) while the screen is off / locked / just woken, with the proximity sensor reading NEAR: nothing is recorded, one short buzz. |
-| Discard if no speech at the start | on, 4 s (3/4/6) | Voice activity detection (`SpeechDetector`): speech needs syllable-like on/off rhythm or an uneven, word-length sound — not just loudness (taps, hums and a quiet pocket don't count). |
+| Discard if no speech at the start | on, 4 s (3/4/6) | Since 2.5.0 on the raw audio (`VoiceDetector`, see below): a real voice, not just loudness — steady road noise, a fan or music don't count. |
 | Discard recordings shorter than 2 s | on | |
-| Press again to confirm | off | After an outside start: “Record a voice note?” plus a buzz; volume up or a tap within 3 s records, otherwise nothing. |
+| Press again to confirm | off | After an outside start: “Record a voice note?” plus a buzz; volume up or a tap within 3 s records, otherwise nothing. Since 2.5.0 a highlighted card at the top of the section. |
+| Side key & volume keys: only when unlocked (strict) | off | 2.5.0. Starts from the side key / Quick Record, app shortcuts and the volume-key shortcut only work when the phone was already unlocked and in use — not when the press woke the screen or came from the lock screen. Widget, tile, app and watch aren't affected. |
 | Cooldown | always | New start presses are ignored for 3 s after anything was ignored. |
 
 - **Safety net:** everything set aside is kept for **30 seconds** with “Ignored accidental recording · Restore”. Restore uploads it like any recording, so real speech is never silently deleted.
@@ -71,3 +72,29 @@ Settings → Recording & shortcuts → Accidental recordings. These settings are
   - `SpeechDetectorTest` (JVM): real synthesized speech (two voices, normal and quiet) is always speech, including a single word. Silence, one tap, two taps and hums are not.
   - The side-key list recommends **double press** over press-and-hold.
 - **Watch:** the same speech detection and 2-second minimum, with its own Restore notification.
+
+### Voice detection on the raw audio (2.5.0)
+
+The recorder no longer uses `MediaRecorder`: `PcmRecorder` reads the microphone with `AudioRecord` and encodes AAC/.m4a itself
+(`MediaCodec` + `MediaMuxer`, same 44.1 kHz mono 64 kbit/s file), so `VoiceDetector` sees the actual sound. If that can't start
+on a device, it falls back to `MediaRecorder` and the old volume-based `SpeechDetector` (the log says "Volume only").
+
+`VoiceDetector` (same file in `wear`): audio decimated to ~8 kHz, 32 ms frames, pitch by normalized autocorrelation (70–400 Hz,
+pre-emphasis so road rumble has no "pitch"), an adaptive noise floor. A **syllable** = 2+ voiced frames, at most 1.5 s, whose pitch
+moves ≥ 1.5 %, with a loudness dip around it. **Speech** = 2 syllables, or one clear word (≥ 120 ms, pitch moving ≥ 4 %, deep dip).
+- road / wind: no pitch · fan or engine hum: a pitch that never moves or stops · music: steady notes and no dips between them
+- `VoiceDetectorTest` (JVM): the 8 real speech clips (normal, quiet, over road noise at 6 and 10 dB, over music at 10 dB, starting
+  after 1.5 s) are always speech; silence, road noise, a fan with motor hum, music (legato, staccato, vibrato + glides) at three
+  levels and a tap are never speech. The noises are synthesized, so the real-world check is the recording log below.
+
+### Recording log (2.5.0)
+
+Settings → Accidental recordings → **Recent recording starts** (`RecordingLog`, on the phone, last 50, the app shows 20):
+every start request with its trigger, the screen at the press (off / locked / unlocked, just woken), the proximity reading,
+what was heard (syllables), the length and the outcome — saved as which note, or ignored and why (pocket, strict mode,
+not confirmed, no speech, too short, same key press, cooldown). Watch starts come in over `/pa/rec-log`.
+
+Triggers: the Quick Record launcher entry is told apart by its referrer — Samsung Routine, Bixby, home-screen icon, or
+"Side key / Quick Record" (no referrer / the system); app shortcut; volume keys (double press); widget; Quick Settings tile;
+in the app; watch (key, tile, complication, app). Uploads send the trigger, the server keeps it as `note.trigger`, and the note shows
+"Started from: …". Notes from before 2.5.0 have no trigger.

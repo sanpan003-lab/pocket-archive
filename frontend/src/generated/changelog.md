@@ -5,6 +5,23 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.5.0 — Oct 22, 2026
+
+### Attachments on notes
+- **Attach** in the note toolbar: **Photo library**, **Camera**, **Scan document** and **Files** — PDF, Word, Excel, audio, any file, up to 25 MB each
+- **Scan document** (app): Google’s on-device scanner finds the page edges, crops them and takes several pages into one PDF
+- Photos show as thumbnails — tap for full screen and swipe between them. Files show as cards; tap to open them in the right app (or a new tab on the web). Audio files play right in the note
+- Rename or delete any attachment from its ⋯ menu
+- **Read text with AI** (optional): the text in photos and scans is read so you can search for it
+- Works on the web too, for Lite accounts, and on shared notes (editors can add; viewers can open)
+
+### Fewer accidental recordings
+- **Better voice detection:** it now listens for a real voice — syllables with a moving pitch — so steady road noise, a fan or music no longer count as speech
+- **Recent recording starts** (Settings → Accidental recordings): the last 20 starts from the phone and watch — what started each one (side key, Quick Record, routine, volume keys, widget, tile, watch), whether the screen was off or locked, the proximity sensor, what was heard, and what happened
+- Voice notes show what started them (“Started from: Side key”)
+- **Press again to confirm** is now one tap at the top of the section
+- New strict option: **Side key & volume keys only when unlocked** — a press that wakes the phone or comes from the lock screen won’t record
+
 ## 2.4.0 — Oct 19, 2026
 
 ### Updates without a cable

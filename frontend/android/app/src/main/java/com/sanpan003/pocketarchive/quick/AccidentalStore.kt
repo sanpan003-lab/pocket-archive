@@ -155,6 +155,9 @@ object PocketCheck {
         }
     }
 
+    /** How long ago the screen came on (null: not known — the process started after that) */
+    fun screenOnAgoMs(): Long? = if (screenOnAt > 0) SystemClock.elapsedRealtime() - screenOnAt else null
+
     /** Screen off, locked, or woken in the last 4 s (or the app was just started by the press) */
     fun screenOffOrJustWoken(ctx: Context): Boolean {
         val pm = ctx.getSystemService(PowerManager::class.java)
@@ -165,10 +168,13 @@ object PocketCheck {
     }
 
     /** → near (true) / far or no sensor (false), after at most [timeoutMs] */
-    fun isNear(ctx: Context, timeoutMs: Long = 500, done: (Boolean) -> Unit) {
+    fun isNear(ctx: Context, timeoutMs: Long = 500, done: (Boolean) -> Unit) = read(ctx, timeoutMs) { _, near -> done(near) }
+
+    /** → (reading in cm or null, near) after at most [timeoutMs] */
+    fun read(ctx: Context, timeoutMs: Long = 500, done: (Float?, Boolean) -> Unit) {
         val sm = ctx.getSystemService(SensorManager::class.java)
         val sensor = sm?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
-        if (sm == null || sensor == null) { done(false); return }
+        if (sm == null || sensor == null) { done(null, false); return }
         val main = Handler(Looper.getMainLooper())
         var finished = false
         val listener = object : SensorEventListener {
@@ -177,11 +183,11 @@ object PocketCheck {
                 finished = true
                 sm.unregisterListener(this)
                 // Most sensors report 0 (near) or their maximum (far)
-                done(e.values[0] < minOf(sensor.maximumRange, 5f))
+                done(e.values[0], e.values[0] < minOf(sensor.maximumRange, 5f))
             }
             override fun onAccuracyChanged(s: Sensor?, a: Int) = Unit
         }
         sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_FASTEST, main)
-        main.postDelayed({ if (!finished) { finished = true; sm.unregisterListener(listener); done(false) } }, timeoutMs)
+        main.postDelayed({ if (!finished) { finished = true; sm.unregisterListener(listener); done(null, false) } }, timeoutMs)
     }
 }

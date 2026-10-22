@@ -17,6 +17,9 @@ class MainActivity : BridgeActivity() {
 
     /** Set by a START_RECORDING launch; recording starts once the activity is in the foreground. */
     private var startRecordingOnResume = false
+    /** Who launched Quick Record and how the screen was at that moment (for the recording log) */
+    private var launchReferrer: String? = null
+    private var launchScreen: com.sanpan003.pocketarchive.quick.RecordingLog.Screen? = null
     private var swallowKeyUp = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,6 +27,7 @@ class MainActivity : BridgeActivity() {
         super.onCreate(savedInstanceState)
         Notifications.ensureChannels(this)
         DiscardStore.cleanup(this)
+        com.sanpan003.pocketarchive.quick.PocketCheck.watchScreen(this)
         if (savedInstanceState == null) handleLaunch(intent)
     }
 
@@ -38,7 +42,7 @@ class MainActivity : BridgeActivity() {
         com.sanpan003.pocketarchive.quick.ErrandSync.onAppResumed(this) // location permission changed → re-arm geofences
         if (startRecordingOnResume) {
             startRecordingOnResume = false
-            QuickActions.start(this, "quick-record") // if not possible yet, /quick shows sign-in / permission
+            QuickActions.start(this, "quick-record", referrer = launchReferrer, screen = launchScreen) // if not possible yet, /quick shows sign-in / permission
         }
     }
 
@@ -95,6 +99,10 @@ class MainActivity : BridgeActivity() {
         // and stops a running recording instead when that setting is on
         val isQuickRecordAlias = intent.component?.className?.contains(".QuickRecordLauncher") == true // any tile
         val wantsRecording = intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias
+        if (wantsRecording) {
+            launchReferrer = referrer?.host
+            launchScreen = com.sanpan003.pocketarchive.quick.RecordingLog.screenNow(this)
+        }
         when {
             wantsRecording && RecorderState.recording -> {
                 startRecordingOnResume = false
@@ -102,17 +110,19 @@ class MainActivity : BridgeActivity() {
                 // The press that started this recording (routine echo): nothing to do
                 if (android.os.SystemClock.elapsedRealtime() - RecorderGuard.lastStartAt < RecorderGuard.STOP_KEY_GRACE_MS) {
                     RecorderGuard.note("Quick Record launch right after the start ignored (same press)")
+                    com.sanpan003.pocketarchive.quick.RecordingLog.ignoredStart(this, "quick-record", launchReferrer, "Same press that started the recording")
                     return
                 }
                 when (RecorderPrefs.get(this).quickRecordWhileRecording) {
                     RecorderPrefs.STOP -> { RecorderGuard.note("Quick Record while recording → stop & save"); QuickActions.stop(this) }
-                    RecorderPrefs.NEW -> { RecorderGuard.note("Quick Record while recording → new note"); QuickActions.restart(this) }
+                    RecorderPrefs.NEW -> { RecorderGuard.note("Quick Record while recording → new note"); QuickActions.restart(this, "quick-record") }
                     else -> RecorderGuard.note("Quick Record while recording ignored (setting)")
                 }
             }
             wantsRecording && RecorderGuard.isEchoOfStop(this) -> {
                 // Volume up stopped it in the app and the same press opened Quick Record: don't start again
                 RecorderGuard.note("Quick Record launch right after a stop ignored (same press)")
+                com.sanpan003.pocketarchive.quick.RecordingLog.ignoredStart(this, "quick-record", launchReferrer, "Same key press as the stop just before")
                 QuickRecorderPlugin.navigate("/quick")
             }
             wantsRecording -> {

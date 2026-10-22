@@ -15,6 +15,7 @@ import com.sanpan003.pocketarchive.MainActivity
  * screen) and closes itself without showing the app.
  */
 class RecordTrampolineActivity : Activity() {
+    companion object { const val EXTRA_FROM = "from" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,9 +28,12 @@ class RecordTrampolineActivity : Activity() {
             return
         }
 
+        // Where the press came from: the widget, the tile and the volume-key shortcut say so; else the app shortcut
+        val from = intent?.getStringExtra(EXTRA_FROM)
+        val screen = RecordingLog.screenNow(this)
         val ready = when (intent?.action) {
-            QuickActions.ACTION_START_RECORDING -> QuickActions.start(this, "shortcut")
-            else -> QuickActions.toggle(this, "widget/tile")
+            QuickActions.ACTION_START_RECORDING -> QuickActions.start(this, from ?: RecordingLog.APP_SHORTCUT, referrer = referrer?.host, screen = screen)
+            else -> QuickActions.toggle(this, from ?: RecordingLog.WIDGET, referrer?.host, screen)
         }
         if (!ready) {
             // Needs mic permission or sign-in: open the app where that's handled

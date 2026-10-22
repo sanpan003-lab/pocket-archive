@@ -41,4 +41,7 @@ object Protocol {
 
     /** Client ids of watch captures start with this, so the phone knows where to send the result. */
     const val CLIENT_PREFIX = "watch-"
+
+    /** Watch → phone: one recording start for the phone's log (trigger, result, what was heard) */
+    const val MSG_REC_LOG = "/pa/rec-log"
 }

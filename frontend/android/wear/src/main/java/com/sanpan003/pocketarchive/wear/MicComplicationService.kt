@@ -28,6 +28,7 @@ class MicComplicationService : SuspendingComplicationDataSourceService() {
             this, 20,
             Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_RECORD, true)
+                .putExtra(MainActivity.EXTRA_FROM, "complication")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )

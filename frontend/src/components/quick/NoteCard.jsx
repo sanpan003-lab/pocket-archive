@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { CheckSquare, Square, Merge, FolderKanban, Pin, Image as ImageIcon, PenLine, Check, MapPin } from 'lucide-react';
+import { CheckSquare, Square, Merge, FolderKanban, Pin, Image as ImageIcon, PenLine, Check, MapPin, Paperclip } from 'lucide-react';
 import { geoLabel } from '../../lib/geoLabel';
 import { quickAudioUrl, quickMediaUrl } from '../../lib/api';
 import { useAppearance, useHaptics } from '../../context/appearanceStore';
@@ -135,6 +135,7 @@ export default function NoteCard({
               {note.undone && <span className="badge badge-slate">Deleted</span>}
               {projectName && !grid && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
               {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
+              {(note.attachments || []).length > 0 && <span className="badge badge-slate" title={`${note.attachments.length} attachment${note.attachments.length > 1 ? 's' : ''}`}><Paperclip size={11} /> {note.attachments.length}</span>}
               {note.geo && !note.undone && (
                 <span className={`badge ${note.geo.status === 'needs_place' ? 'badge-orange' : 'badge-green'}`}>
                   <MapPin size={11} /> {note.geo.status === 'needs_place' ? `Where is ${note.geo.query}?` : geoLabel(note.geo)}
@@ -188,7 +189,7 @@ export default function NoteCard({
       {inline && expanded && !selectMode && (
         <div className="pl-5 pr-4 sm:pl-6 sm:pr-5 pb-1 animate-fade-in">
           <NoteContent note={note} onChanged={onChanged} projectName={projectName} arrivalReady={arrivalReady} />
-          <div className="quick-card-divider pt-1.5 pb-1"><NoteToolbar note={note} onAction={onAction} busy={busy} /></div>
+          <div className="quick-card-divider pt-1.5 pb-1"><NoteToolbar note={note} onAction={onAction} busy={busy} onChanged={onChanged} /></div>
         </div>
       )}
     </article>

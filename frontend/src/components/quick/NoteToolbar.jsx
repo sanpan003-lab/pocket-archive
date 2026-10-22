@@ -4,6 +4,7 @@ import { NOTE_COLORS } from '../../lib/appearance';
 import { useAppearance } from '../../context/appearanceStore';
 import { actionById, resolve, toolbarLayout, ACTION_KIND, allowedFor } from './toolbarActions';
 import ToolbarEditor from './ToolbarEditor';
+import AttachSheet from './AttachSheet';
 
 /** Keep-style color dots */
 export function ColorPicker({ value, onPick }) {
@@ -56,10 +57,11 @@ const HINT_KEY = 'pa_toolbarHinted';
  * (or long-press here → Edit toolbar). Gestures that start here never swipe
  * to another note (data-no-swipe). onAction(kind, note, arg)
  */
-export default function NoteToolbar({ note, onAction, busy }) {
+export default function NoteToolbar({ note, onAction, busy, onChanged }) {
   const { settings, motion } = useAppearance();
   const [colorsOpen, setColorsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState(false);
   const [edges, setEdges] = useState({ left: false, right: false });
   const ref = useRef(null);
@@ -111,6 +113,7 @@ export default function NoteToolbar({ note, onAction, busy }) {
   function run(id) {
     setMoreOpen(false);
     if (id === 'color') { setColorsOpen(o => !o); return; }
+    if (id === 'attach') { setAttaching(true); return; }
     onAction(ACTION_KIND[id] || id, note);
   }
 
@@ -196,6 +199,8 @@ export default function NoteToolbar({ note, onAction, busy }) {
           </button>
         </div>
       )}
+
+      {attaching && <AttachSheet note={note} onClose={() => setAttaching(false)} onChanged={onChanged} />}
 
       {editing && (
         <div className="fixed inset-0 z-[220] flex items-end sm:items-center justify-center sm:p-6" role="dialog" aria-modal="true" aria-label="Edit toolbar">
