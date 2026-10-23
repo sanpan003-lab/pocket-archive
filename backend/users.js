@@ -313,17 +313,45 @@ const writeDevices = d => writeJson(DEVICES_PATH, d);
 const activeDevices = (list, now = Date.now()) => list.filter(t => Date.parse(t.expiresAt) > now);
 const publicDevice = ({ hash, ...rest }) => rest;
 
-function createDeviceToken(userId, name) {
+/**
+ * scope 'full' (the app) or 'capture' (2.7.0 app lock: a second token of the same device that may only upload
+ * recordings/scans and report — see accounts.js CAPTURE_ROUTES; parentId = the full token's id)
+ */
+function createDeviceToken(userId, name, { scope = 'full', parentId = null, expiresAt = null } = {}) {
   const token = DEVICE_TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
   const now = new Date();
   const entry = {
     id: crypto.randomUUID(), userId,
     name: String(name || 'Android device').trim().slice(0, 60) || 'Android device',
     hash: sha(token), createdAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + DEVICE_TOKEN_DAYS * 86400000).toISOString(), lastUsedAt: null,
+    expiresAt: expiresAt || new Date(now.getTime() + DEVICE_TOKEN_DAYS * 86400000).toISOString(), lastUsedAt: null,
+    ...(scope === 'capture' ? { scope: 'capture', parentId } : {}),
   };
   writeDevices([...activeDevices(readDevices()), entry]);
   return { token, device: publicDevice(entry) };
+}
+
+/** App lock: a capture-only token for this device (replaces an earlier one) */
+function createCaptureToken(parent) {
+  writeDevices(readDevices().filter(t => t.parentId !== parent.id));
+  return createDeviceToken(parent.userId, `${parent.name} (capture)`, { scope: 'capture', parentId: parent.id, expiresAt: parent.expiresAt });
+}
+function revokeCaptureTokens(parentId) {
+  const list = readDevices();
+  const next = list.filter(t => t.parentId !== parentId);
+  writeDevices(next);
+  return list.length - next.length;
+}
+/** A full device token whose key was lost (fingerprints changed): new secret, same device */
+function rotateDeviceToken(id) {
+  const list = readDevices();
+  const entry = list.find(t => t.id === id && t.scope !== 'capture');
+  if (!entry) return null;
+  const token = DEVICE_TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
+  entry.hash = sha(token);
+  entry.rotatedAt = new Date().toISOString();
+  writeDevices(list);
+  return token;
 }
 function verifyDeviceToken(token) {
   if (typeof token !== 'string' || !token.startsWith(DEVICE_TOKEN_PREFIX)) return null;
@@ -342,7 +370,11 @@ let deviceDecorator = d => d;
 function setDeviceDecorator(fn) { deviceDecorator = fn; }
 
 function listDeviceTokens(userId) {
-  return activeDevices(readDevices()).filter(d => d.userId === userId).map(publicDevice).map(d => deviceDecorator(d)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const mine = activeDevices(readDevices()).filter(d => d.userId === userId);
+  // Capture tokens belong to their device: shown as "App lock on", not as devices of their own
+  const locked = new Set(mine.filter(d => d.scope === 'capture').map(d => d.parentId));
+  return mine.filter(d => d.scope !== 'capture').map(publicDevice).map(d => deviceDecorator({ ...d, appLock: locked.has(d.id) }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 /** The app version a device reported (target: phone | watch); written at most once a minute per value */
@@ -359,9 +391,10 @@ function setDeviceApp(id, target, { versionCode, versionName, via } = {}) {
 }
 function revokeDeviceToken(id, userId) {
   const list = readDevices();
-  const next = list.filter(t => !(t.id === id && (!userId || t.userId === userId)));
-  if (next.length === list.length) return false;
-  writeDevices(next);
+  const target = list.find(t => t.id === id && (!userId || t.userId === userId));
+  if (!target) return false;
+  // Signing a device out also ends its capture token
+  writeDevices(list.filter(t => t.id !== target.id && t.parentId !== target.id));
   return true;
 }
 function revokeDevices(userId) { writeDevices(readDevices().filter(t => t.userId !== userId)); }
@@ -386,6 +419,7 @@ module.exports = {
   beginTotp, confirmTotp, disableTotp, checkSecondFactor, totpNow, verifyTotp, base32,
   createSession, getSession, touchSession, listSessions, revokeSession, revokeSessions,
   createDeviceToken, verifyDeviceToken, listDeviceTokens, revokeDeviceToken, revokeDevices, setDeviceApp, setDeviceDecorator,
+  createCaptureToken, revokeCaptureTokens, rotateDeviceToken,
   logEvent, readLog,
   _internal: { encrypt, decrypt, hotp, unbase32, ghostFails, ipHits },
 };

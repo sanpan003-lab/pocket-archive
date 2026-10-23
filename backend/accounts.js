@@ -1,6 +1,24 @@
 // Accounts: the auth guard, login (username + password + optional 2FA), sessions & devices,
 // 2FA setup, calendar setup and the admin's Users screen. Account data: users.js.
 
+const { createPasskeys } = require('./passkeys');
+
+// App lock (2.7.0): the phone keeps its full device token behind the fingerprint; recordings, scans and the watch
+// relay use a second, CAPTURE-ONLY token. It can send captures and reports, never read notes.
+const CAPTURE_ROUTES = [
+  ['POST', /^\/api\/quick\/capture$/],
+  ['POST', /^\/api\/quick\/document$/],
+  ['GET', /^\/api\/updates\/(phone|watch)\/(latest|apk)$/],
+  ['POST', /^\/api\/updates\/(phone|watch)\/report$/],
+  ['POST', /^\/api\/actions\/[\w-]+\/result$/],
+  ['POST', /^\/api\/quick\/qn_[\w-]+\/(undo|decide|done)$/],   // Undo / Yes / Done from a notification or the watch
+  ['PATCH', /^\/api\/quick\/qn_[\w-]+\/items$/],                // checklist taps on the watch
+  ['POST', /^\/api\/location-reminders\/events$/],
+  ['POST', /^\/api\/errands\/qn_[\w-]+\/triggered$/],
+  ['POST', /^\/api\/auth\/device-token\/renew$/],
+];
+const captureAllowed = (method, path) => CAPTURE_ROUTES.some(([m, re]) => m === method && re.test(path));
+
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -59,6 +77,8 @@ function createAccounts({ archivePath, contexts }) {
     return user ? { user, session, payload } : null;
   }
 
+  const passkeys = createPasskeys({ users, issueSession, clientIp, activeUser });
+
   // ── The guard: every /api route after the public ones ────────────────────
   function requireAuth(req, res, next) {
     let user = null;
@@ -68,6 +88,10 @@ function createAccounts({ archivePath, contexts }) {
       user = device && activeUser(device.userId);
       if (!user) return res.status(401).json({ error: 'Unauthorized' });
       req.device = device;
+      // A capture-only token (app locked): uploads and reports only
+      if (device.scope === 'capture' && !captureAllowed(req.method, (req.originalUrl || req.url).split('?')[0])) {
+        return res.status(403).json({ error: 'Pocket Archive is locked on this phone', locked: true });
+      }
     } else if (req.method === 'GET' && typeof req.query.mt === 'string' && MEDIA_PATH_RE.test(req.path)) {
       // Android media URLs: short-lived read-only token naming the user
       user = activeUser(verifyMediaToken(req.query.mt));
@@ -125,6 +149,7 @@ function createAccounts({ archivePath, contexts }) {
 
   // ── Routes ───────────────────────────────────────────────────────────────
   function registerPublic(app) {
+    passkeys.registerPublic(app);
     app.post('/api/auth/login', async (req, res) => {
       const { username, password, code, installed } = req.body || {};
       const r = await checkLogin(req, { username, password, code });
@@ -165,6 +190,42 @@ function createAccounts({ archivePath, contexts }) {
   }
 
   function registerPrivate(app) {
+    passkeys.registerPrivate(app);
+
+    // ── App lock (Android) ──
+    // POST /api/auth/device-token/capture → { token } a capture-only token for this device (replaces an older one)
+    app.post('/api/auth/device-token/capture', (req, res) => {
+      if (!req.device || req.device.scope === 'capture') return res.status(403).json({ error: 'Only the app can do that' });
+      const { token, device } = users.createCaptureToken(req.device);
+      users.logEvent('app_lock_on', { userId: req.user.id, device: req.device.name });
+      res.json({ token, id: device.id });
+    });
+    // DELETE /api/auth/device-token/capture → app lock turned off: its capture token ends
+    app.delete('/api/auth/device-token/capture', (req, res) => {
+      if (!req.device || req.device.scope === 'capture') return res.status(403).json({ error: 'Only the app can do that' });
+      const n = users.revokeCaptureTokens(req.device.id);
+      users.logEvent('app_lock_off', { userId: req.user.id, device: req.device.name });
+      res.json({ success: true, revoked: n });
+    });
+    // POST /api/auth/device-token/renew { password } (capture token) — the fingerprints changed, so the phone's key for
+    // the full token is gone: after the account password, the same device gets a new full token.
+    app.post('/api/auth/device-token/renew', async (req, res) => {
+      if (req.device?.scope !== 'capture' || !req.device.parentId) return res.status(403).json({ error: 'Only a locked app can do that' });
+      const ip = clientIp(req);
+      if (users.rateLimited(ip)) return res.status(429).json({ error: TOO_MANY });
+      const user = users.getUser(req.user.id);
+      const ok = await bcrypt.compare(String(req.body?.password || ''), user?.passwordHash || DUMMY_HASH);
+      if (!ok) {
+        users.recordFailure(user?.username || '', ip);
+        users.logEvent('device_reauth_failed', { userId: req.user.id, ip });
+        return res.status(401).json({ error: 'That password didn’t work' });
+      }
+      users.recordSuccess(user);
+      const token = users.rotateDeviceToken(req.device.parentId);
+      if (!token) return res.status(404).json({ error: 'This phone was signed out — sign in again' });
+      users.logEvent('device_reauth', { userId: req.user.id, device: req.device.name.replace(/ \(capture\)$/, ''), ip });
+      res.json({ token });
+    });
     app.get('/api/auth/me', (req, res) => {
       res.json({ ...users.publicUser(req.user), calendar: calendarInfo(req.user) });
     });
@@ -358,6 +419,7 @@ function createAccounts({ archivePath, contexts }) {
       let exported;
       try { exported = exportUser(u); } catch (err) { return res.status(500).json({ error: `Export failed, nothing deleted: ${err.message}` }); }
       users.deleteUser(u.id);
+      passkeys.removeUser(u.id);
       contexts.forget(u.id);
       fs.rmSync(contexts.userRoot(u.id), { recursive: true, force: true });
       users.logEvent('user_deleted', { userId: u.id, by: req.user.id, export: exported.file });

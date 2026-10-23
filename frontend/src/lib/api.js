@@ -57,6 +57,14 @@ export const getSessions        = () => http.get('/auth/sessions').then(r => r.d
 export const revokeSession      = id => http.delete(`/auth/sessions/${id}`).then(r => r.data);
 export const signOutEverywhere  = () => http.post('/auth/sign-out-everywhere').then(r => r.data);
 export const getSecurityLog     = () => http.get('/auth/security-log').then(r => r.data);
+// Passkeys (web): the browser does the WebAuthn part (lib/passkeys.js)
+export const passkeyRegisterOptions = () => http.post('/auth/passkeys/options').then(r => r.data);
+export const savePasskey        = (response, name) => http.post('/auth/passkeys', { response, name }).then(r => r.data);
+export const getPasskeys        = () => http.get('/auth/passkeys').then(r => r.data);
+export const renamePasskey      = (id, name) => http.patch(`/auth/passkeys/${encodeURIComponent(id)}`, { name }).then(r => r.data);
+export const deletePasskey      = id => http.delete(`/auth/passkeys/${encodeURIComponent(id)}`).then(r => r.data);
+export const passkeyLoginOptions = () => http.post('/auth/passkey/options').then(r => r.data);
+export const passkeyLoginVerify = (response, installed) => http.post('/auth/passkey/verify', { response, installed }).then(r => r.data);
 export const getCalendarSetup   = () => http.get('/calendar/setup').then(r => r.data);
 export const testCalendar       = calendarId => http.post('/calendar/test', { calendarId }).then(r => r.data);
 

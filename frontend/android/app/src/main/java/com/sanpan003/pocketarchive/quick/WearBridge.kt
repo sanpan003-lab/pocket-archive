@@ -88,7 +88,7 @@ object WearBridge {
 
     /** The phone's device token for the watch's direct-upload fallback (same token → revoking the phone stops the watch too). */
     fun sendToken(ctx: Context, nodeId: String? = null) {
-        val token = TokenStore.token(ctx)
+        val token = TokenStore.backgroundToken(ctx)   // app lock on → capture-only
         val apiBase = TokenStore.apiBase(ctx)
         val nodes = nodeId?.let { id -> watches(ctx).filter { it.id == id }.ifEmpty { null } } ?: watches(ctx)
         if (nodes.isEmpty()) return

@@ -3,6 +3,7 @@ import {
   authStatus, authLogin, authLogout, deviceLogin, revokeCurrentDevice, fetchMediaToken, getMe,
 } from '../lib/api';
 import { isInstalledApp } from '../lib/pwa';
+import { signInWithPasskey } from '../lib/passkeys';
 import { AppearanceProvider } from './AppearanceContext';
 import { isNative } from '../lib/platform';
 import {
@@ -117,6 +118,13 @@ export function AppProvider({ children }) {
     return data;
   }
 
+  /** Web: sign in with a passkey (no 2FA code needed) */
+  async function loginWithPasskey() {
+    const data = await signInWithPasskey(isInstalledApp());
+    signedIn(data.user);
+    return data;
+  }
+
   function signedIn(u) {
     setIsAuthenticated(true);
     rememberAuth(true);
@@ -153,7 +161,7 @@ export function AppProvider({ children }) {
       sidebarOpen, setSidebarOpen,
       syncVersion, triggerRefresh,
       isAuthenticated, isCheckingAuth,
-      login, logout, user, refreshUser, maintenance,
+      login, loginWithPasskey, logout, user, refreshUser, maintenance,
       isAdmin: user?.role === 'admin',
       mobileMenuOpen, setMobileMenuOpen,
     }}>

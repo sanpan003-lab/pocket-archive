@@ -151,6 +151,21 @@ inside the Android app (`android/`). The backend lives in
   `saveContact`, widget buttons `med_scan|med_camera|lg_scan|lg_camera` (2x1 hides the status line unless busy).
   Shortcuts are in BOTH `src/main/res/xml/shortcuts.xml` and `src/debug/res/xml/shortcuts.xml` (debug package).
 
+## App lock and passkeys (2.7.0) — docs/security.md
+
+- Android app lock: TWO device tokens. Full token behind an auth-bound Keystore key (`AppLock.kt`, 30 s validity,
+  invalidated by a new fingerprint), in memory only once unlocked; a CAPTURE-ONLY token (`TokenStore.captureToken`)
+  for everything that runs while locked. `TokenStore.token()` = unlocked full token, else capture token;
+  `backgroundToken()` (the watch) = capture token whenever the lock is on. Server allowlist `CAPTURE_ROUTES` in
+  accounts.js — a new background API call made by native code must be added there or it gets 403 `{locked:true}`.
+  Lock screen = native overlay (`LockScreen` in AppLockFlows.kt, weak refs — a recreated activity gets its own);
+  `getToken` waits for unlock; `ResultNotifier`/widget say "🔒 Saved" while locked. Timing rule `AppLock.timedOut`
+  (JVM test `AppLockTest`). Fingerprints changed → password → `POST /api/auth/device-token/renew` (same device id).
+- Passkeys (web only): `passkeys.js` (@simplewebauthn/server; ESM → `import()`), `passkeys.json` in the config dir,
+  RP ID from the request Origin and stored per passkey; passkey sign-in skips 2FA. Web: `lib/passkeys.js`
+  (@simplewebauthn/browser), Settings → Security `PasskeysBlock`, Login "Sign in with a passkey".
+  Browser test uses Chrome's WebAuthn virtual authenticator over CDP (`fftools/passkey-ui.cjs`).
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

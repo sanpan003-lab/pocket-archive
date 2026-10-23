@@ -61,6 +61,19 @@ class QuickRecorderPlugin : Plugin() {
             main.post { instance?.deliver("navigate", JSObject().put("route", route)) }
         }
 
+        /** getToken calls from the web layer waiting for the app lock */
+        private val waitingForUnlock = mutableListOf<PluginCall>()
+
+        /** The lock screen was passed: the web layer gets its token, and the syncs that read notes can run */
+        fun onUnlocked(ctx: Context, token: String) {
+            val calls = synchronized(waitingForUnlock) { waitingForUnlock.toList().also { waitingForUnlock.clear() } }
+            calls.forEach { it.resolve(JSObject().put("token", token)) }
+            instance?.deliver("unlocked", JSObject())
+            ErrandWorker.syncNow(ctx)
+            WidgetData.refreshAsync(ctx)
+            QuickToggleWidget.updateAll(ctx)
+        }
+
         /** Over-the-air update state changed (banner, Settings → About) */
         fun deliverUpdate(state: JSONObject) {
             main.post { instance?.deliver("update", JSObject.fromJSONObject(state)) }
@@ -474,7 +487,88 @@ class QuickRecorderPlugin : Plugin() {
 
     @PluginMethod
     fun getToken(call: PluginCall) {
+        // App lock: the web layer (which reads notes) only gets the full token after the fingerprint
+        if (AppLock.isLocked(context)) {
+            synchronized(waitingForUnlock) { waitingForUnlock += call }
+            return
+        }
         call.resolve(JSObject().put("token", TokenStore.token(context)))
+    }
+
+    // ── App lock (Settings → Security → "Lock app with fingerprint") ─────────
+
+    private fun lockState(): JSObject = JSObject()
+        .put("available", true)
+        .put("biometrics", AppLock.availability(context))
+        .put("enabled", AppLock.enabled(context))
+        .put("timeoutMin", AppLock.timeoutMin(context))
+        .put("secure", AppLock.secure(context))
+        .put("locked", AppLock.isLocked(context))
+
+    @PluginMethod
+    fun getAppLock(call: PluginCall) = call.resolve(lockState())
+
+    /** { enabled?, timeoutMin?, secure? } — turning it on or off asks for the fingerprint / PIN */
+    @PluginMethod
+    fun setAppLock(call: PluginCall) {
+        val act = activity ?: return call.reject("Open the app first")
+        call.getInt("timeoutMin")?.let { AppLock.setTimeout(context, it) }
+        call.getBoolean("secure")?.let { AppLock.setSecure(context, it); LockScreen.applySecure(act) }
+        val want = call.getBoolean("enabled") ?: return call.resolve(lockState())
+        if (want == AppLock.enabled(context)) return call.resolve(lockState())
+        if (want) turnOn(call, act) else turnOff(call, act)
+    }
+
+    private fun turnOn(call: PluginCall, act: androidx.fragment.app.FragmentActivity) {
+        when (AppLock.availability(context)) {
+            "none-enrolled" -> return call.reject("Set up a fingerprint or a screen lock in Android Settings first")
+            "no-hardware" -> return call.reject("This phone has no fingerprint or screen lock")
+        }
+        val full = TokenStore.plainToken(context) ?: return call.reject("Sign in first")
+        Thread {
+            val capture = try { AppLockServer.captureToken(context, full) } catch (e: Exception) {
+                main.post { call.reject(e.message ?: "Couldn’t reach your server") }
+                return@Thread
+            }
+            main.post {
+                AppLock.prompt(act, "Turn on app lock", "Use your fingerprint or your phone’s PIN", onOk = {
+                    try {
+                        AppLock.storeFull(context, full)          // behind the fingerprint key
+                        TokenStore.setCaptureToken(context, capture)
+                        AppLock.markEnabled(context, true)
+                        TokenStore.setPlain(context, null)         // the full token is no longer stored openly
+                        LockScreen.applySecure(act)
+                        WearBridge.async { WearBridge.sendToken(context) } // the watch gets the capture-only token
+                        call.resolve(lockState())
+                    } catch (e: Exception) {
+                        android.util.Log.w("AppLock", "Turning on failed", e)
+                        AppLock.reset(context)
+                        TokenStore.setPlain(context, full)
+                        TokenStore.setCaptureToken(context, null)
+                        Thread { AppLockServer.revokeCapture(context, full) }.start()
+                        call.reject("Couldn’t turn on the app lock — try again")
+                    }
+                }, onFail = { msg ->
+                    Thread { AppLockServer.revokeCapture(context, full) }.start()
+                    call.reject(msg ?: "Cancelled", if (msg == null) "CANCELLED" else null)
+                })
+            }
+        }.start()
+    }
+
+    private fun turnOff(call: PluginCall, act: androidx.fragment.app.FragmentActivity) {
+        AppLock.prompt(act, "Turn off app lock", null, onOk = {
+            val full = try { AppLock.unlockedToken(context) ?: AppLock.unlock(context) } catch (e: Exception) {
+                return@prompt call.reject("Unlock the app first (your fingerprints may have changed)")
+            }
+            TokenStore.setPlain(context, full)
+            TokenStore.setCaptureToken(context, null)
+            AppLock.reset(context)
+            LockScreen.applySecure(act)
+            Thread { AppLockServer.revokeCapture(context, full) }.start()
+            WearBridge.async { WearBridge.sendToken(context) }
+            call.resolve(lockState())
+        }, onFail = { msg -> call.reject(msg ?: "Cancelled", if (msg == null) "CANCELLED" else null) })
     }
 
     @PluginMethod

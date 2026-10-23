@@ -69,6 +69,8 @@ object WidgetData {
             QuickToggleWidget.updateAll(ctx)
             return true
         }
+        // App locked: the capture-only token can't read notes (and the widget doesn't show them then)
+        if (AppLock.isLocked(ctx)) return true
         val request = Request.Builder()
             .url("$apiBase/api/quick/recent?limit=$LIMIT")
             .header("Authorization", "Bearer $token")

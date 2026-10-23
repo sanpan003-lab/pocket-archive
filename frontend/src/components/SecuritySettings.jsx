@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import {
-  ShieldCheck, KeyRound, Monitor, Smartphone, Watch, LogOut, RefreshCw, Copy, Check, AlertTriangle,
+  ShieldCheck, KeyRound, Monitor, Smartphone, Watch, LogOut, RefreshCw, Copy, Check, AlertTriangle, Fingerprint, Pencil, Trash2, Plus,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { appVersionLine } from '../lib/appUpdate';
 import {
   changePassword, setup2fa, confirm2fa, disable2fa, getSessions, revokeSession, revokeDevice, signOutEverywhere,
+  getPasskeys, renamePasskey, deletePasskey, getSecurityLog,
 } from '../lib/api';
+import { passkeysSupported, addPasskey, defaultPasskeyName, passkeyError } from '../lib/passkeys';
+import { isNative } from '../lib/platform';
+import AppLockBlock from './AppLockSettings';
 
 const INPUT = 'w-full bg-navy-50/50 dark:bg-white/5 border border-navy-200 dark:border-white/10 rounded-xl px-4 py-2.5 text-sm text-navy-900 dark:text-white placeholder-navy-400 dark:placeholder-white/30 outline-none focus:ring-2 focus:ring-gold-400/50';
 const errMsg = (err, fb) => err.response?.data?.error || fb;
@@ -135,7 +139,7 @@ function SessionsBlock() {
 
   const items = data ? [
     ...data.sessions.map(s => ({ key: `s-${s.id}`, id: s.id, kind: 'session', icon: s.kind === 'app' ? Smartphone : Monitor, title: browserName(s.userAgent), sub: `Signed in ${when(s.createdAt)} · last active ${when(s.lastSeenAt)}`, current: s.current })),
-    ...data.devices.map(d => ({ key: `d-${d.id}`, id: d.id, kind: 'device', icon: /watch/i.test(d.name) ? Watch : Smartphone, title: d.name, sub: [`Signed in ${when(d.createdAt)} · last used ${when(d.lastUsedAt)}`, appVersionLine(d)].filter(Boolean).join(' · '), current: d.current })),
+    ...data.devices.map(d => ({ key: `d-${d.id}`, id: d.id, kind: 'device', icon: /watch/i.test(d.name) ? Watch : Smartphone, title: d.name, sub: [`Signed in ${when(d.createdAt)} · last used ${when(d.lastUsedAt)}`, d.appLock ? 'App lock on' : null, appVersionLine(d)].filter(Boolean).join(' · '), current: d.current })),
   ] : [];
 
   async function revoke(item) {
@@ -177,6 +181,90 @@ function SessionsBlock() {
   );
 }
 
+const EVENT_LABEL = {
+  login: e => (e.method === 'passkey' ? `Signed in with a passkey${e.passkey ? ` (${e.passkey})` : ''}` : 'Signed in with your password'),
+  login_failed: () => 'Sign-in failed', lockout: () => 'Too many tries — locked for a while', logout: () => 'Signed out',
+  passkey_added: e => `Passkey added: ${e.name}`, passkey_removed: e => `Passkey removed: ${e.name}`,
+  device_signed_in: e => `App signed in: ${e.device}`, app_lock_on: e => `App lock turned on (${e.device})`,
+  app_lock_off: e => `App lock turned off (${e.device})`, device_reauth: () => 'App unlocked with your password (fingerprints changed)',
+  device_reauth_failed: () => 'Wrong password on a locked app', password_changed: () => 'Password changed',
+  '2fa_enabled': () => 'Two-step verification on', '2fa_disabled': () => 'Two-step verification off', '2fa_failed': () => 'Wrong 2FA code',
+};
+
+/** Settings → Security → Passkeys (web): add (fingerprint / Windows Hello / phone), rename, remove; recent events */
+function PasskeysBlock() {
+  const [list, setList] = useState(null);
+  const [log, setLog] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(() => {
+    getPasskeys().then(setList).catch(() => setList([]));
+    getSecurityLog().then(l => setLog(l.filter(e => EVENT_LABEL[e.type]).slice(0, 8))).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const supported = passkeysSupported();
+
+  async function add() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const p = await addPasskey(defaultPasskeyName());
+      setMsg({ ok: `Passkey “${p.name}” added — next time choose “Sign in with a passkey”.` });
+      load();
+    } catch (err) {
+      const text = passkeyError(err, 'Couldn’t add the passkey');
+      if (text) setMsg({ error: text });
+    } finally { setBusy(false); }
+  }
+  async function remove(p) {
+    if (!window.confirm(`Remove the passkey “${p.name}”? You can still sign in with your password.`)) return;
+    try { await deletePasskey(p.id); load(); } catch (err) { setMsg({ error: errMsg(err, 'Couldn’t remove it') }); }
+  }
+  async function rename(p) {
+    const name = window.prompt('Name for this passkey', p.name);
+    if (!name?.trim() || name.trim() === p.name) return;
+    try { await renamePasskey(p.id, name.trim()); load(); } catch (err) { setMsg({ error: errMsg(err, 'Couldn’t rename it') }); }
+  }
+
+  return (
+    <div className="space-y-2" id="passkeys">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/40">Passkeys</h3>
+      <p className="text-xs text-navy-500 dark:text-white/50">
+        Sign in with your fingerprint, face, Windows Hello or your phone instead of typing a password — no 2FA code needed.
+        Checked by your own server. Your password keeps working.
+      </p>
+      {list === null ? <div className="h-10 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" /> : (
+        <ul className="space-y-1.5">
+          {list.map(p => (
+            <li key={p.id} className="flex items-center gap-3 rounded-xl bg-navy-50/50 dark:bg-white/5 px-3 py-2.5">
+              <Fingerprint size={16} className="text-gold-500 shrink-0" />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-navy-900 dark:text-white truncate">{p.name}</span>
+                <span className="block text-xs text-navy-500 dark:text-white/50">Added {when(p.createdAt)} · {p.lastUsedAt ? `last used ${when(p.lastUsedAt)}` : 'not used yet'}{p.backedUp ? ' · synced' : ''}</span>
+              </span>
+              <button type="button" className="btn-ghost text-xs shrink-0" onClick={() => rename(p)} aria-label={`Rename ${p.name}`}><Pencil size={13} /></button>
+              <button type="button" className="btn-ghost text-xs text-red-600 dark:text-red-400 shrink-0" onClick={() => remove(p)} aria-label={`Remove ${p.name}`}><Trash2 size={13} /> <span className="hidden sm:inline">Remove</span></button>
+            </li>
+          ))}
+          {!list.length && <li className="text-sm text-navy-500 dark:text-white/50">No passkeys yet.</li>}
+        </ul>
+      )}
+      {supported
+        ? <button type="button" className="btn-white text-sm" onClick={add} disabled={busy}><Plus size={14} /> {busy ? 'Follow your browser…' : 'Add a passkey'}</button>
+        : <p className="text-xs text-navy-500 dark:text-white/50">{isNative ? 'Add passkeys from a web browser — in the app, use the fingerprint lock below.' : 'This browser doesn’t support passkeys.'}</p>}
+      {msg && <p className={`text-xs ${msg.error ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`} role="status">{msg.error || msg.ok}</p>}
+      {log.length > 0 && (
+        <details className="pt-1">
+          <summary className="text-xs font-semibold text-navy-500 dark:text-white/50 cursor-pointer">Recent security events</summary>
+          <ul className="mt-1.5 space-y-0.5 text-xs text-navy-600 dark:text-white/60">
+            {log.map((e, i) => <li key={i}>{when(e.at)} · {EVENT_LABEL[e.type](e)}</li>)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /** Settings → Security: password, two-step verification, sessions & devices */
 export default function SecuritySettings() {
   const { user } = useApp();
@@ -191,6 +279,8 @@ export default function SecuritySettings() {
       </div>
       <PasswordBlock />
       <TwoFactorBlock />
+      <PasskeysBlock />
+      <AppLockBlock />
       <SessionsBlock />
     </div>
   );

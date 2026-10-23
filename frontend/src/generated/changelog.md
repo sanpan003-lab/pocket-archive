@@ -5,6 +5,21 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.7.0 — Oct 23, 2026
+
+### Lock the app with your fingerprint
+- Settings → Security → **Lock app with fingerprint** (each phone, off until you turn it on). Uses your fingerprint or face, or your phone’s PIN
+- Choose when it asks: every time you open it, or after 1, **5** or 15 minutes away
+- Your sign-in key stays locked until you unlock — it’s kept behind your fingerprint on the phone
+- **Recording keeps working while it’s locked:** widget, Quick Settings tile, side key, Quick Record, Stop, volume keys, Scan and Camera, and your watch. Notifications and the widget then only say “Saved” and don’t show your notes
+- Pocket Archive is hidden in recent apps and screenshots while the lock is on (you can turn that off)
+- After you add a new fingerprint, it asks for your password once
+
+### Passkeys on the web
+- Settings → Security → **Add a passkey**, then **Sign in with a passkey**: fingerprint, Windows Hello or your phone — no password and no 2FA code
+- See, rename and remove your passkeys; your password still works
+- Settings → Security shows recent sign-ins and security changes
+
 ## 2.6.1 — Oct 23, 2026
 
 ### Fixes

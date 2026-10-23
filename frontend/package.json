@@ -1,7 +1,7 @@
 {
   "name": "pocket-archive",
   "private": true,
-  "version": "2.6.1",
+  "version": "2.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -22,6 +22,7 @@
     "@capacitor/core": "^8.5.3",
     "@capacitor/share": "8.0.2",
     "@protomaps/basemaps": "5.7.2",
+    "@simplewebauthn/browser": "^14.0.0",
     "axios": "^1.15.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.12.0",

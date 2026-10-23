@@ -90,7 +90,8 @@ class QuickToggleWidget : AppWidgetProvider() {
                 phase = WidgetState.current(),
                 phaseText = WidgetState.text,
                 resultNoteId = WidgetState.noteId,
-                items = WidgetData.items(ctx),
+                // App locked: no note titles on the home screen
+                items = if (AppLock.isLocked(ctx)) emptyList() else WidgetData.items(ctx),
                 pending = PendingStore.count(ctx) + DocQueue.count(ctx),
                 offline = WidgetData.offline(ctx),
                 signedOut = WidgetData.signedOut(ctx),
@@ -263,7 +264,11 @@ class QuickToggleWidget : AppWidgetProvider() {
             }
 
             // Recent notes
-            setTextViewText(R.id.lg_empty, if (s.signedOut) "Open Pocket Archive to sign in" else "No quick notes yet — tap the mic")
+            setTextViewText(R.id.lg_empty, when {
+                s.signedOut -> "Open Pocket Archive to sign in"
+                AppLock.isLocked(ctx) -> "🔒 Unlock Pocket Archive to see your notes"
+                else -> "No quick notes yet — tap the mic"
+            })
             setOnClickPendingIntent(R.id.lg_empty, inboxIntent(ctx))
             val now = System.currentTimeMillis()
             ROW_IDS.forEachIndexed { i, (row, icon, title, dot, time) ->

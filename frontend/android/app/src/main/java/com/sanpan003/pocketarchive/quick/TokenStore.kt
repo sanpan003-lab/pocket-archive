@@ -15,11 +15,15 @@ import javax.crypto.spec.GCMParameterSpec
  * Device token + server settings shared by the web layer and native code.
  * The token is encrypted with an AES-256 key that lives in the Android
  * Keystore (never leaves secure hardware), and only the ciphertext is stored.
+ *
+ * App lock (AppLock.kt): the full token moves behind a fingerprint-bound key; this store then keeps only the
+ * CAPTURE-ONLY token, and token() returns the full token while unlocked, else the capture token.
  */
 object TokenStore {
     private const val PREFS = "pocket_archive_secure"
     private const val KEY_ALIAS = "pocket_archive_device_token"
     private const val PREF_TOKEN = "token"
+    private const val PREF_CAPTURE = "capture_token"
     private const val PREF_API_BASE = "api_base"
     private const val PREF_FEEDBACK = "feedback"
     private const val PREF_VOLUME_STOP = "volume_stop"
@@ -27,6 +31,8 @@ object TokenStore {
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
 
     @Volatile private var cachedToken: String? = null
+    @Volatile private var cachedCapture: String? = null
+    @Volatile private var captureLoaded = false
     @Volatile private var loaded = false
 
     private fun prefs(ctx: Context) =
@@ -46,36 +52,76 @@ object TokenStore {
         return generator.generateKey()
     }
 
+    private fun encrypt(value: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        return "${b64(cipher.iv)}:${b64(encrypted)}"
+    }
+    private fun decrypt(stored: String?): String? = stored?.let {
+        runCatching {
+            val (iv, data) = it.split(":", limit = 2)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, unb64(iv)))
+            String(cipher.doFinal(unb64(data)), Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    /** Sign in / sign out (null). Signing out also ends the app lock. */
     @Synchronized
     fun setToken(ctx: Context, token: String?) {
-        val editor = prefs(ctx).edit()
         if (token.isNullOrEmpty()) {
-            editor.remove(PREF_TOKEN)
-        } else {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-            val encrypted = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-            editor.putString(PREF_TOKEN, "${b64(cipher.iv)}:${b64(encrypted)}")
+            AppLock.reset(ctx)
+            setCaptureToken(ctx, null)
         }
+        setPlain(ctx, token)
+    }
+
+    /** The full token kept by this store (app lock off) */
+    @Synchronized
+    fun setPlain(ctx: Context, token: String?) {
+        val editor = prefs(ctx).edit()
+        if (token.isNullOrEmpty()) editor.remove(PREF_TOKEN) else editor.putString(PREF_TOKEN, encrypt(token))
         editor.commit()
         cachedToken = token?.takeIf { it.isNotEmpty() }
         loaded = true
     }
 
     @Synchronized
-    fun token(ctx: Context): String? {
+    fun plainToken(ctx: Context): String? {
         if (loaded) return cachedToken
-        cachedToken = prefs(ctx).getString(PREF_TOKEN, null)?.let { stored ->
-            runCatching {
-                val (iv, data) = stored.split(":", limit = 2)
-                val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, unb64(iv)))
-                String(cipher.doFinal(unb64(data)), Charsets.UTF_8)
-            }.getOrNull()
-        }
+        cachedToken = decrypt(prefs(ctx).getString(PREF_TOKEN, null))
         loaded = true
         return cachedToken
     }
+
+    /** App lock: the capture-only token (uploads and reports, never reading notes) */
+    @Synchronized
+    fun setCaptureToken(ctx: Context, token: String?) {
+        val editor = prefs(ctx).edit()
+        if (token.isNullOrEmpty()) editor.remove(PREF_CAPTURE) else editor.putString(PREF_CAPTURE, encrypt(token))
+        editor.commit()
+        cachedCapture = token?.takeIf { it.isNotEmpty() }
+        captureLoaded = true
+    }
+
+    @Synchronized
+    fun captureToken(ctx: Context): String? {
+        if (captureLoaded) return cachedCapture
+        cachedCapture = decrypt(prefs(ctx).getString(PREF_CAPTURE, null))
+        captureLoaded = true
+        return cachedCapture
+    }
+
+    /** The token to use right now: app lock on → the full one while unlocked, else the capture-only one */
+    fun token(ctx: Context): String? =
+        if (AppLock.enabled(ctx)) AppLock.unlockedToken(ctx) ?: captureToken(ctx) else plainToken(ctx)
+
+    /** For things that leave the phone or run unattended (the watch): never the full token while the lock is on */
+    fun backgroundToken(ctx: Context): String? = if (AppLock.enabled(ctx)) captureToken(ctx) else plainToken(ctx)
+
+    /** Signed in at all (with or without the app lock) */
+    fun signedIn(ctx: Context): Boolean = token(ctx) != null
 
     // ── Accounts: whose token this is ─────────────────────────────────────
     // userId = signed-in user; lastUserId = who was signed in last (recordings made while

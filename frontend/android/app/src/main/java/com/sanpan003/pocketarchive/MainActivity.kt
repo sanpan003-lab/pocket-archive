@@ -39,11 +39,24 @@ class MainActivity : BridgeActivity() {
 
     override fun onResume() {
         super.onResume()
+        // App lock: the lock screen covers the app until the fingerprint / PIN (recording from a key still works)
+        com.sanpan003.pocketarchive.quick.LockScreen.applySecure(this)
+        if (com.sanpan003.pocketarchive.quick.AppLock.onForeground(this)) {
+            val recordingPath = startRecordingOnResume || com.sanpan003.pocketarchive.quick.RecorderState.recording
+            com.sanpan003.pocketarchive.quick.LockScreen.show(this, autoPrompt = !recordingPath)
+        } else {
+            com.sanpan003.pocketarchive.quick.LockScreen.hide()
+        }
         com.sanpan003.pocketarchive.quick.ErrandSync.onAppResumed(this) // location permission changed → re-arm geofences
         if (startRecordingOnResume) {
             startRecordingOnResume = false
             QuickActions.start(this, "quick-record", referrer = launchReferrer, screen = launchScreen) // if not possible yet, /quick shows sign-in / permission
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        com.sanpan003.pocketarchive.quick.AppLock.onBackground()
     }
 
     /**

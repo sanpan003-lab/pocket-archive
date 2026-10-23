@@ -27,10 +27,12 @@ object ResultNotifier {
         val actionOutcome = action?.let { PhoneActions.run(ctx, it) }
         val conf = if (action != null && actionOutcome != null) actionConfirmation(action, actionOutcome, response.optJSONObject("note"))
             else response.optJSONObject("confirmation")
-        val icon = conf?.optString("icon")?.takeIf { it.isNotBlank() } ?: "📝"
-        val text = conf?.optString("text")?.takeIf { it.isNotBlank() } ?: "Voice note saved"
+        // App locked: nothing about the note on the lock screen, the widget or the watch — "Saved" only
+        val locked = AppLock.isLocked(ctx)
+        val icon = if (locked) "🔒" else conf?.optString("icon")?.takeIf { it.isNotBlank() } ?: "📝"
+        val text = if (locked) "Saved" else conf?.optString("text")?.takeIf { it.isNotBlank() } ?: "Voice note saved"
         val tone = conf?.optString("tone") ?: "success"
-        val detail = conf?.takeIf { !it.isNull("detail") }?.optString("detail")?.takeIf { it.isNotBlank() }
+        val detail = if (locked) null else conf?.takeIf { !it.isNull("detail") }?.optString("detail")?.takeIf { it.isNotBlank() }
 
         val payload = JSObject().apply {
             put("note", response.optJSONObject("note"))
@@ -56,7 +58,7 @@ object ResultNotifier {
         val fromWatch = clientId?.startsWith(WearBridge.CLIENT_PREFIX) == true
         val shownOnWatch = fromWatch && WearBridge.sendResult(
             ctx, clientId,
-            conf ?: JSONObject().put("icon", icon).put("text", text).put("tone", tone),
+            if (locked || conf == null) JSONObject().put("icon", icon).put("text", text).put("tone", tone) else conf,
         )
         if (QuickRecorderPlugin.deliverToApp("result", payload)) return
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Mic2, Eye, EyeOff, Lock, User, ShieldCheck, Wrench } from 'lucide-react';
+import { Mic2, Eye, EyeOff, Lock, User, ShieldCheck, Wrench, Fingerprint } from 'lucide-react';
+import { passkeysSupported, passkeyError } from '../lib/passkeys';
 import { useApp } from '../context/AppContext';
 import { changePassword } from '../lib/api';
 import { returnPath } from '../lib/returnPath';
@@ -26,7 +27,7 @@ function Spinner({ label }) {
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, refreshUser, maintenance } = useApp();
+  const { login, loginWithPasskey, refreshUser, maintenance } = useApp();
   // e.g. back to /quick?autostart=1 when the installed app sent you here
   const nextPath = returnPath(location);
 
@@ -58,6 +59,21 @@ export default function LoginPage() {
       const data = err.response?.data;
       setError(data?.error || (err.response ? 'Sign-in failed' : "Can't reach your Pocket Archive server"));
       if (data?.twoFactorRequired) setCode('');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /** Passkey: fingerprint / Windows Hello / phone — no password, no 2FA code */
+  async function passkey() {
+    setError('');
+    setLoading(true);
+    try {
+      await loginWithPasskey();
+      navigate(nextPath, { replace: true });
+    } catch (err) {
+      const msg = passkeyError(err, 'Sign-in with a passkey didn’t work — use your password');
+      if (msg) setError(msg);
     } finally {
       setLoading(false);
     }
@@ -128,6 +144,17 @@ export default function LoginPage() {
               className="btn-gold w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed">
               {loading ? <Spinner label="Signing in…" /> : 'Sign In'}
             </button>
+            {passkeysSupported() && (
+              <>
+                <div className="flex items-center gap-3 py-1" aria-hidden="true">
+                  <span className="flex-1 h-px bg-navy-200 dark:bg-white/15" /><span className="text-xs text-navy-400 dark:text-white/40">or</span><span className="flex-1 h-px bg-navy-200 dark:bg-white/15" />
+                </div>
+                <button type="button" onClick={passkey} disabled={loading}
+                  className="btn-white w-full justify-center py-3 rounded-xl text-sm font-semibold disabled:opacity-60">
+                  <Fingerprint size={16} /> Sign in with a passkey
+                </button>
+              </>
+            )}
             <p className="text-xs text-center text-navy-500 dark:text-white/45 pt-1">No account? Ask the person who runs this Pocket Archive.</p>
           </form>
         )}
