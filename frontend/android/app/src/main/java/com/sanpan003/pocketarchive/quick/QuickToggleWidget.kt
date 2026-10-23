@@ -17,7 +17,7 @@ import com.sanpan003.pocketarchive.R
 /**
  * Resizable Quick Capture widget. Layout depends on its size:
  * - 1x1: gold mic (tap = start, tap again = stop + upload; doesn't open the app)
- * - 2x1 / 3x1: mic + one status line ("Last: Dentist · 2h ago" / "● 0:12 Tap to stop")
+ * - 2x1: mic + Scan + Camera; 3x1: plus one status line ("Last: Dentist · 2h ago" / "● 0:12 Tap to stop")
  * - 4x2+: header, the 5 most recent quick notes, a big Stop button while
  *   recording, and "Uploading… → Processing… → result" after stopping.
  */
@@ -58,6 +58,7 @@ class QuickToggleWidget : AppWidgetProvider() {
     companion object {
         // Size buckets (dp). Android picks the largest one that fits the widget.
         private const val MEDIUM_MIN_W = 130f
+        private const val MEDIUM_TEXT_W = 200f   // the status line needs room next to mic + Scan + Camera
         private const val LARGE_MIN_W = 250f
         private const val LARGE_MIN_H = 170f
         private const val ROW_H = 30f
@@ -90,7 +91,7 @@ class QuickToggleWidget : AppWidgetProvider() {
                 phaseText = WidgetState.text,
                 resultNoteId = WidgetState.noteId,
                 items = WidgetData.items(ctx),
-                pending = PendingStore.count(ctx),
+                pending = PendingStore.count(ctx) + DocQueue.count(ctx),
                 offline = WidgetData.offline(ctx),
                 signedOut = WidgetData.signedOut(ctx),
             )
@@ -99,7 +100,8 @@ class QuickToggleWidget : AppWidgetProvider() {
                 // One RemoteViews per size; the launcher switches between them while resizing
                 val views = RemoteViews(mapOf(
                     SizeF(40f, 40f) to small(ctx, s),
-                    SizeF(MEDIUM_MIN_W, 40f) to medium(ctx, s),
+                    SizeF(MEDIUM_MIN_W, 40f) to medium(ctx, s, withText = false),
+                    SizeF(MEDIUM_TEXT_W, 40f) to medium(ctx, s, withText = true),
                     SizeF(LARGE_MIN_W, LARGE_MIN_H) to large(ctx, s, 3),
                     SizeF(LARGE_MIN_W, LARGE_MIN_H + ROW_H) to large(ctx, s, 4),
                     SizeF(LARGE_MIN_W, LARGE_MIN_H + 2 * ROW_H) to large(ctx, s, 5),
@@ -113,7 +115,7 @@ class QuickToggleWidget : AppWidgetProvider() {
                     val views = when {
                         w >= LARGE_MIN_W && h >= LARGE_MIN_H ->
                             large(ctx, s, (3 + ((h - LARGE_MIN_H) / ROW_H).toInt()).coerceIn(3, ROWS))
-                        w >= MEDIUM_MIN_W -> medium(ctx, s)
+                        w >= MEDIUM_MIN_W -> medium(ctx, s, withText = w >= MEDIUM_TEXT_W)
                         else -> small(ctx, s)
                     }
                     manager.updateAppWidget(id, views)
@@ -131,6 +133,16 @@ class QuickToggleWidget : AppWidgetProvider() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+        /** Scan / Camera: a transparent activity opens the scanner or the camera (no app screens) */
+        private fun captureIntent(ctx: Context, action: String, code: Int): PendingIntent = PendingIntent.getActivity(
+            ctx, code,
+            Intent(ctx, CaptureActivity::class.java).setAction(action)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        fun scanIntent(ctx: Context) = captureIntent(ctx, CaptureActivity.ACTION_SCAN, 41)
+        fun cameraIntent(ctx: Context) = captureIntent(ctx, CaptureActivity.ACTION_CAMERA, 42)
 
         private fun inboxIntent(ctx: Context, noteId: String? = null): PendingIntent =
             Notifications.openApp(ctx, if (noteId == null) "/quick/inbox" else "/quick/inbox?note=${android.net.Uri.encode(noteId)}")
@@ -152,7 +164,15 @@ class QuickToggleWidget : AppWidgetProvider() {
 
         // ── 2x1 / 3x1 ──────────────────────────────────────────────────────
 
-        private fun medium(ctx: Context, s: Snapshot) = RemoteViews(ctx.packageName, R.layout.widget_medium).apply {
+        private fun medium(ctx: Context, s: Snapshot, withText: Boolean) = RemoteViews(ctx.packageName, R.layout.widget_medium).apply {
+            setOnClickPendingIntent(R.id.med_scan, scanIntent(ctx))
+            setOnClickPendingIntent(R.id.med_camera, cameraIntent(ctx))
+            // 2x1: mic + the two buttons; while recording / uploading / showing a result the line takes their place.
+            // 3x1 and wider: everything.
+            val compactBusy = !withText && (s.recording || s.phase != WidgetState.Phase.IDLE)
+            setViewVisibility(R.id.med_text, if (withText || compactBusy) View.VISIBLE else View.GONE)
+            setViewVisibility(R.id.med_scan, if (compactBusy) View.GONE else View.VISIBLE)
+            setViewVisibility(R.id.med_camera, if (compactBusy) View.GONE else View.VISIBLE)
             setImageViewResource(R.id.med_mic_bg, if (s.recording) R.drawable.widget_bg_recording else R.drawable.widget_bg_idle)
             setImageViewResource(R.id.med_mic_icon, if (s.recording) R.drawable.ic_stop_white else R.drawable.ic_mic_white)
             setContentDescription(R.id.med_mic, micDescription(s))
@@ -193,6 +213,8 @@ class QuickToggleWidget : AppWidgetProvider() {
             setImageViewResource(R.id.lg_mic_icon, if (s.recording) R.drawable.ic_stop_white else R.drawable.ic_mic_white)
             setContentDescription(R.id.lg_mic, micDescription(s))
             setOnClickPendingIntent(R.id.lg_mic, toggleIntent(ctx))
+            setOnClickPendingIntent(R.id.lg_scan, scanIntent(ctx))
+            setOnClickPendingIntent(R.id.lg_camera, cameraIntent(ctx))
             setOnClickPendingIntent(R.id.lg_header, inboxIntent(ctx))
 
             // Header extras: offline / signed-out hint, queued uploads badge
@@ -205,7 +227,7 @@ class QuickToggleWidget : AppWidgetProvider() {
             setTextViewText(R.id.lg_subtitle, subtitle ?: "")
             setViewVisibility(R.id.lg_pending, if (s.pending > 0) View.VISIBLE else View.GONE)
             setTextViewText(R.id.lg_pending, "⇡ ${s.pending} pending")
-            setContentDescription(R.id.lg_pending, "${s.pending} recordings waiting to upload")
+            setContentDescription(R.id.lg_pending, "${s.pending} notes waiting to upload")
 
             val showBusy = !s.recording && s.phase != WidgetState.Phase.IDLE
             val showList = !s.recording && !showBusy

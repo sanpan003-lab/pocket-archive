@@ -26,7 +26,7 @@ if (isNative) {
 // add the short-lived read-only media token
 function withMediaToken(url) {
   const token = isNative ? getMediaToken() : null;
-  return token ? `${url}?mt=${encodeURIComponent(token)}` : url;
+  return token ? `${url}${url.includes('?') ? '&' : '?'}mt=${encodeURIComponent(token)}` : url;
 }
 
 // Auth
@@ -144,8 +144,50 @@ export function uploadNoteAttachment(noteId, file, { name, thumb, source = 'file
 export const renameNoteAttachment = (noteId, aid, name) => http.patch(`/quick/${noteId}/attachments/${aid}`, { name }).then(r => r.data);
 export const deleteNoteAttachment = (noteId, aid) => http.delete(`/quick/${noteId}/attachments/${aid}`).then(r => r.data);
 export const readNoteAttachment  = (noteId, aid) => http.post(`/quick/${noteId}/attachments/${aid}/read`).then(r => r.data);
-export const attachmentFileUrl = (noteId, aid) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}`);
-export const attachmentThumbUrl = (noteId, aid) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/thumb`);
+// `v` (the attachment/page version) busts the browser cache after an edit
+const ver = v => (v ? `?v=${v}` : '');
+export const attachmentFileUrl = (noteId, aid, v) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}${ver(v)}`);
+export const attachmentThumbUrl = (noteId, aid, v) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/thumb${ver(v)}`);
+export const attachmentOriginalUrl = (noteId, aid) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/original`);
+export const pageUrl = (noteId, aid, pid, v) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/pages/${pid}${ver(v)}`);
+export const pageThumbUrl = (noteId, aid, pid, v) => withMediaToken(`${API_BASE}/quick/${noteId}/attachments/${aid}/pages/${pid}/thumb${ver(v)}`);
+
+// Editing photos and scan pages (2.6.0) — each returns the updated note
+const imageForm = (blob, thumb, field = 'file') => {
+  const fd = new FormData();
+  fd.append(field, blob, 'edited.jpg');
+  if (thumb) fd.append('thumb', thumb, 'thumb.jpg');
+  return fd;
+};
+export const replaceAttachmentImage = (noteId, aid, blob, thumb) => http.put(`/quick/${noteId}/attachments/${aid}/content`, imageForm(blob, thumb), { timeout: 0 }).then(r => r.data);
+export const restoreAttachment = (noteId, aid) => http.post(`/quick/${noteId}/attachments/${aid}/restore`).then(r => r.data);
+export const orderAttachments = (noteId, ids) => http.post(`/quick/${noteId}/attachments/order`, { ids }).then(r => r.data);
+export const mergeScans = (noteId, ids) => http.post(`/quick/${noteId}/attachments/merge`, { ids }).then(r => r.data);
+export const splitScan = (noteId, aid, at) => http.post(`/quick/${noteId}/attachments/${aid}/split`, { at }).then(r => r.data);
+export const setNoteCover = (noteId, attachmentId, pageId) => http.put(`/quick/${noteId}/cover`, { attachmentId, pageId }).then(r => r.data);
+export const adoptNoteMedia = noteId => http.post(`/quick/${noteId}/attachments/adopt-media`).then(r => r.data);
+export function addScanPages(noteId, aid, pages, thumbs = []) {
+  const fd = new FormData();
+  pages.forEach((p, i) => { fd.append('page', p, `page${i + 1}.jpg`); if (thumbs[i]) fd.append('pthumb', thumbs[i], `thumb${i + 1}.jpg`); });
+  return http.post(`/quick/${noteId}/attachments/${aid}/pages`, fd, { timeout: 0 }).then(r => r.data);
+}
+export const orderScanPages = (noteId, aid, ids) => http.post(`/quick/${noteId}/attachments/${aid}/pages/order`, { ids }).then(r => r.data);
+export const replaceScanPage = (noteId, aid, pid, blob, thumb) => http.put(`/quick/${noteId}/attachments/${aid}/pages/${pid}/content`, imageForm(blob, thumb), { timeout: 0 }).then(r => r.data);
+export const restoreScanPage = (noteId, aid, pid) => http.post(`/quick/${noteId}/attachments/${aid}/pages/${pid}/restore`).then(r => r.data);
+export const deleteScanPage = (noteId, aid, pid) => http.delete(`/quick/${noteId}/attachments/${aid}/pages/${pid}`).then(r => r.data);
+
+// Smart documents (2.6.0)
+export const createDocumentNote = (formData, onProgress) => http.post('/quick/document', formData, {
+  timeout: 180000,
+  onUploadProgress: e => onProgress?.(e.total ? Math.round((e.loaded * 100) / e.total) : 0),
+}).then(r => r.data);
+export const reprocessDocument = noteId => http.post(`/quick/${noteId}/document/process`).then(r => r.data);
+export const editDocument = (noteId, patch) => http.patch(`/quick/${noteId}/document`, patch).then(r => r.data);
+export const resolveDocumentConflict = (noteId, field, use) => http.post(`/quick/${noteId}/document/resolve`, { field, use }).then(r => r.data);
+export const decideDocumentProject = (noteId, decision) => http.post(`/quick/${noteId}/document/project`, { decision }).then(r => r.data);
+export const documentReminder = (title, date, noteId) => http.post('/documents/reminder', { title, date, noteId }).then(r => r.data);
+export const getDocumentSettings = () => http.get('/documents/settings').then(r => r.data);
+export const saveDocumentSettings = patch => http.put('/documents/settings', patch).then(r => r.data);
 export const attachmentDownloadUrl = (noteId, aid) => {
   const u = attachmentFileUrl(noteId, aid);
   return `${u}${u.includes('?') ? '&' : '?'}download=1`;

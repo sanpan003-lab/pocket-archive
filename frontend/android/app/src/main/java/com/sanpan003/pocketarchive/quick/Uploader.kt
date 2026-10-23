@@ -71,7 +71,7 @@ object Uploader {
         }
     }
 
-    private class NotifyingBody(private val delegate: RequestBody, private val onSent: () -> Unit) : RequestBody() {
+    internal class NotifyingBody(private val delegate: RequestBody, private val onSent: () -> Unit) : RequestBody() {
         override fun contentType(): MediaType? = delegate.contentType()
         override fun contentLength(): Long = delegate.contentLength()
         override fun writeTo(sink: BufferedSink) {
@@ -81,6 +81,6 @@ object Uploader {
         }
     }
 
-    private fun errorMessage(text: String): String? =
+    internal fun errorMessage(text: String): String? =
         runCatching { JSONObject(text).optString("error").takeIf { it.isNotBlank() } }.getOrNull()
 }

@@ -123,6 +123,28 @@ inside the Android app (`android/`). The backend lives in
   `RecordTrampolineActivity.EXTRA_FROM` (widget / tile / volume-key); watch sends `/pa/rec-log`. Plugin `getRecordingLog`/`clearRecordingLog`.
   Strict setting `unlockedOnly` applies to `RecordingLog.KEY_TRIGGERS`.
 
+## Scan & Camera, smart documents, editing photo notes (2.6.0) — docs/documents.md
+
+- Backend `documents.js` (created in quickCapture's register next to `createAttachments`): Gemini JSON schema
+  (`response_format: { type: 'text', mime_type: 'application/json', schema }`; ALL fields `required` — with optional
+  fields the models fill only a few), `privacy.js` masking BEFORE storing, edited fields + conflicts, project filing by
+  `smart().settings()` thresholds, `POST /api/quick/document` (new note), `/api/documents/settings|reminder` (own routes,
+  never proxied). Primary model paused 5 min after 429/503/timeout. Don't name anything `process` in that module
+  (it shadowed `process.env` once).
+- `attachments.js`: `createAttachments({ store, readText, onChanged })` → scans are `pageList` page images + a PDF rebuilt
+  with `pdf-lib` (backend dependency: keep root and `backend/` package*.json identical — the image runs `npm ci`);
+  images keep `original` on first edit; `note.coverId`. FIELD_GROUPS: `attachmentsAt` (attachments, coverId), `documentAt`.
+  Sharing proxy normalizes `/at_…` → `/:aid`, `/pg_…` → `/:pid`; editors may change attachments/cover/document but not
+  `/document/project`.
+- Web: `lib/documents.js`, `quick/DocumentCard.jsx` (polls while pending, "Details updated" toast), `quick/PagesEditor.jsx`
+  (portal; ImageEditor rendered OUTSIDE the overlay so clicks don't bubble to its close handler), `quick/ImageEditor.jsx`
+  (canvas: rotate, crop, pen, highlight, arrow, text), Documents tab + chips in QuickInboxPage, `DocumentSettings`.
+  `withMediaToken` appends `&mt=` when the URL already has `?v=`.
+- Android: `quick/DocCapture.kt` (scanner options, camera target, `DocQueue` per user, `DocUploadWorker`, `CaptureActivity`
+  for widget/shortcuts/tile), `quick/QuickScan.kt` (1x1 widget + tile), plugin `scanUpload` / `captureDocument` /
+  `saveContact`, widget buttons `med_scan|med_camera|lg_scan|lg_camera` (2x1 hides the status line unless busy).
+  Shortcuts are in BOTH `src/main/res/xml/shortcuts.xml` and `src/debug/res/xml/shortcuts.xml` (debug package).
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

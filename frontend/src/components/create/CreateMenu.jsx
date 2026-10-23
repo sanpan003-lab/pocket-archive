@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Mic, Type, ListChecks, Image as ImageIcon, Brush } from 'lucide-react';
+import { Plus, Mic, Type, ListChecks, Image as ImageIcon, Brush, Camera, ScanLine } from 'lucide-react';
 import { useAppearance, useHaptics } from '../../context/appearanceStore';
 import { useFabHidden, notifyQuickChanged } from '../../lib/uiBus';
 import { canRunActions, confirmWithAction, undoPhoneAction } from '../../lib/phoneActions';
-import { decideQuickNote, undoQuickNote } from '../../lib/api';
+import { decideQuickNote, undoQuickNote, createDocumentNote } from '../../lib/api';
+import { isNative } from '../../lib/platform';
+import { captureDocumentNote, pickFiles, imageThumb } from '../../lib/attachments';
 import QuickToast from '../quick/QuickToast';
 import { confirmationFor } from '../quick/quickMeta';
 import NoteComposer from './NoteComposer';
@@ -17,6 +19,9 @@ const OPTIONS = [
   { key: 'text',    label: 'Text',    icon: Type },
   { key: 'list',    label: 'List',    icon: ListChecks },
   { key: 'image',   label: 'Image',   icon: ImageIcon },
+  { key: 'camera',  label: 'Camera',  icon: Camera },
+  // The ML Kit document scanner is in the Android app only
+  ...(isNative ? [{ key: 'scan', label: 'Scan document', icon: ScanLine }] : []),
   { key: 'drawing', label: 'Drawing', icon: Brush },
 ];
 
@@ -57,7 +62,37 @@ export default function CreateMenu() {
       else navigate('/quick?voice=1');
       return;
     }
+    if (key === 'camera' || key === 'scan') { capture(key); return; }
     setComposer(key);
+  }
+
+  /** Camera / Scan document → a new note with the photo or scan attached, read as a document */
+  async function capture(kind) {
+    try {
+      let result;
+      if (isNative) {
+        result = await captureDocumentNote(kind);   // the app's queue uploads it (works offline too)
+      } else {
+        const [file] = await pickFiles({ accept: 'image/*', multiple: false, capture: 'environment' });
+        if (!file) return;
+        setToast({ id: Date.now(), icon: '📤', text: 'Uploading the photo…', tone: 'queued', duration: 120000 });
+        const fd = new FormData();
+        fd.append('kind', 'camera');
+        fd.append('clientId', window.crypto?.randomUUID ? window.crypto.randomUUID() : `c_${Date.now()}`);
+        const thumb = await imageThumb(file);
+        if (thumb) fd.append('thumb', thumb, 'thumb.jpg');
+        fd.append('file', file, file.name || 'photo.jpg');
+        result = await createDocumentNote(fd, p => { if (p >= 100) setToast({ id: Date.now(), icon: '🔎', text: 'Reading the document…', tone: 'queued', duration: 120000 }); });
+      }
+      if (!result) { setToast(null); return; }
+      if (result.queued) {
+        setToast({ id: Date.now(), icon: '📥', text: 'Saved on this phone — it uploads when you’re back online', tone: 'queued', duration: 8000 });
+        return;
+      }
+      saved(result);
+    } catch (err) {
+      setToast({ id: Date.now(), icon: '⚠️', text: err.response?.data?.error || err.message || 'That didn’t work', tone: 'review', duration: 8000 });
+    }
   }
 
   async function saved(result) {

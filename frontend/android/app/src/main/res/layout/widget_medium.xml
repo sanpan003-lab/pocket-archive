@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2x1 / 3x1: mic button + one status line -->
+<!-- 2x1 / 3x1: mic button + one status line (3x1) + Scan / Camera -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -111,4 +111,41 @@
                 android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/med_scan"
+        android:layout_width="38dp"
+        android:layout_height="38dp"
+        android:layout_marginStart="6dp"
+        android:contentDescription="Scan a document">
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/widget_bg_tool"
+            android:importantForAccessibility="no" />
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_scan_white"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
+    <FrameLayout
+        android:id="@+id/med_camera"
+        android:layout_width="38dp"
+        android:layout_height="38dp"
+        android:layout_marginStart="6dp"
+        android:contentDescription="Photo note">
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:src="@drawable/widget_bg_tool"
+            android:importantForAccessibility="no" />
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_camera_white"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
 </LinearLayout>

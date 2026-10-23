@@ -1,4 +1,4 @@
-# Attachments on notes (2.5.0)
+# Attachments on notes (2.5.0; pages, editing and documents in 2.6.0 — see documents.md)
 
 Any note can carry attachments: photos, camera shots, scanned documents (PDF) and any file (PDF, Word, Excel, audio, …),
 up to **25 MB each**, 50 per note. Owners and people a note is shared with as **editors** can add, rename and delete;

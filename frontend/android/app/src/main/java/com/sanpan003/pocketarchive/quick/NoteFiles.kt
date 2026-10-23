@@ -8,7 +8,9 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import androidx.core.content.FileProvider
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -28,33 +30,35 @@ object NoteFiles {
         OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
     }
 
-    /** ML Kit result → { pdf (base64), thumb (base64 JPEG), pages, name } */
-    fun scanResult(ctx: Context, pdfUri: Uri, pageCount: Int, firstPage: Uri?): Map<String, Any> {
-        val bytes = ctx.contentResolver.openInputStream(pdfUri)?.use { it.readBytes() } ?: throw IllegalStateException("The scan couldn't be read")
-        if (bytes.size > MAX_BYTES) throw IllegalStateException("The scan is over 25 MB — try fewer pages")
-        val stamp = SimpleDateFormat("yyyy-MM-dd HH.mm", Locale.US).format(Date())
-        val out = mutableMapOf<String, Any>(
-            "pdf" to Base64.encodeToString(bytes, Base64.NO_WRAP),
-            "pages" to pageCount.coerceAtLeast(1),
-            "name" to "Scan $stamp.pdf",
-        )
-        firstPage?.let { thumb(ctx, it) }?.let { out["thumb"] = Base64.encodeToString(it, Base64.NO_WRAP) }
-        return out
+    /**
+     * Scanned pages → our server (a note's attachments / pages route), with previews. Returns the server's JSON
+     * (the updated note). Throws with a readable message.
+     */
+    fun uploadPages(ctx: Context, path: String, method: String, part: String, pages: List<Uri>, fields: org.json.JSONObject): org.json.JSONObject {
+        val api = TokenStore.apiBase(ctx) ?: throw IllegalStateException("Sign in first")
+        val token = TokenStore.token(ctx) ?: throw IllegalStateException("Sign in first")
+        val dir = File(ctx.cacheDir, "scan_upload/${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+            fields.keys().forEach { k -> body.addFormDataPart(k, fields.optString(k)) }
+            pages.forEachIndexed { i, uri ->
+                val f = File(dir, "page${i + 1}.jpg")
+                DocCapture.copyUri(ctx, uri, f)
+                if (f.length() > MAX_BYTES) throw IllegalStateException("A page is over 25 MB")
+                body.addFormDataPart(part, f.name, f.asRequestBody("image/jpeg".toMediaType()))
+                val t = File(dir, "thumb${i + 1}.jpg")
+                if (DocCapture.thumb(f, t)) body.addFormDataPart(if (part == "file") "thumb" else "pthumb", t.name, t.asRequestBody("image/jpeg".toMediaType()))
+            }
+            val req = Request.Builder().url("$api$path").header("Authorization", "Bearer $token").method(method, body.build()).build()
+            client.newCall(req).execute().use { r ->
+                val text = r.body.string()
+                if (!r.isSuccessful) throw IllegalStateException(Uploader.errorMessage(text) ?: "Upload failed (${r.code})")
+                return org.json.JSONObject(text)
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
     }
-
-    /** A ≤ 480 px JPEG preview of a page image */
-    private fun thumb(ctx: Context, uri: Uri, max: Int = 480): ByteArray? = runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= max || bounds.outHeight / (sample * 2) >= max) sample *= 2
-        val bmp = ctx.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        } ?: return null
-        val scale = minOf(1f, max.toFloat() / maxOf(bmp.width, bmp.height))
-        val scaled = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true) else bmp
-        ByteArrayOutputStream().use { s -> scaled.compress(Bitmap.CompressFormat.JPEG, 80, s); s.toByteArray() }
-    }.getOrNull()
 
     /**
      * Download an attachment (only from our own server, with the device token) and open it in the app

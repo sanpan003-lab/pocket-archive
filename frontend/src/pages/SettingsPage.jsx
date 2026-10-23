@@ -10,6 +10,7 @@ import { getStats, getHealth } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
+import DocumentSettings from '../components/DocumentSettings';
 import AppearanceSettings from '../components/AppearanceSettings';
 import RecordingSettings from '../components/RecordingSettings';
 import PhoneActionsSettings from '../components/PhoneActionsSettings';
@@ -152,6 +153,7 @@ export default function SettingsPage() {
 
       {!lite && <SmartAppendSettings />}
 
+      <DocumentSettings />
       <PlacesSettings />
 
       <SharingSettings />

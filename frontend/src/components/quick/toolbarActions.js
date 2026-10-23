@@ -1,6 +1,6 @@
 import {
   Pencil, Pin, PinOff, Palette, FolderInput, Merge, Share2, Trash2, RotateCcw, Sparkles,
-  CheckCircle2, Split, RefreshCw, Users, Paperclip,
+  CheckCircle2, Split, RefreshCw, Users, Paperclip, Images,
 } from 'lucide-react';
 import { noteRole } from '../../lib/sharing';
 
@@ -8,6 +8,8 @@ import { noteRole } from '../../lib/sharing';
 export const TOOLBAR_ACTIONS = [
   { id: 'edit', label: 'Edit', icon: Pencil, role: 'edit' },
   { id: 'attach', label: 'Attach', icon: Paperclip, role: 'edit' },
+  // Photos / scan pages: reorder, rotate, crop, mark up, retake, split/merge, cover
+  { id: 'pages', label: 'Pages', icon: Images, role: 'edit', when: n => n?.media?.kind === 'image' || (n?.attachments || []).some(a => a.kind === 'image' || a.pageList?.length) },
   { id: 'pin', label: n => (n?.pinned ? 'Unpin' : 'Pin'), icon: n => (n?.pinned ? PinOff : Pin) },
   { id: 'color', label: 'Color', icon: Palette },
   { id: 'project', label: n => (n?.projectId ? 'Project…' : 'Add to project'), icon: FolderInput },

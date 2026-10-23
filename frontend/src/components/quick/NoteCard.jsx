@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import { CheckSquare, Square, Merge, FolderKanban, Pin, Image as ImageIcon, PenLine, Check, MapPin, Paperclip } from 'lucide-react';
 import { geoLabel } from '../../lib/geoLabel';
-import { quickAudioUrl, quickMediaUrl } from '../../lib/api';
+import { quickAudioUrl, quickMediaUrl, attachmentFileUrl, attachmentThumbUrl, pageUrl, pageThumbUrl } from '../../lib/api';
+import { coverOf, DOC_TYPES } from '../../lib/documents';
 import { useAppearance, useHaptics } from '../../context/appearanceStore';
 import { QUICK_TYPES, REVIEW_ACCENT, describeWhen, cardTime } from './quickMeta';
 import QuickSummary from './QuickSummary';
@@ -57,6 +58,11 @@ export default function NoteCard({
   const longPressed = useRef(false);
   const colorStyle = noteColorStyle(note, darkMode, settings.look.noteColors);
   const badgeLabel = note.format === 'list' && note.type !== 'errand' ? 'List' : meta.label;
+  // Photo / scan notes: their cover image (or first photo / first scan page)
+  const cover = coverOf(note);
+  const coverUrl = !cover ? null : cover.page
+    ? (cover.page.thumb ? pageThumbUrl(note.id, cover.att.id, cover.page.id, cover.page.version) : pageUrl(note.id, cover.att.id, cover.page.id, cover.page.version))
+    : (cover.att.thumb ? attachmentThumbUrl(note.id, cover.att.id, cover.att.version) : attachmentFileUrl(note.id, cover.att.id, cover.att.version));
   const SourceIcon = note.media?.kind === 'drawing' ? PenLine : note.media ? ImageIcon : null;
 
   const startPress = e => {
@@ -120,6 +126,7 @@ export default function NoteCard({
         {grid && note.media && (
           <img src={quickMediaUrl(note.id)} alt="" loading="lazy" className={`w-full max-h-64 object-cover ${note.media.kind === 'drawing' ? 'bg-white object-contain' : ''}`} />
         )}
+        {grid && !note.media && coverUrl && <img src={coverUrl} alt="" loading="lazy" className="w-full max-h-64 object-cover" />}
         <div className={grid ? (compactDensity ? 'px-3.5 py-2.5' : 'px-4 pt-3 pb-3 pl-5') : ''}>
           <div className="flex items-start gap-2">
             {selectBox}
@@ -136,6 +143,9 @@ export default function NoteCard({
               {projectName && !grid && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
               {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
               {(note.attachments || []).length > 0 && <span className="badge badge-slate" title={`${note.attachments.length} attachment${note.attachments.length > 1 ? 's' : ''}`}><Paperclip size={11} /> {note.attachments.length}</span>}
+              {note.document?.status === 'done' && DOC_TYPES[note.document.type] && note.document.type !== 'other' && (
+                <span className="badge badge-gold">{DOC_TYPES[note.document.type].icon} {DOC_TYPES[note.document.type].label}</span>
+              )}
               {note.geo && !note.undone && (
                 <span className={`badge ${note.geo.status === 'needs_place' ? 'badge-orange' : 'badge-green'}`}>
                   <MapPin size={11} /> {note.geo.status === 'needs_place' ? `Where is ${note.geo.query}?` : geoLabel(note.geo)}
@@ -152,6 +162,9 @@ export default function NoteCard({
                 <p className="text-sm text-navy-600 dark:text-white/60 mt-0.5">{when}{note.location ? ` · ${note.location}` : ''}</p>
               )}
             </div>
+            {!grid && !inline && !note.media && coverUrl && (
+              <img src={coverUrl} alt="" loading="lazy" className="mt-2 w-16 h-16 rounded-xl object-cover shrink-0 border border-navy-100 dark:border-white/10" />
+            )}
             {!grid && !inline && note.media && (
               <img src={quickMediaUrl(note.id)} alt="" loading="lazy" className={`mt-2 w-16 h-16 rounded-xl object-cover shrink-0 border border-navy-100 dark:border-white/10 ${note.media.kind === 'drawing' ? 'bg-white object-contain' : ''}`} />
             )}

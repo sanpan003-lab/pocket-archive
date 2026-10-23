@@ -11,7 +11,7 @@ const { zipFolder } = require('./zip');
 
 // Media URLs the Android app loads in <audio>/links (no Authorization header possible)
 // (+ the live event stream: EventSource can't send headers either)
-const MEDIA_PATH_RE = /^\/(events|quick\/qn_[\w-]+\/(audio|media|attachments\/at_[a-z0-9]+(\/thumb)?)|recordings\/[^/]+\/attachments\/[^/]+|maps\/(tiles|fonts|sprites)\/.+|audio\/.+)$/;
+const MEDIA_PATH_RE = /^\/(events|quick\/qn_[\w-]+\/(audio|media|attachments\/at_[a-z0-9]+(\/thumb|\/original|\/pages\/pg_[a-z0-9]+(\/thumb)?)?)|recordings\/[^/]+\/attachments\/[^/]+|maps\/(tiles|fonts|sprites)\/.+|audio\/.+)$/;
 const GENERIC_LOGIN_ERROR = 'Invalid username or password';
 const TOO_MANY = 'Too many sign-in attempts. Try again later.';
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10); // same cost as real checks

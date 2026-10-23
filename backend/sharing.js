@@ -137,13 +137,15 @@ function createSharing({ users, contexts, getConfig }) {
   }
 
   // ── Permission check for shared items → owner's routes ───────────────────
-  const EDIT_PUT_KEYS = new Set(['title', 'content', 'regenerateSummary']);
+  const EDIT_PUT_KEYS = new Set(['title', 'content', 'regenerateSummary', 'bodyPosition']);
   function allowedNote(role, method, sub, body) {
-    if (method === 'GET' && ['', '/audio', '/media', '/attachments/:aid', '/attachments/:aid/thumb'].includes(sub)) return true;
+    // Viewers: the note, its audio/photo, and every attachment, page and preview
+    if (method === 'GET' && (['', '/audio', '/media'].includes(sub) || sub.startsWith('/attachments/:aid'))) return true;
     if (role !== 'edit') return false;
-    // Attachments: editors add, rename, delete and read them
-    if (method === 'POST' && ['/attachments', '/attachments/:aid/read'].includes(sub)) return true;
-    if (['PATCH', 'DELETE'].includes(method) && sub === '/attachments/:aid') return true;
+    // Editors: attachments and pages (add, edit, reorder, rotate…), the cover, the document details + reprocess.
+    // Filing the note into a project stays the owner's (it's the owner's project list).
+    if (method !== 'GET' && (sub.startsWith('/attachments') || sub === '/cover')) return true;
+    if (method !== 'GET' && sub.startsWith('/document') && sub !== '/document/project') return true;
     if (method === 'POST' && ['/ops', '/done', '/summarize'].includes(sub)) return true;
     if (method === 'PATCH' && sub === '/items') return true;
     if (method === 'PUT' && sub === '') return Object.keys(body || {}).every(k => EDIT_PUT_KEYS.has(k));
@@ -152,11 +154,11 @@ function createSharing({ users, contexts, getConfig }) {
   function route(req, res, next) {
     if (!req.user) return next();
     const own = ctxOf(req.user.id);
-    let m = req.path.match(/^\/api\/quick\/(qn_[\w-]+)(\/[a-z-]+(?:\/at_[a-z0-9]+(?:\/[a-z]+)?)?)?$/);
+    let m = req.path.match(/^\/api\/quick\/(qn_[\w-]+)((?:\/(?:[a-z-]+|at_[a-z0-9]+|pg_[a-z0-9]+))*)$/);
     if (m && !own.quick.store.read(m[1])) {
       const a = noteAccess(req.user.id, m[1]);
       if (!a) return own.router(req, res, next); // → the user's own 404
-      if (!allowedNote(a.role, req.method, (m[2] || '').replace(/\/at_[a-z0-9]+/, '/:aid'), req.body)) {
+      if (!allowedNote(a.role, req.method, (m[2] || '').replace(/\/at_[a-z0-9]+/g, '/:aid').replace(/\/pg_[a-z0-9]+/g, '/:pid'), req.body)) {
         return res.status(403).json({ error: a.role === 'view' ? 'You can view this but not change it' : `Only ${personOf(a.ownerId)?.name || 'the owner'} can do that` });
       }
       req.sharedAccess = a;

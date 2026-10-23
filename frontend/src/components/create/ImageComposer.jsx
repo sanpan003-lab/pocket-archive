@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Images, RefreshCw, ShieldCheck } from 'lucide-react';
-import { createMediaNote } from '../../lib/api';
+import { createDocumentNote } from '../../lib/api';
+import { imageThumb } from '../../lib/attachments';
 import { isNative } from '../../lib/platform';
 import { pickNativePhoto } from '../../native/camera';
 import ComposerShell, { AiToggle } from './ComposerShell';
@@ -74,14 +75,16 @@ export default function ImageComposer({ onClose, onSaved }) {
     setError(null);
     const form = new FormData();
     const ext = (file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-    form.append('file', file, file.name || `photo.${ext}`);
     form.append('kind', 'image');
     form.append('caption', caption);
     form.append('aiOrganize', String(ai));
     form.append('clientId', clientId.current);
     if (color) form.append('color', color);
+    const thumb = await imageThumb(file);
+    if (thumb) form.append('thumb', thumb, 'thumb.jpg');
+    form.append('file', file, file.name || `photo.${ext}`);
     try {
-      onSaved(await createMediaNote(form, setProgress));
+      onSaved(await createDocumentNote(form, setProgress));
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Upload failed — check your connection');
       setSaving(false);

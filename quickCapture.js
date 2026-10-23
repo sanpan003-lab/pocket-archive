@@ -16,7 +16,8 @@ const gcal   = require('./googleCalendar');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 const { createProjects } = require('./projects');
 const { createAppender } = require('./quickAppend');
-const { registerAttachments, attachmentSearchText, removeAttachments } = require('./attachments');
+const { createAttachments, attachmentSearchText, removeAttachments, processable } = require('./attachments');
+const { createDocuments, documentSearchText } = require('./documents');
 const { createPhoneActions, PHONE_ACTION_SCHEMA, PHONE_ACTION_PROMPT, ICON: PHONE_ICON } = require('./phoneActions');
 
 const TIMEZONE = gcal.TIMEZONE;
@@ -124,7 +125,8 @@ function describeNow(date) {
 const FIELD_GROUPS = [
   { stamp: 'summaryUpdatedAt', fields: ['summary', 'summaryStatus', 'summaryError', 'summaryUpdatedAt'] },
   { stamp: 'audioUpdatedAt',   fields: ['audioFile', 'durationSec', 'audioConverted', 'audioMigration', 'audioUpdatedAt'] },
-  { stamp: 'attachmentsAt',    fields: ['attachments', 'attachmentsAt'] },
+  { stamp: 'attachmentsAt',    fields: ['attachments', 'coverId', 'attachmentsAt'] },
+  { stamp: 'documentAt',       fields: ['document', 'documentAt'] },
 ];
 
 function createStore(archivePath, onWrite = null) {
@@ -1719,7 +1721,7 @@ function createQuickCapture(deps) {
       for (const n of store.list()) {
         if (n.undone || n.hidden || n.type === 'action') continue;
         const fields = [n.title, n.content, n.transcript, n.summary, n.mediaText,
-          (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n'), attachmentSearchText(n)];
+          (n.items || []).map(i => i.text).join('\n'), (n.updates || []).map(u => u.text).join('\n'), attachmentSearchText(n), documentSearchText(n)];
         const hit = fields.find(f => f && String(f).toLowerCase().includes(q));
         if (!hit) continue;
         const raw = String(hit);
@@ -1727,6 +1729,7 @@ function createQuickCapture(deps) {
         out.push({
           id: n.id, title: n.title, type: n.type, source: n.source || 'voice', format: n.format || null,
           capturedAt: n.capturedAt || n.createdAt, projectId: n.projectId || null, hasMedia: !!n.media, attachments: (n.attachments || []).length,
+          document: n.document?.type ? { type: n.document.type, category: n.document.category } : null,
           snippet: raw === n.title ? '' : raw.slice(Math.max(0, i - 60), i + 140).replace(/\s+/g, ' ').trim(),
         });
         if (out.length >= 50) break;
@@ -1820,12 +1823,24 @@ function createQuickCapture(deps) {
       res.sendFile(path.resolve(file));
     });
 
-    // Attachments: photos, scans, any file (attachments.js)
-    registerAttachments(app, {
+    // Attachments (attachments.js) + smart document processing (documents.js): photos, scans, any file
+    let documents = null;
+    const attachments = createAttachments({
       store,
       readText: (file, mime) => readImage(file, null, mime === 'application/pdf' ? 'document' : 'organize', mime),
-      loadNote: loadNoteRoute,
+      // A photo / scan / PDF changed → read the document again (true = processing will run)
+      onChanged: (noteId, _reason, att) => (att && !processable(att) ? false : documents.schedule(noteId)),
     });
+    documents = createDocuments({
+      store, attachments, mediaDir: store.mediaDir,
+      getConfig: deps.getConfig, saveConfig: deps.saveConfig,
+      projects, thresholds: () => smart().settings(),
+      blankNote: (...a) => blankNote(...a), newId, syncCal, finalize, pickColor,
+      onUsage: usage,
+    });
+    attachments.register(app, { loadNote: loadNoteRoute, mediaDir: store.mediaDir });
+    documents.register(app, { loadNote: loadNoteRoute, captureResponse, referenceTime, rememberOrigin });
+    documents.registerOwn(app);
 
     // POST /api/quick/:id/handwriting — "Convert handwriting" (Gemini) for a drawing or photo
     app.post('/api/quick/:id/handwriting', async (req, res) => {
@@ -1903,6 +1918,9 @@ function createQuickCapture(deps) {
       const wasType = note.type;
       const before = { title: note.title, content: note.content };
       try {
+        // Document notes: a title the user typed is never replaced by document processing
+        if (typeof body.title === 'string' && body.title.trim() && body.title.trim() !== (note.title || '').trim()) note.titleEdited = true;
+        if (['above', 'below'].includes(body.bodyPosition)) note.bodyPosition = body.bodyPosition;
         if (typeof body.content === 'string' && body.content.trim() !== (note.content || '').trim()) {
           note.contentEdited = true; // the summarizer trusts the user's corrections
         }

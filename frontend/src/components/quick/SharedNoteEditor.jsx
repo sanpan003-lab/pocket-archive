@@ -12,6 +12,8 @@ export default function SharedNoteEditor({ note, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const hasText = !!note.content || !(note.items || []).length;
+  const hasImages = !!note.media || (note.attachments || []).some(a => a.kind === 'image' || a.pageList?.length);
+  const [position, setPosition] = useState(note.bodyPosition === 'above' ? 'above' : 'below');
 
   async function save(e) {
     e.preventDefault();
@@ -21,6 +23,7 @@ export default function SharedNoteEditor({ note, onClose, onChanged }) {
     try {
       const patch = { title: title.trim() };
       if (hasText) patch.content = content;
+      if (hasImages) patch.bodyPosition = position;
       onChanged?.(await updateQuickNote(note.id, patch));
       onClose();
     } catch (err) {
@@ -46,6 +49,15 @@ export default function SharedNoteEditor({ note, onClose, onChanged }) {
             <label className="block text-xs font-semibold text-navy-600 dark:text-white/60 mb-1" htmlFor="shared-content">Text</label>
             <textarea id="shared-content" className={`${field} py-2.5 min-h-[10rem] mb-3`} value={content} onChange={e => setContent(e.target.value)} />
           </>
+        )}
+        {hasImages && hasText && (
+          <div className="flex flex-wrap items-center gap-2 mb-3" role="radiogroup" aria-label="Text position">
+            <span className="text-xs font-semibold text-navy-600 dark:text-white/60">Text position</span>
+            {[['above', 'Above the images'], ['below', 'Below the images']].map(([v, l]) => (
+              <button key={v} type="button" role="radio" aria-checked={position === v} onClick={() => setPosition(v)}
+                className={`px-2.5 py-1 rounded-lg text-xs border ${position === v ? 'border-gold-400 bg-gold-500/10 text-gold-700 dark:text-gold-300' : 'border-navy-200 dark:border-white/15 text-navy-700 dark:text-white/75'}`}>{l}</button>
+            ))}
+          </div>
         )}
         <p className="text-xs text-navy-500 dark:text-white/50 mb-4">
           {note.sharedFrom?.name || 'The owner'} sees your changes right away. Dates, place and project stay as they set them.

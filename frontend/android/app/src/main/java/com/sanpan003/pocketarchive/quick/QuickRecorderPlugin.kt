@@ -20,9 +20,7 @@ import org.json.JSONObject
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 
 /**
  * Bridge between the web app and the native recorder, secure token storage,
@@ -99,14 +97,19 @@ class QuickRecorderPlugin : Plugin() {
         }
     }
 
-    /** Document scanner (ML Kit): registered while the activity is being created */
+    /** Document scanner (ML Kit) + system camera: registered while the activity is being created */
     private var scanLauncher: ActivityResultLauncher<IntentSenderRequest>? = null
-    private var pendingScan: PluginCall? = null
+    private var onScan: ((Int, Intent?) -> Unit)? = null
+    private var cameraLauncher: ActivityResultLauncher<android.net.Uri>? = null
+    private var onPhoto: ((Boolean) -> Unit)? = null
 
     override fun load() {
         instance = this
         scanLauncher = runCatching {
-            activity.registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result -> onScanned(result.resultCode, result.data) }
+            activity.registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r -> val cb = onScan; onScan = null; cb?.invoke(r.resultCode, r.data) }
+        }.getOrNull()
+        cameraLauncher = runCatching {
+            activity.registerForActivityResult(ActivityResultContracts.TakePicture()) { ok -> val cb = onPhoto; onPhoto = null; cb?.invoke(ok) }
         }.getOrNull()
         Notifications.ensureChannels(context)
         PendingStore.recoverOrphans(context)
@@ -211,6 +214,7 @@ class QuickRecorderPlugin : Plugin() {
         switchUser(call.getString("userId"))
         TokenStore.setToken(context, call.getString("token"))
         UploadWorker.retryAllNow(context) // anything waiting on sign-in goes now
+        DocUploadWorker.enqueue(context)     // queued scans / photos of this user too
         WidgetData.refreshAsync(context)
         ErrandWorker.schedulePeriodic(context)
         ErrandWorker.syncNow(context)
@@ -264,41 +268,92 @@ class QuickRecorderPlugin : Plugin() {
 
     // ── Attachments on notes ────────────────────────────────────────────────
 
-    /** "Scan document": Google ML Kit scanner (on-device, auto-crop, multi-page) → { pdf, thumb, pages, name } */
-    @PluginMethod
-    fun scanDocument(call: PluginCall) {
+    /** Open the ML Kit scanner; [then] gets the page images (call rejected when cancelled) */
+    private fun startScan(call: PluginCall, pageLimit: Int, then: (List<android.net.Uri>) -> Unit) {
         val launcher = scanLauncher ?: return call.reject("The scanner isn't available on this phone")
-        if (pendingScan != null) return call.reject("The scanner is already open")
-        val options = GmsDocumentScannerOptions.Builder()
-            .setGalleryImportAllowed(true)
-            .setPageLimit((call.getInt("pageLimit") ?: 30).coerceIn(1, 50))
-            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
-            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-            .build()
-        GmsDocumentScanning.getClient(options).getStartScanIntent(activity)
+        if (onScan != null) return call.reject("The scanner is already open")
+        GmsDocumentScanning.getClient(DocCapture.scannerOptions(pageLimit)).getStartScanIntent(activity)
             .addOnSuccessListener { sender ->
-                pendingScan = call
+                onScan = { code, data ->
+                    val pages = if (code == android.app.Activity.RESULT_OK) DocCapture.pagesOf(data) else emptyList()
+                    if (pages.isEmpty()) call.reject("Cancelled", "CANCELLED") else then(pages)
+                }
                 launcher.launch(IntentSenderRequest.Builder(sender).build())
             }
             .addOnFailureListener { e -> call.reject("The scanner couldn't start: ${e.message ?: "Google Play services needed"}") }
     }
 
-    private fun onScanned(resultCode: Int, data: Intent?) {
-        val call = pendingScan ?: return
-        pendingScan = null
-        if (resultCode != android.app.Activity.RESULT_OK) return call.reject("Cancelled", "CANCELLED")
-        val result = GmsDocumentScanningResult.fromActivityResultIntent(data) ?: return call.reject("No scan came back")
-        val pdf = result.pdf ?: return call.reject("No PDF came back")
-        Thread {
-            try {
-                val out = NoteFiles.scanResult(context, pdf.uri, pdf.pageCount, result.pages?.firstOrNull()?.imageUri)
-                val js = JSObject()
-                out.forEach { (k, v) -> js.put(k, v) }
-                main.post { call.resolve(js) }
-            } catch (e: Exception) {
-                main.post { call.reject(e.message ?: "The scan couldn't be read") }
+    /**
+     * Scan straight into a note: { path, method?, partName?, pageLimit?, fields? } — the pages are uploaded to
+     * our own server (path must be a note's attachments / pages route) and the server's answer (the note) returned.
+     */
+    @PluginMethod
+    fun scanUpload(call: PluginCall) {
+        val path = call.getString("path") ?: return call.reject("path?")
+        if (!Regex("^/api/quick/qn_[\\w-]+/attachments(/at_[a-z0-9]+/pages(/pg_[a-z0-9]+/content)?)?$").matches(path)) return call.reject("Not an attachments route")
+        val method = if (call.getString("method") == "PUT") "PUT" else "POST"
+        val part = if (call.getString("partName") == "file") "file" else "page"
+        val fields = call.getObject("fields") ?: JSObject()
+        startScan(call, call.getInt("pageLimit") ?: 30) { pages ->
+            Thread {
+                try {
+                    val out = NoteFiles.uploadPages(context, path, method, part, pages, fields)
+                    main.post { call.resolve(JSObject.fromJSONObject(out)) }
+                } catch (e: Exception) {
+                    main.post { call.reject(e.message ?: "The scan couldn't be uploaded") }
+                }
+            }.start()
+        }
+    }
+
+    /**
+     * Create menu → Scan document / Camera: a NEW note. The capture goes into the offline queue first, then
+     * up right away when there's a connection → { note, confirmation } | { queued: true }.
+     */
+    @PluginMethod
+    fun captureDocument(call: PluginCall) {
+        val user = TokenStore.userId(context) ?: return call.reject("Sign in first")
+        val kind = if (call.getString("kind") == "camera") "camera" else "scan"
+        val afterCapture: (List<android.net.Uri>, java.io.File?) -> Unit = { pages, photo ->
+            Thread {
+                try {
+                    val item = DocQueue.add(context, user, kind, pages, photo)
+                    when (val outcome = DocQueue.upload(context, item)) {
+                        is UploadOutcome.Sent -> { DocQueue.remove(item); main.post { call.resolve(JSObject.fromJSONObject(outcome.response)) } }
+                        is UploadOutcome.Retry -> { DocUploadWorker.enqueue(context); main.post { call.resolve(JSObject().put("queued", true).put("reason", outcome.reason)) } }
+                        is UploadOutcome.Failed -> { DocQueue.remove(item); main.post { call.reject(outcome.reason) } }
+                    }
+                } catch (e: Exception) {
+                    main.post { call.reject(e.message ?: "Couldn't save it") }
+                }
+            }.start()
+        }
+        if (kind == "scan") { startScan(call, 30) { pages -> afterCapture(pages, null) }; return }
+        val launcher = cameraLauncher ?: return call.reject("The camera isn't available")
+        if (onPhoto != null) return call.reject("The camera is already open")
+        val (file, uri) = DocCapture.cameraTarget(context)
+        onPhoto = { ok -> if (ok && file.length() > 0) afterCapture(emptyList(), file) else { file.delete(); call.reject("Cancelled", "CANCELLED") } }
+        try { launcher.launch(uri) } catch (e: Exception) { onPhoto = null; call.reject("No camera app") }
+    }
+
+    /** Business card → Android's Contacts editor, prefilled (the user taps Save there) */
+    @PluginMethod
+    fun saveContact(call: PluginCall) {
+        val i = Intent(android.provider.ContactsContract.Intents.Insert.ACTION).setType(android.provider.ContactsContract.RawContacts.CONTENT_TYPE)
+        call.getString("name")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.NAME, it) }
+        call.getString("company")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.COMPANY, it) }
+        call.getString("jobTitle")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.JOB_TITLE, it) }
+        call.getString("phone")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, it) }
+        call.getString("email")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.EMAIL, it) }
+        call.getString("address")?.takeIf { it.isNotBlank() }?.let { i.putExtra(android.provider.ContactsContract.Intents.Insert.POSTAL, it) }
+        call.getString("website")?.takeIf { it.isNotBlank() }?.let { site ->
+            val row = android.content.ContentValues().apply {
+                put(android.provider.ContactsContract.Data.MIMETYPE, android.provider.ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE)
+                put(android.provider.ContactsContract.CommonDataKinds.Website.URL, site)
             }
-        }.start()
+            i.putParcelableArrayListExtra(android.provider.ContactsContract.Intents.Insert.DATA, arrayListOf(row))
+        }
+        try { activity.startActivity(i); call.resolve() } catch (e: Exception) { call.reject("No contacts app") }
     }
 
     /** Open an attachment in the app Android picks for it: { url, name, mime } */
@@ -391,6 +446,7 @@ class QuickRecorderPlugin : Plugin() {
         if (TokenStore.userId(context) != userId) {
             switchUser(userId)
             UploadWorker.retryAllNow(context)
+            DocUploadWorker.enqueue(context)
             ErrandWorker.syncNow(context)
             WearBridge.async { WearBridge.sendToken(context) }
         }

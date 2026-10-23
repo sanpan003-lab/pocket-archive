@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Paperclip, MoreVertical, Pencil, Trash2, ScanText, Download, X, ChevronLeft, ChevronRight, Loader2, ExternalLink, ChevronDown,
+  Paperclip, MoreVertical, Pencil, Trash2, ScanText, Download, X, ChevronLeft, ChevronRight, Loader2, ExternalLink, ChevronDown, Images,
 } from 'lucide-react';
 import {
-  attachmentFileUrl, attachmentThumbUrl, attachmentDownloadUrl, renameNoteAttachment, deleteNoteAttachment, readNoteAttachment, getQuickNote,
+  attachmentFileUrl, attachmentThumbUrl, attachmentDownloadUrl, pageUrl, pageThumbUrl, renameNoteAttachment, deleteNoteAttachment, readNoteAttachment, getQuickNote,
 } from '../../lib/api';
 import { KIND_ICON, KIND_COLOR, formatSize, browserImage, openAttachment } from '../../lib/attachments';
 import { noteRole } from '../../lib/sharing';
 import { NOTE_UPDATED } from '../../lib/opsQueue';
 import { isNative } from '../../lib/platform';
+import PagesEditor from './PagesEditor';
 
 const canEdit = note => !note.undone && ['owner', 'edit'].includes(noteRole(note));
 const readable = att => att.kind === 'image' || att.kind === 'pdf';
@@ -125,7 +126,8 @@ function TextToggle({ att }) {
 function Viewer({ note, images, start, onClose }) {
   const [i, setI] = useState(start);
   const touch = useRef(null);
-  const att = images[i];
+  const item = images[i];
+  const att = item?.att;
   useEffect(() => {
     const onKey = e => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
@@ -135,9 +137,9 @@ function Viewer({ note, images, start, onClose }) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [images.length, onClose]);
-  if (!att) return null;
+  if (!item) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[260] bg-black flex flex-col" role="dialog" aria-modal="true" aria-label={att.name} data-no-swipe
+    <div className="fixed inset-0 z-[260] bg-black flex flex-col" role="dialog" aria-modal="true" aria-label={item.name} data-no-swipe
       onTouchStart={e => { touch.current = e.touches.length === 1 ? e.touches[0].clientX : null; }}
       onTouchEnd={e => {
         if (touch.current == null) return;
@@ -146,12 +148,12 @@ function Viewer({ note, images, start, onClose }) {
         if (dx > 60) setI(x => Math.max(0, x - 1));
       }}>
       <div className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 text-white">
-        <p className="flex-1 min-w-0 truncate text-sm">{att.name}{images.length > 1 ? ` · ${i + 1}/${images.length}` : ''}</p>
+        <p className="flex-1 min-w-0 truncate text-sm">{item.name}{images.length > 1 ? ` · ${i + 1}/${images.length}` : ''}</p>
         <button className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10" onClick={() => openAttachment(note, att)} aria-label="Open in another app"><ExternalLink size={18} /></button>
         <button className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10" onClick={onClose} aria-label="Close"><X size={20} /></button>
       </div>
       <div className="flex-1 min-h-0 flex items-center justify-center relative overflow-auto" style={{ touchAction: 'pinch-zoom' }}>
-        <img src={attachmentFileUrl(note.id, att.id)} alt={att.name} className="max-w-full max-h-full object-contain" />
+        <img src={item.url} alt={item.name} className="max-w-full max-h-full object-contain" />
         {i > 0 && <button className="absolute left-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center" onClick={() => setI(i - 1)} aria-label="Previous photo"><ChevronLeft size={22} /></button>}
         {i < images.length - 1 && <button className="absolute right-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 text-white flex items-center justify-center" onClick={() => setI(i + 1)} aria-label="Next photo"><ChevronRight size={22} /></button>}
       </div>
@@ -165,11 +167,15 @@ export default function NoteAttachments({ note, onChanged }) {
   const [viewing, setViewing] = useState(null);
   const [renaming, setRenaming] = useState(null);
   const [error, setError] = useState('');
+  const [pages, setPages] = useState(false);
   useReadingPoll(note, onChanged);
   const list = note.attachments || [];
   if (!list.length) return null;
   const images = list.filter(browserImage);
   const files = list.filter(a => !browserImage(a));
+  const photoItems = images.map(att => ({ id: att.id, name: att.name, url: attachmentFileUrl(note.id, att.id, att.version), att }));
+  const pageItems = att => att.pageList.map((p, n) => ({ id: p.id, name: `${att.name} · page ${n + 1}`, url: pageUrl(note.id, att.id, p.id, p.version), att }));
+  const editPages = canEdit(note) && list.some(a => a.kind === 'image' || a.pageList?.length);
 
   async function open(att) {
     setError('');
@@ -179,14 +185,18 @@ export default function NoteAttachments({ note, onChanged }) {
 
   return (
     <section className="mb-3" aria-label="Attachments" data-no-swipe>
-      <p className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mb-1.5"><Paperclip size={11} /> Attachments · {list.length}</p>
+      <div className="flex items-center gap-2 mb-1.5">
+        <p className="flex-1 flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-navy-400 dark:text-white/45"><Paperclip size={11} /> Attachments · {list.length}</p>
+        {editPages && <button type="button" className="btn-ghost text-xs py-1 px-2" onClick={() => setPages(true)}><Images size={13} /> Pages &amp; photos</button>}
+      </div>
       {images.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mb-2">
           {images.map((att, k) => (
             <div key={att.id} className="relative group">
-              <button className="block w-full aspect-square rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 border border-navy-100 dark:border-white/10" onClick={() => setViewing(k)} aria-label={`Open ${att.name}`}>
-                <img src={att.thumb ? attachmentThumbUrl(note.id, att.id) : attachmentFileUrl(note.id, att.id)} alt={att.name} loading="lazy" className="w-full h-full object-cover" />
+              <button className="block w-full aspect-square rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 border border-navy-100 dark:border-white/10" onClick={() => setViewing({ items: photoItems, start: k })} aria-label={`Open ${att.name}`}>
+                <img src={att.thumb ? attachmentThumbUrl(note.id, att.id, att.version) : attachmentFileUrl(note.id, att.id, att.version)} alt={att.name} loading="lazy" className="w-full h-full object-cover" />
               </button>
+              {att.original && <span className="absolute bottom-1 right-1 rounded-md bg-gold-500 text-white text-[9px] px-1">Edited</span>}
               <div className="absolute top-0.5 right-0.5 rounded-xl bg-white/80 dark:bg-black/50">
                 <Menu note={note} att={att} onChanged={onChanged} onRename={() => setRenaming(att.id)} onError={setError} />
               </div>
@@ -222,6 +232,16 @@ export default function NoteAttachments({ note, onChanged }) {
                 )}
                 {renaming !== att.id && <Menu note={note} att={att} onChanged={onChanged} onRename={() => setRenaming(att.id)} onError={setError} />}
               </div>
+              {att.pageList?.length > 0 && (
+                <div className="flex gap-1.5 overflow-x-auto px-2.5 pb-2.5 scrollbar-none">
+                  {att.pageList.map((p, n) => (
+                    <button key={p.id} type="button" className="shrink-0 w-14 aspect-[3/4] rounded-lg overflow-hidden border border-navy-100 dark:border-white/10 bg-black/5"
+                      onClick={() => setViewing({ items: pageItems(att), start: n })} aria-label={`Page ${n + 1} of ${att.name}`}>
+                      <img src={p.thumb ? pageThumbUrl(note.id, att.id, p.id, p.version) : pageUrl(note.id, att.id, p.id, p.version)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
               {att.kind === 'audio' && <audio controls preload="none" src={attachmentFileUrl(note.id, att.id)} className="w-full h-9 px-2 pb-2" />}
               {(att.text || att.textStatus) && <div className="px-3 pb-2"><TextToggle att={att} /></div>}
             </div>
@@ -229,7 +249,8 @@ export default function NoteAttachments({ note, onChanged }) {
         })}
       </div>
       {error && <p className="text-xs text-red-500 mt-1.5" role="alert">{error}</p>}
-      {viewing != null && <Viewer note={note} images={images} start={viewing} onClose={() => setViewing(null)} />}
+      {viewing != null && <Viewer note={note} images={viewing.items} start={viewing.start} onClose={() => setViewing(null)} />}
+      {pages && <PagesEditor note={note} onClose={() => setPages(false)} onChanged={onChanged} />}
     </section>
   );
 }

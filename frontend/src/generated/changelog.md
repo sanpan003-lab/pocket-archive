@@ -5,6 +5,29 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.6.0 — Oct 23, 2026
+
+### Scan and Camera
+- The **+** menu has **Camera** and **Scan document** (the scanner finds the edges, crops and takes several pages) — each makes a new note
+- **Widget:** Scan and Camera buttons next to the mic (2x1 and larger), plus an optional **1x1 Quick Scan** widget
+- Long-press the app icon for **Scan document** and **Camera**, and add the **Quick Scan** tile to Quick Settings
+- From the widget, shortcuts and tile only the scanner or camera opens; the note is saved in the background with a result on the widget like “🧾 Receipt · Publix · $43.18”. Offline it waits and uploads later
+
+### Documents read for you
+- Photos, scans and PDFs are recognized — **receipts, bills, medical, school, warranties, letters, business cards, handwritten notes** — with a **Details** card: store, total, tax, items, due dates, provider, warranty end, contact info…
+- Edit any detail; your edits are never overwritten (if something different is found later, it asks)
+- **Remind me** for a bill’s due date or 30 days before a warranty ends, **Save to contacts** for business cards — only when you tap
+- Files into a matching project (with Undo), or asks first when it isn’t sure
+- **Inbox → Documents** with Receipts, Bills, Medical… chips, and everything is searchable
+- Card, bank account and ID numbers keep only their last 4 digits
+- Settings → **Documents**: turn it off, or choose which kinds to organize. **Reprocess** on any note reads it again
+
+### Edit photo and scan notes
+- Add a title and text (above or below the images), more photos, camera shots, scan pages or files
+- **Pages:** drag to reorder, rotate, crop, mark up (pen, highlighter, arrow, text), retake, delete, choose the cover, split or merge scans
+- Every edit keeps the original — **Restore original** any time. The details are read again after changes (“Details updated”)
+- Works on the web (except scanning), on shared notes for editors, and for Lite accounts
+
 ## 2.5.0 — Oct 22, 2026
 
 ### Attachments on notes

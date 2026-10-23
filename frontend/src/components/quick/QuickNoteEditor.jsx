@@ -33,7 +33,9 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
     placeQuery: note.place?.query || note.placeSpec?.query || '',
     trigger:    note.trigger || 'time',
     itemsText:  (note.items || []).map(i => i.text).join('\n'),
+    bodyPosition: note.bodyPosition === 'above' ? 'above' : 'below',
   }));
+  const hasImages = !!note.media || (note.attachments || []).some(a => a.kind === 'image' || a.pageList?.length);
   const [recordings, setRecordings] = useState([]);
   const [busy, setBusy]   = useState(null);   // 'save' | 'undo' | 'retry'
   const [error, setError] = useState(null);
@@ -99,6 +101,7 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
         items:      draft.itemsText.split('\n').map(t => t.trim()).filter(Boolean),
       } : {}),
       regenerateSummary: contentChanged && regenSummary && !!note.transcript,
+      ...(hasImages ? { bodyPosition: draft.bodyPosition } : {}),
     }));
   }
 
@@ -240,6 +243,15 @@ export default function QuickNoteEditor({ note, onClose, onChanged }) {
                 <input type="checkbox" checked={regenSummary} onChange={e => setRegenSummary(e.target.checked)} />
                 Regenerate AI summary with these changes
               </label>
+            )}
+            {hasImages && (
+              <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-navy-700 dark:text-white/80" role="radiogroup" aria-label="Text position">
+                <span className="text-xs font-semibold text-navy-600 dark:text-white/60">Text position</span>
+                {[['above', 'Above the images'], ['below', 'Below the images']].map(([v, l]) => (
+                  <button key={v} type="button" role="radio" aria-checked={draft.bodyPosition === v} onClick={() => set('bodyPosition', v)}
+                    className={`px-2.5 py-1 rounded-lg text-xs border ${draft.bodyPosition === v ? 'border-gold-400 bg-gold-500/10 text-gold-700 dark:text-gold-300' : 'border-navy-200 dark:border-white/15'}`}>{l}</button>
+                ))}
+              </div>
             )}
           </div>
         </fieldset>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 1x1 Quick Scan: gold circle with the scan glyph; tap = scanner (no app screens) -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scan_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="4dp"
+    android:contentDescription="Scan a document">
+
+    <ImageView
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:src="@drawable/widget_bg_idle"
+        android:importantForAccessibility="no" />
+
+    <ImageView
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_scan_white"
+        android:importantForAccessibility="no" />
+</FrameLayout>

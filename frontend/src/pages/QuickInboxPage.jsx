@@ -27,6 +27,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useAppearance } from '../context/appearanceStore';
 import { setFabHidden, onQuickChanged } from '../lib/uiBus';
 import { shareNote } from '../lib/shareNote';
+import { CATEGORIES } from '../lib/documents';
 
 const FILTERS = [
   { key: 'all',      label: 'All',          test: n => !n.undone },
@@ -37,6 +38,8 @@ const FILTERS = [
   { key: 'errand',   label: 'Errands',      test: n => !n.undone && n.type === 'errand' },
   { key: 'projects', label: 'Projects',     test: n => !n.undone && !!n.projectId },
   { key: 'notes',    label: 'Notes',        test: n => !n.undone && (n.type === 'note' || n.type === 'note_link') },
+  // Photos, scans and PDFs that were read as documents (receipts, bills, …) — category chips below the tabs
+  { key: 'documents', label: 'Documents',   test: n => !n.undone && !!n.document?.type && n.document.status !== 'off' },
   { key: 'undone',   label: 'Deleted',      test: n => n.undone },
 ];
 
@@ -208,7 +211,14 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
     () => Object.fromEntries(FILTERS.map(f => [f.key, shown.filter(f.test).length])),
     [shown],
   );
-  const visible = useMemo(() => shown.filter((listsOnly ? LISTS : FILTERS.find(f => f.key === filter)).test), [shown, filter, listsOnly]);
+  const [docCat, setDocCat] = useState(null);
+  const docCats = useMemo(() => {
+    const c = {};
+    for (const n of shown) if (!n.undone && n.document?.type && n.document.status !== 'off') c[n.document.category || 'Documents'] = (c[n.document.category || 'Documents'] || 0) + 1;
+    return CATEGORIES.filter(k => c[k]).map(k => [k, c[k]]);
+  }, [shown]);
+  const visible = useMemo(() => shown.filter((listsOnly ? LISTS : FILTERS.find(f => f.key === filter)).test)
+    .filter(n => filter !== 'documents' || !docCat || (n.document?.category || 'Documents') === docCat), [shown, filter, listsOnly, docCat]);
   const sections = useMemo(() => buildSections(visible, s), [visible, s]);
   const order = useMemo(() => sections.flatMap(sec => sec.notes.map(n => n.id)), [sections]);
 
@@ -500,6 +510,16 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
           ))}
         </div>
       </div>}
+      {!single && filter === 'documents' && docCats.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 -mt-2 mb-3" role="radiogroup" aria-label="Document category">
+          {[{ key: null, label: 'All', count: docCats.reduce((a, [, n]) => a + n, 0) }, ...docCats.map(([k, n]) => ({ key: k, label: k, count: n }))].map(c => (
+            <button key={c.label} role="radio" aria-checked={docCat === c.key} onClick={() => setDocCat(c.key)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border ${docCat === c.key ? 'bg-gold-500/15 border-gold-400 text-gold-700 dark:text-gold-300' : 'border-navy-200 dark:border-white/15 text-navy-600 dark:text-white/65'}`}>
+              {c.label} <span className="opacity-60">{c.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {!single && (
         <div className="flex justify-end -mt-2 mb-3">

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Link2, FolderKanban, ScanText, Loader2, ChevronDown, Sparkles } from 'lucide-react';
+import { Link2, FolderKanban, ScanText, Loader2, ChevronDown, Sparkles, Pencil } from 'lucide-react';
 import { quickAudioUrl, quickMediaUrl, convertHandwriting } from '../../lib/api';
 import { useAppearance } from '../../context/appearanceStore';
 import MarkdownRenderer from '../MarkdownRenderer';
@@ -12,10 +12,14 @@ import { hasChecklist, isTyped } from './noteHelpers';
 import GeoPlacePrompt from '../places/GeoPlacePrompt';
 import NoteMap from '../places/NoteMap';
 import NoteAttachments from './NoteAttachments';
+import DocumentCard from './DocumentCard';
+import PagesEditor from './PagesEditor';
+import { noteRole } from '../../lib/sharing';
 
 
 /** The photo or drawing, with "Convert handwriting" and the text Gemini read from it */
 export function NoteMedia({ note, onChanged, compact = false }) {
+  const [pages, setPages] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [showText, setShowText] = useState(true);
@@ -46,6 +50,10 @@ export function NoteMedia({ note, onChanged, compact = false }) {
           {busy ? 'Reading…' : drawing ? (note.mediaText ? 'Read handwriting again' : 'Convert handwriting') : 'Read text in photo'}
         </button>
       )}
+      {!note.undone && !compact && !drawing && noteRole(note) !== 'view' && (
+        <button className="btn-ghost text-xs mt-2 ml-1" onClick={() => setPages(true)}><Pencil size={13} /> Edit photo / add pages</button>
+      )}
+      {pages && <PagesEditor note={note} onClose={() => setPages(false)} onChanged={onChanged} />}
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
       {note.mediaText && !compact && (
         <div className="mt-2 rounded-xl bg-navy-50 dark:bg-white/5 px-3 py-2">
@@ -68,26 +76,29 @@ export default function NoteContent({ note, onChanged, projectName, arrivalReady
   const { settings } = useAppearance();
   const typed = isTyped(note);
   const showSummary = note.summaryStatus && note.summaryStatus !== 'none';
+  const typedBody = typed && note.content ? (
+    <div className="quick-summary text-[0.95rem] break-words mb-2">
+      <MarkdownRenderer content={note.content} />
+    </div>
+  ) : null;
 
   return (
     <div className="min-w-0">
       <GeoPlacePrompt note={note} onChanged={onChanged} />
       <NoteMap note={note} />
+      {/* What the user typed (markdown): below the photos/scans, or above them (Edit → Text position) */}
+      {note.bodyPosition === 'above' && typedBody}
       <NoteMedia note={note} onChanged={onChanged} />
       <NoteAttachments note={note} onChanged={onChanged} />
-
-      {/* What the user typed (markdown) */}
-      {typed && note.content && (
-        <div className="quick-summary text-[0.95rem] break-words mb-2">
-          <MarkdownRenderer content={note.content} />
-        </div>
-      )}
+      {note.bodyPosition !== 'above' && typedBody}
 
       {hasChecklist(note) && (
         <div className="-mx-5 sm:-mx-6">
           <ErrandPanel note={note} onChanged={onChanged} arrivalReady={arrivalReady} />
         </div>
       )}
+
+      <DocumentCard note={note} onChanged={onChanged} />
 
       {showSummary && (
         <section className={typed || hasChecklist(note) ? 'quick-card-divider pt-2 mt-1' : ''}>

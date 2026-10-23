@@ -80,14 +80,30 @@ export function pickFiles({ accept = '', multiple = true, capture } = {}) {
   });
 }
 
-/** App only: Google ML Kit document scanner (on-device, auto-crop, multi-page) → { file, thumb, pages } or null */
-export async function scanDocument() {
+const cancelled = err => /cancel/i.test(err?.message || '') || err?.code === 'CANCELLED';
+
+/** App only: the ML Kit scanner (on-device, auto-crop, multi-page) → its pages uploaded as a scan on this note.
+ *  Returns the updated note, or null when cancelled. */
+export async function scanPagesInto(noteId) {
   if (!isNative) return null;
-  const r = await QuickRecorder.scanDocument({ pageLimit: 30 });
-  if (!r?.pdf) return null;
-  const file = new File([base64ToBlob(r.pdf, 'application/pdf')], r.name || 'Scan.pdf', { type: 'application/pdf' });
-  const thumb = r.thumb ? base64ToBlob(r.thumb, 'image/jpeg') : null;
-  return { file, thumb, pages: r.pages || 1 };
+  try {
+    return await QuickRecorder.scanUpload({ path: `/api/quick/${noteId}/attachments`, method: 'POST', partName: 'page', pageLimit: 30, fields: { source: 'scan' } });
+  } catch (err) {
+    if (cancelled(err)) return null;
+    throw err;
+  }
+}
+
+/** App only: camera or scanner → a NEW note (uploaded by the app's queue, so it also works offline).
+ *  → { note, confirmation } once saved, { queued: true } when offline, or null when cancelled. */
+export async function captureDocumentNote(kind) {
+  if (!isNative) return null;
+  try {
+    return await QuickRecorder.captureDocument({ kind });
+  } catch (err) {
+    if (cancelled(err)) return null;
+    throw err;
+  }
 }
 
 /**

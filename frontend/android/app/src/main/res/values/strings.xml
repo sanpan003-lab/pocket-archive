@@ -17,4 +17,12 @@
     <string name="shortcut_capture_long">Record a voice note</string>
     <string name="shortcut_inbox_short">Inbox</string>
     <string name="shortcut_inbox_long">Quick Capture inbox</string>
+    <string name="shortcut_scan_short">Scan</string>
+    <string name="shortcut_scan_long">Scan a document</string>
+    <string name="shortcut_camera_short">Camera</string>
+    <string name="shortcut_camera_long">Photo note</string>
+    <string name="widget_scan_label">Quick Scan</string>
+    <string name="widget_scan_description">Scan a document into a new note</string>
+    <string name="tile_scan_label">Quick Scan</string>
+    <string name="capture_label">Scan</string>
 </resources>

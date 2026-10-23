@@ -5,6 +5,7 @@ import { useAppearance } from '../../context/appearanceStore';
 import { actionById, resolve, toolbarLayout, ACTION_KIND, allowedFor } from './toolbarActions';
 import ToolbarEditor from './ToolbarEditor';
 import AttachSheet from './AttachSheet';
+import PagesEditor from './PagesEditor';
 
 /** Keep-style color dots */
 export function ColorPicker({ value, onPick }) {
@@ -62,6 +63,7 @@ export default function NoteToolbar({ note, onAction, busy, onChanged }) {
   const [colorsOpen, setColorsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [pages, setPages] = useState(false);
   const [editing, setEditing] = useState(false);
   const [edges, setEdges] = useState({ left: false, right: false });
   const ref = useRef(null);
@@ -114,6 +116,7 @@ export default function NoteToolbar({ note, onAction, busy, onChanged }) {
     setMoreOpen(false);
     if (id === 'color') { setColorsOpen(o => !o); return; }
     if (id === 'attach') { setAttaching(true); return; }
+    if (id === 'pages') { setPages(true); return; }
     onAction(ACTION_KIND[id] || id, note);
   }
 
@@ -201,6 +204,7 @@ export default function NoteToolbar({ note, onAction, busy, onChanged }) {
       )}
 
       {attaching && <AttachSheet note={note} onClose={() => setAttaching(false)} onChanged={onChanged} />}
+      {pages && <PagesEditor note={note} onClose={() => setPages(false)} onChanged={onChanged} />}
 
       {editing && (
         <div className="fixed inset-0 z-[220] flex items-end sm:items-center justify-center sm:p-6" role="dialog" aria-modal="true" aria-label="Edit toolbar">

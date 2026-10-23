@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { Paperclip, X, Images, Camera, ScanLine, FolderOpen, ScanText, Loader2, AlertTriangle } from 'lucide-react';
 import { isNative } from '../../lib/platform';
 import { pickNativePhoto } from '../../native/camera';
-import { attachToNote, pickFiles, scanDocument, readPref, setReadPref, MAX_BYTES } from '../../lib/attachments';
+import { attachToNote, pickFiles, scanPagesInto, readPref, setReadPref, MAX_BYTES } from '../../lib/attachments';
+import { NOTE_UPDATED } from '../../lib/opsQueue';
 
 const touchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
@@ -58,11 +59,12 @@ export default function AttachSheet({ note, onClose, onChanged }) {
         return upload(files.map(file => ({ file, source: 'camera' })));
       }
       if (kind === 'scan') {
+        // The app's scanner uploads the page images itself (a scan with pages you can edit, not a flat PDF)
         setMessage('Opening the scanner…');
-        const scan = await scanDocument();
+        const saved = await scanPagesInto(note.id);
         setMessage('');
-        if (!scan) return null;
-        return upload([{ file: scan.file, thumb: scan.thumb, pages: scan.pages, source: 'scan' }]);
+        if (saved?.id) { onChanged?.(saved); window.dispatchEvent(new CustomEvent(NOTE_UPDATED, { detail: saved })); onClose(); }
+        return null;
       }
       const files = await pickFiles({ multiple: true });
       return upload(files.map(file => ({ file, source: 'file' })));

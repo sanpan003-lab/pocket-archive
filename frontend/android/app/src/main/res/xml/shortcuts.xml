@@ -22,4 +22,26 @@
             android:targetPackage="com.sanpan003.pocketarchive"
             android:targetClass="com.sanpan003.pocketarchive.MainActivity" />
     </shortcut>
+    <shortcut
+        android:shortcutId="scan_document"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan_short"
+        android:shortcutLongLabel="@string/shortcut_scan_long">
+        <intent
+            android:action="com.sanpan003.pocketarchive.SCAN_DOCUMENT"
+            android:targetPackage="com.sanpan003.pocketarchive"
+            android:targetClass="com.sanpan003.pocketarchive.quick.CaptureActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="camera_note"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_camera"
+        android:shortcutShortLabel="@string/shortcut_camera_short"
+        android:shortcutLongLabel="@string/shortcut_camera_long">
+        <intent
+            android:action="com.sanpan003.pocketarchive.CAMERA_NOTE"
+            android:targetPackage="com.sanpan003.pocketarchive"
+            android:targetClass="com.sanpan003.pocketarchive.quick.CaptureActivity" />
+    </shortcut>
 </shortcuts>
