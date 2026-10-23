@@ -52,6 +52,8 @@ object WatchUpdater {
     const val MSG_UPDATE_REQUEST = "/pa/update-request"
     const val MSG_UPDATE_NOW = "/pa/update-now"
     const val DATA_WATCH_INFO = "/pa/watch-info"
+    /** Watch → phone: update progress for the phone's Settings → About */
+    const val MSG_UPDATE_STATUS = "/pa/update-status"
 
     private val client by lazy { OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build() }
     private val _status = MutableStateFlow("")
@@ -75,56 +77,93 @@ object WatchUpdater {
         Wearable.getDataClient(ctx).putDataItem(req).addOnFailureListener { Log.i(TAG, "Version not sent: ${it.message}") }
     }
 
-    private fun hasOwnNetwork(ctx: Context): Boolean {
+    /** Internet of the watch's own (Wi-Fi / LTE), or through the phone's Bluetooth link */
+    private fun hasInternet(ctx: Context): Boolean {
         val cm = ctx.getSystemService(ConnectivityManager::class.java) ?: return false
         val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** Status on the watch's Settings page, and on the phone (Settings → About) */
+    private fun say(ctx: Context, text: String) {
+        _status.value = text
+        val app = ctx.applicationContext
+        runCatching {
+            Wearable.getCapabilityClient(app).getCapability(Protocol.CAP_PHONE, com.google.android.gms.wearable.CapabilityClient.FILTER_REACHABLE)
+                .addOnSuccessListener { cap -> cap.nodes.forEach { Wearable.getMessageClient(app).sendMessage(it.id, MSG_UPDATE_STATUS, text.toByteArray()) } }
+        }
     }
 
     /** Check (and update if there's something newer). manual = "Check for updates" on the watch / phone's "Update watch". */
+    /**
+     * Check (and update if there's something newer). First the watch's own way (its token + Wi-Fi/LTE or the
+     * phone's Bluetooth internet); if that isn't possible or fails, the phone downloads and sends it.
+     */
     fun checkAndUpdate(ctx: Context, manual: Boolean) {
         publishVersion(ctx)
         val creds = WatchTokenStore.get(ctx)
-        if (creds == null || !hasOwnNetwork(ctx)) {
-            _status.value = "Asking the phone…"
+        if (creds == null || !hasInternet(ctx)) {
+            say(ctx, if (creds == null) "Asking the phone to send the update…" else "No network on the watch — asking the phone…")
             askPhone(ctx)
             return
         }
         val (token, api) = creds
         val (code, name) = installed(ctx)
-        try {
-            val latest = client.newCall(Request.Builder().url("$api/api/updates/watch/latest?versionCode=$code&versionName=$name")
+        val reason = try {
+            val latest = client.newCall(Request.Builder().url("$api/api/updates/watch/latest?versionCode=$code&versionName=${android.net.Uri.encode(name)}")
                 .header("Authorization", "Bearer $token").build()).execute().use { r ->
-                if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
+                if (!r.isSuccessful) throw DirectProblem(if (r.code == 401) "the watch's sign-in expired" else "the server answered ${r.code}")
                 JSONObject(r.body.string())
             }
-            if (!latest.optBoolean("available")) { _status.value = "Up to date (${name})"; return }
+            if (latest.optBoolean("rolledBack") || !latest.optBoolean("available")) { say(ctx, "Up to date ($name)"); return }
             val newCode = latest.optLong("versionCode")
-            _status.value = "Downloading ${latest.optString("versionName")}…"
+            val newName = latest.optString("versionName")
+            say(ctx, "Downloading $newName on the watch…")
             val apk = client.newCall(Request.Builder().url("$api/api/updates/watch/apk").header("Authorization", "Bearer $token").build()).execute().use { r ->
-                if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
-                save(ctx, newCode, r.body.byteStream())
+                if (!r.isSuccessful) throw DirectProblem("the download failed (${r.code})")
+                val total = latest.optLong("size").takeIf { it > 0 } ?: r.body.contentLength()
+                save(ctx, newCode, r.body.byteStream(), total) { pct -> say(ctx, "Downloading $newName on the watch… $pct %") }
             }
             verifyAndInstall(ctx, apk, latest.optString("sha256"), newCode, api, token)
+            return
+        } catch (e: DirectProblem) {
+            e.message
         } catch (e: Exception) {
-            Log.i(TAG, "Direct update failed (${e.message}); asking the phone")
-            _status.value = "Asking the phone…"
-            askPhone(ctx)
+            Log.i(TAG, "Direct update failed", e)
+            "no connection to the server"
         }
+        Log.i(TAG, "Direct update failed ($reason); asking the phone")
+        say(ctx, "Watch couldn't download it ($reason) — asking the phone…")
+        askPhone(ctx)
     }
+
+    private class DirectProblem(message: String) : Exception(message)
 
     private fun askPhone(ctx: Context) = runCatching {
         val nodes = Tasks.await(Wearable.getCapabilityClient(ctx).getCapability(Protocol.CAP_PHONE, com.google.android.gms.wearable.CapabilityClient.FILTER_REACHABLE), 10, TimeUnit.SECONDS).nodes
-        if (nodes.isEmpty()) _status.value = "No phone or network — try later"
+        if (nodes.isEmpty()) _status.value = "No phone or network — try again later"
         for (n in nodes) Wearable.getMessageClient(ctx).sendMessage(n.id, MSG_UPDATE_REQUEST, ByteArray(0))
-    }
+    }.onFailure { _status.value = "No phone or network — try again later" }
 
-    private fun save(ctx: Context, code: Long, input: InputStream): File {
+    private fun save(ctx: Context, code: Long, input: InputStream, total: Long = -1, progress: ((Int) -> Unit)? = null): File {
         val dir = File(ctx.filesDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val f = File(dir, "watch-$code.apk")
-        f.outputStream().use { input.copyTo(it) }
+        f.outputStream().use { out ->
+            val buf = ByteArray(64 * 1024)
+            var done = 0L
+            var shown = -1
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                done += n
+                if (progress != null && total > 0) {
+                    val pct = (done * 100 / total).toInt()
+                    if (pct / 10 != shown / 10) { shown = pct; progress(pct) }
+                }
+            }
+        }
         return f
     }
 
@@ -133,7 +172,7 @@ object WatchUpdater {
         val parts = path.removePrefix("$CHANNEL_APK/").split('/')
         val code = parts.getOrNull(0)?.toLongOrNull() ?: return
         val sha = parts.getOrNull(1) ?: return
-        _status.value = "Receiving update from the phone…"
+        say(ctx, "Watch is receiving the update…")
         val apk = save(ctx, code, input)
         verifyAndInstall(ctx, apk, sha, code, null, null)
     }
@@ -178,12 +217,12 @@ object WatchUpdater {
         if (problem != null) {
             apk.delete()
             Log.w(TAG, "Rejected: $problem")
-            _status.value = "Update rejected: $problem"
+            say(ctx, "Watch rejected the update: $problem")
             report(ctx, api, token, "rejected", code, problem)
             return
         }
         // Not while recording
-        if (WatchState.isRecording) { _status.value = "Update ready — installs after recording"; prefs(ctx).edit().putString("pending", apk.path).apply(); return }
+        if (WatchState.isRecording) { say(ctx, "Update ready — installs on the watch after the recording"); prefs(ctx).edit().putString("pending", apk.path).apply(); return }
         install(ctx, apk, code)
     }
 
@@ -207,13 +246,13 @@ object WatchUpdater {
                 s.openWrite("base.apk", 0, apk.length()).use { out -> apk.inputStream().use { it.copyTo(out) }; s.fsync(out) }
                 val pi = PendingIntent.getBroadcast(ctx, id, Intent(ctx, InstallReceiver::class.java).putExtra("code", code),
                     PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0))
-                _status.value = "Installing…"
+                say(ctx, "Confirm on your watch")
                 prefs(ctx).edit().putLong("installingCode", code).apply()
                 s.commit(pi.intentSender)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Install failed", e)
-            _status.value = "Install failed: ${e.message}"
+            say(ctx, "Watch couldn't install the update — try again")
         }
     }
 
@@ -249,7 +288,7 @@ object WatchUpdater {
             .setContentText("Tap to install")
             .setAutoCancel(true)
             .setContentIntent(PendingIntent.getActivity(ctx, 61, confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)))
-        _status.value = "Update ready — tap the notification to install"
+        say(ctx, "Confirm on your watch (tap the notification there)")
     }
 
     fun schedule(ctx: Context) {
@@ -277,7 +316,7 @@ object WatchUpdater {
                 }
                 PackageInstaller.STATUS_SUCCESS -> afterStart(ctx)
                 else -> {
-                    _status.value = "Install failed: ${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: status}"
+                    say(ctx, if (status == PackageInstaller.STATUS_FAILURE_ABORTED) "Update cancelled on the watch" else "Watch couldn't install the update (${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: status})")
                     ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("installingCode").apply()
                 }
             }

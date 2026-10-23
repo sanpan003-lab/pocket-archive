@@ -79,6 +79,8 @@ class WearListenerService : WearableListenerService() {
             WearBridge.MSG_REC_LOG -> runCatching { RecordingLog.fromWatch(this, org.json.JSONObject(String(event.data))) }
             // Watch without network: the phone fetches its update and sends it over
             WatchUpdateRelay.MSG_UPDATE_REQUEST -> UpdateWorker.relayToWatch(this)
+            // The watch updating itself: its progress for Settings → About
+            WatchUpdateRelay.MSG_UPDATE_STATUS -> String(event.data).take(160).takeIf { it.isNotBlank() }?.let { WatchVersion.setStatus(this, it) }
             // Watch result screen: Undo, or Yes / New note for "Add to …?"
             WearBridge.MSG_DECIDE -> runCatching {
                 val o = org.json.JSONObject(String(event.data))

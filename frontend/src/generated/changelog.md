@@ -5,6 +5,14 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.6.1 — Oct 23, 2026
+
+### Fixes
+- **Update watch** works again: the phone downloads the watch update first (with progress), checks it, then sends it — no more “open failed” errors
+- Settings → About shows each step: **Downloading… → Sending to watch… → Confirm on your watch → Updated to 2.6.1**, and a clear reason when something stops it (no connection, Wi-Fi only, signed out, damaged download)
+- The watch tries its own connection first (Wi-Fi, LTE or through the phone) and only asks the phone when it can’t
+- What’s new shows **bold** text properly (no stray asterisks)
+
 ## 2.6.0 — Oct 23, 2026
 
 ### Scan and Camera

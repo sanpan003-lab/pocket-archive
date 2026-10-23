@@ -81,6 +81,8 @@ object AppUpdater {
         QuickRecorderPlugin.deliverUpdate(state(ctx))
     }
 
+    fun wifiOnly(ctx: Context) = prefs(ctx).getBoolean("wifiOnly", true)
+
     fun setWifiOnly(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean("wifiOnly", on).apply()
         schedule(ctx, replace = true)
@@ -394,7 +396,8 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
                 .apply { if (network) setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()) }
                 .build()
             // "-now-": never the periodic "app-update-daily" (REPLACE on the same name would cancel the daily check)
-            WorkManager.getInstance(ctx).enqueueUniqueWork("app-update-now-$action", ExistingWorkPolicy.REPLACE, req)
+            // The watch relay keeps a running transfer (a second request must not start another one)
+            WorkManager.getInstance(ctx).enqueueUniqueWork("app-update-now-$action", if (action == "watch") ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE, req)
         }
         fun checkNow(ctx: Context) = run(ctx, "check", true)
         fun updateNow(ctx: Context) = run(ctx, "update", true)

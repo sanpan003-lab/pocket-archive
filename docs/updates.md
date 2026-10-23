@@ -90,6 +90,12 @@ Pocket Archive → Install unknown apps → Allow). The app shows a button that 
   over the Data Layer channel `/pa/update-apk/<versionCode>/<sha256>`.
 - The watch checks the SHA-256 and signature again and installs with one confirm tap. Never during a recording.
 - It publishes its version as the DataItem `/pa/watch-info`; the phone reports it to the NAS with its own check.
+- 2.6.1: the watch tries the NAS directly whenever it has internet (Wi-Fi, LTE, or the phone's Bluetooth link) and its
+  token; only if that's impossible or fails does it ask the phone. The phone's relay downloads to its own file in
+  `cache/watch-update/` with progress, checks SHA-256 + signing certificate, then sends — one transfer at a time.
+  Both sides report each step to Settings → About on the phone (watch → phone message `/pa/update-status`):
+  Downloading… → Sending to watch… → Confirm on your watch → Updated to X, or a readable reason (no connection,
+  Wi-Fi only, signed out, file missing on the server, checksum mismatch, wrong signature, watch not connected).
 
 ## Testing (no emulators)
 

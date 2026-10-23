@@ -102,6 +102,12 @@ inside the Android app (`android/`). The backend lives in
   Plugin `getUpdateState/checkForUpdates/startUpdate/setUpdateSettings/openInstallSettings/updateWatch`, event `update`.
   Web: `lib/appUpdate.js`, `UpdateBanner`, `AppUpdatePanel` (About), `AppUpdatesAdmin` (Users).
 - Watch `wear/WatchUpdater.kt` (direct check, or `/pa/update-request` → phone relays over channel `/pa/update-apk/<code>/<sha>`).
+  2.6.1: the relay runs once at a time (AtomicBoolean + `KEEP` work policy) in its own temp file under
+  `cache/watch-update/` — a shared fixed file + `REPLACE` let a second run delete the file the first was sending
+  (ENOENT). Errors are `RelayProblem` messages, never paths. The watch tries direct whenever it has internet (any
+  transport) and reports its progress to the phone (`/pa/update-status`); "Updated to X" when `/pa/watch-info` shows
+  the new version.
+- What's new uses its own inline renderer (`WhatsNew.jsx` `Rich`: **bold**, *italic*, `code`), not MarkdownRenderer.
 - Device test needs a NEWER debug build signed with the debug key (`ota-dev/build-apks.sh` in the scratchpad builds 15 + 99 +
   a wrong-key copy). Play Protect scans each new sideloaded build after the confirm ("Scanning…" → Install).
 

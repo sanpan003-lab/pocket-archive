@@ -4,6 +4,9 @@ import { useAppUpdate } from '../lib/appUpdate';
 import { isNative } from '../lib/platform';
 import MarkdownRenderer from './MarkdownRenderer';
 
+/** The watch is being updated right now (download / transfer running) */
+const watchBusy = status => /^(asking|downloading|sending|watch is receiving)/i.test(status || '');
+
 const when = ms => (ms ? new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'never');
 
 /** The release notes of an update, in a sheet ("What's new") */
@@ -86,8 +89,17 @@ export default function AppUpdatePanel() {
       {s.watch && (
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-navy-100 dark:border-white/10">
           <Watch size={15} className="text-gold-500 shrink-0" />
-          <span className="flex-1 min-w-0 text-sm text-navy-700 dark:text-white/75">Watch app {s.watch.versionName}{s.watch.status ? <span className="block text-xs text-navy-500 dark:text-white/50">{s.watch.status}</span> : null}</span>
-          <button className="btn-white text-xs py-1.5 px-3" onClick={updateWatch}>Update watch</button>
+          <span className="flex-1 min-w-0 text-sm text-navy-700 dark:text-white/75">
+            Watch app {s.watch.versionName}
+            {s.watch.status && (
+              <span className={`flex items-center gap-1 text-xs ${/couldn|rejected|cancelled|not connected|no phone|waiting for wi-fi/i.test(s.watch.status) ? 'text-amber-700 dark:text-amber-300'
+                : /^updated to/i.test(s.watch.status) ? 'text-emerald-600 dark:text-emerald-400' : 'text-navy-500 dark:text-white/50'}`} role="status" aria-live="polite">
+                {watchBusy(s.watch.status) && <RefreshCw size={11} className="animate-spin shrink-0" />}
+                {s.watch.status}
+              </span>
+            )}
+          </span>
+          <button className="btn-white text-xs py-1.5 px-3" onClick={updateWatch} disabled={watchBusy(s.watch.status)}>Update watch</button>
         </div>
       )}
       {notes && latest && <UpdateNotes latest={latest} onClose={() => setNotes(false)} />}

@@ -5,12 +5,24 @@ import { CHANGELOG, WEB_VERSION, entryFor } from '../lib/changelog';
 import { isNative } from '../lib/platform';
 import AppUpdatePanel from './AppUpdatePanel';
 
-/** "*and*" → <em>and</em> (the changelog uses simple emphasis only) */
-function Rich({ text }) {
-  const parts = text.split(/(\*[^*]+\*)/g);
-  return parts.map((p, i) => (p.startsWith('*') && p.endsWith('*') && p.length > 2
-    ? <em key={i}>{p.slice(1, -1)}</em>
-    : <Fragment key={i}>{p}</Fragment>));
+// **bold**, *italic* and `code` — also around symbols ("the **+** menu"); a lone * stays as it is
+const INLINE = /\*\*(?!\s)(.+?)(?<!\s)\*\*|\*(?![\s*])(.+?)(?<![\s*])\*|`([^`]+)`/g;
+
+/** One changelog line with its emphasis */
+export function Rich({ text }) {
+  const out = [];
+  let last = 0;
+  let m;
+  const re = new RegExp(INLINE.source, 'g');
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(<Fragment key={`t${last}`}>{text.slice(last, m.index)}</Fragment>);
+    if (m[1] !== undefined) out.push(<strong key={`b${m.index}`} className="font-semibold text-navy-900 dark:text-white"><Rich text={m[1]} /></strong>);
+    else if (m[2] !== undefined) out.push(<em key={`i${m.index}`}>{m[2]}</em>);
+    else out.push(<code key={`c${m.index}`} className="px-1 rounded bg-navy-100 dark:bg-white/10 text-[0.9em]">{m[3]}</code>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(<Fragment key={`t${last}`}>{text.slice(last)}</Fragment>);
+  return out;
 }
 
 export function ReleaseNotes({ entry }) {
