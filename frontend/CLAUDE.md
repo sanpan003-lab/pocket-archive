@@ -173,6 +173,10 @@ inside the Android app (`android/`). The backend lives in
   pool without a cross-user test (`search-e2e.cjs`). In-memory index per store folder, refreshed by file mtime on
   each query. Voice: `POST /api/find/voice` (transcribe, nothing saved). Web: `components/search/NoteSearch.jsx`
   (bar / overlay / page), `SearchOverlay` (header 🔍, Ctrl+K, "/").
+- Search scope vs filters (2.8.1): a page's `scope` (Inbox tab, Lists, Shared, Projects, Actions) is fixed; user
+  filters AND it (`lib/searchParams.js`) and are saved per page (`lib/filterState.js`, bump its VERSION to reset
+  everyone's saved filters). Server `TABS` (search.js) must stay identical to the Inbox `FILTERS` — `s29-ui.cjs`
+  checks list = server for every tab and every filter against an oracle.
 - Settings search: `lib/settingsIndex.js` (add every new setting there, with synonyms and flags), `SettingsSearch.jsx`.
 - Toasts: always `components/Toast.jsx` (or `QuickToast`) — never a hand-made fixed popup. Swipe hook in
   `lib/swipeDismiss.js`. Stack below the top bar; ✕ 44 px; body taps don't dismiss.

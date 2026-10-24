@@ -12,7 +12,7 @@ export default function SearchPage() {
           Titles, AI summaries, transcripts, typed text, lists, documents, attachments and photo text{archive ? ', and your recordings' : ''} — yours and what’s shared with you.
         </p>
       </div>
-      <NoteSearch variant="page" autoFocus placeholder={archive ? 'Search notes and recordings…' : 'Search notes, lists, documents…'} />
+      <NoteSearch variant="page" stateKey="search" recordings autoFocus placeholder={archive ? 'Search notes and recordings…' : 'Search notes, lists, documents…'} />
     </div>
   );
 }

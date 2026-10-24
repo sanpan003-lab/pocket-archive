@@ -15,8 +15,12 @@
   Every word must match the start of a word somewhere (numbers match anywhere: `42.1` in `$142.18`); accents and
   case are ignored.
 - **Query:** `q`, `type=notes,lists,documents,projects,recordings,actions`, `from`/`to` (YYYY-MM-DD on capturedAt),
-  `project=<id>|none`, `scope=mine|shared`, `attach=1`, `category=Receipts…`, `status=open|done`, `recordings=1`.
-  Filters alone (no words) list matches too.
+  `project=<id>|none|any`, `scope=mine|shared`, `attach=1`, `category=Receipts…`, `status=open|done`, `recordings=1`,
+  `tab=<Inbox tab>|lists` + `actions=1` (2.8.1). Everything is AND. Filters alone (no words) list matches too.
+- **Tabs (2.8.1):** `TABS` in search.js is the Inbox's `FILTERS` / `LISTS` (QuickInboxPage) on the server — keep the
+  two identical (the browser test compares every tab's list with `/api/find?tab=`). With a tab, actions come back
+  only with `actions=1` ("Show actions in Inbox") and no type filter; `type=actions` can't pull them into a tab.
+  Deleted notes only with `tab=undone`.
 - **Answer:** `{ q, terms, groups: { notes, lists, documents, projects, recordings, actions }, total, suggestions,
   tookMs }`. Each result has `snippet` (around the match), `matchedIn` ("Transcript", "Document details"…),
   `projectName`, `sharedFrom`, `document { type, category, label, icon }`, `done`, `attachments`. At most 30 per group.
@@ -27,10 +31,18 @@
 
 ## Notes search — web (`components/search/`)
 
-- `NoteSearch` (one component): `variant` bar (top of Inbox / Lists / Shared / Documents tab / Projects / Actions; the
-  page's own content is `hidden` while results show), `overlay` (the header's global search), `page` (/search).
-  `preset` = the page's filter (Shared → `scope: shared`, Documents → `types: ['documents']`, Actions →
-  `types: ['actions']`).
+- `NoteSearch` (one component): `variant` bar (top of Inbox / Lists / Shared / Projects / Actions; the page's own
+  content is `hidden` while results show), `overlay` (the header's global search), `page` (/search).
+- **Scope ≠ filters (2.8.1).** `scope` is what the page is about and can't be removed: Inbox → `{ tab, actions }` (the
+  tab you're on), Lists → `{ tab: 'lists' }`, Shared → `{ scope: 'shared' }`, Projects → `{ types, project: 'any' }`,
+  Actions → `{ types: ['actions'] }`. Your filters AND the scope (`lib/searchParams.js` `paramsOf`; an impossible mix,
+  e.g. Mine on Shared with me, = "No matches" without a request). Type chips only offer kinds the page can show.
+  In 2.8.0 the scope was only a starting filter: "All" on the Actions page dropped it and the Inbox search ignored the tab.
+- **Per-page state (`lib/filterState.js`):** `stateKey` → filters in localStorage `pa_filters:<page>` (kept until
+  cleared), words in sessionStorage `pa_query:<page>`, the Inbox / Actions tab in sessionStorage `pa_tab:<page>`.
+  Every read is cleaned (`cleanFilters`); `pa_filterStateVersion` resets everything once per version.
+- Active filters show as chips (✕ removes one) with the result count and Clear filters; no results → "No matches" +
+  Clear filters. Opening a result keeps the search (Back shows it again).
 - 220 ms debounce, the previous request aborted. Highlighting: `components/Highlight.jsx` (word starts, accent-safe).
 - Recent searches: `lib/recentSearches.js` (localStorage `pa_recentSearches`, 8, per device). Voice:
   `lib/voiceSearch.js` (MediaRecorder up to 7 s → `/api/find/voice`; the Android WebView grants the mic through
@@ -64,5 +76,7 @@
 ## Tests (scratchpad, fake archive)
 
 `search-e2e.cjs` (scope: user B never finds user A's notes until shared and loses them when unshared; fields,
-filters, live index, capture token, voice errors), `fftools/s28-ui.cjs` (toasts, settings search, notes search;
+filters, live index, capture token, voice errors, tabs / actions), `fftools/s29-ui.cjs` (every page × every filter
+alone and combined × with/without words against an oracle; list = server per tab; state per page; reset),
+`fftools/s28-ui.cjs` (toasts, settings search, notes search;
 desktop + 375 px, light + dark, reduced motion; user B in the UI), `settings-index-test.mjs`.

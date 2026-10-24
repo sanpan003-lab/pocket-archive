@@ -4,8 +4,8 @@ import { FolderKanban, Plus, Archive, Sparkles } from 'lucide-react';
 import { getProjects, createProject } from '../lib/api';
 import NoteSearch from '../components/search/NoteSearch';
 
-// Projects page search: projects first, and notes found by their project's name
-const PROJECT_SEARCH = { types: ['projects', 'notes', 'lists', 'documents'] };
+// Projects page search: projects, and the notes that are in a project
+const PROJECT_SEARCH = { types: ['projects', 'notes', 'lists', 'documents'], project: 'any' };
 import { summaryPreview, timeAgo } from '../components/quick/quickMeta';
 
 /** Projects: named groups of quick notes, each with a living summary. */
@@ -55,7 +55,7 @@ export default function ProjectsPage() {
         Group quick notes by project. Say “start a project called …”, or “for the … project: …” to add to one.
       </p>
 
-      <NoteSearch preset={PROJECT_SEARCH} placeholder="Search projects and their notes…" onActiveChange={setSearching} />
+      <NoteSearch scope={PROJECT_SEARCH} scopeLabel="Projects" stateKey="projects" placeholder="Search projects and their notes…" onActiveChange={setSearching} />
 
       <div hidden={searching}>
 

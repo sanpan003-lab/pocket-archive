@@ -8,6 +8,7 @@ import { ACTION_FILTERS, canRunActions, runPhoneAction, undoPhoneAction, findCho
 import { timeAgo } from '../components/quick/quickMeta';
 import { onQuickChanged } from '../lib/uiBus';
 import NoteSearch from '../components/search/NoteSearch';
+import { loadTab, saveTab } from '../lib/filterState';
 
 const ACTION_SEARCH = { types: ['actions'] };
 import { useLayout } from '../lib/layout';
@@ -66,7 +67,8 @@ function Chooser({ entry, onPick, onClose }) {
 export default function ActionsPage() {
   const { lite } = useLayout();
   const [params, setParams] = useSearchParams();
-  const [filter, setFilter] = useState('');
+  const [filter, setFilterState] = useState(() => loadTab('actions', ACTION_FILTERS.map(f => f.key), ''));
+  const setFilter = k => { setFilterState(k); saveTab('actions', k); };
   const [list, setList] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
@@ -123,7 +125,7 @@ export default function ActionsPage() {
         {!canRunActions && <> <Smartphone size={13} className="inline -mt-0.5" /> Open the Android app to run or undo them.</>}
       </p>
 
-      <NoteSearch preset={ACTION_SEARCH} placeholder="Search actions…" onActiveChange={setSearching} />
+      <NoteSearch scope={ACTION_SEARCH} scopeLabel="Actions" stateKey="actions" placeholder="Search actions…" onActiveChange={setSearching} />
 
       <div hidden={searching}>
       <div className="overflow-x-auto -mx-1 px-1 mb-4">

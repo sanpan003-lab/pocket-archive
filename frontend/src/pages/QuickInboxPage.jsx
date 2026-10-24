@@ -15,6 +15,7 @@ import TargetPicker from '../components/quick/TargetPicker';
 import CombineDialog from '../components/quick/CombineDialog';
 import QuickToast from '../components/quick/QuickToast';
 import NoteSearch from '../components/search/NoteSearch';
+import { loadTab, saveTab } from '../lib/filterState';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
 import NoteCard from '../components/quick/NoteCard';
@@ -102,7 +103,10 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
   const [extra, setExtra]     = useState(null);       // opened note that isn't in the list (hidden / brand new)
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
-  const [filter, setFilter]   = useState(() => (sharedOnly ? 'all' : FILTERS.some(f => f.key === settings.behavior.defaultTab) ? settings.behavior.defaultTab : 'all'));
+  const page = sharedOnly ? 'shared' : listsOnly ? 'lists' : 'inbox';
+  const [filter, setFilterState] = useState(() => (single ? 'all'
+    : loadTab('inbox', FILTERS.map(f => f.key), FILTERS.some(f => f.key === settings.behavior.defaultTab) ? settings.behavior.defaultTab : 'all')));
+  const setFilter = useCallback(k => { setFilterState(k); if (!single) saveTab('inbox', k); }, [single]);
   const [sharing, setSharing] = useState(null);       // note whose share sheet is open
   const [sharedProjects, setSharedProjects] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -213,7 +217,8 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
     () => Object.fromEntries(FILTERS.map(f => [f.key, shown.filter(f.test).length])),
     [shown],
   );
-  const [docCat, setDocCat] = useState(null);
+  const [docCat, setDocCatState] = useState(() => loadTab('inbox-doc', CATEGORIES, null));
+  const setDocCat = useCallback(k => { setDocCatState(k); saveTab('inbox-doc', k || ''); }, []);
   const docCats = useMemo(() => {
     const c = {};
     for (const n of shown) if (!n.undone && n.document?.type && n.document.status !== 'off') c[n.document.category || 'Documents'] = (c[n.document.category || 'Documents'] || 0) + 1;
@@ -404,7 +409,8 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
   }
 
   const selectedNotes = notes.filter(n => selected.has(n.id));
-  const side = openNote && openMode === 'side';
+  // While search results show, a note opens floating (the side panel lives in the hidden list)
+  const side = openNote && openMode === 'side' && !searching;
   const width = side ? 'max-w-7xl' : layout === 'grid' ? 'max-w-6xl' : 'max-w-3xl';
 
   const cardProps = note => ({
@@ -463,7 +469,7 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
   const viewProps = openNote && {
     note: openNote,
     projectName: openNote.projectId ? projectNames[openNote.projectId] : null,
-    style: settings.opening.style,
+    style: searching && openMode === 'side' ? 'card' : settings.opening.style,
     onClose: closeNote, onPrev, onNext, onAction, onChanged: replace, onReload: load,
     busy: busy?.id === openNote.id ? busy.kind : null,
     arrivalReady: arrival.ready,
@@ -478,15 +484,18 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
         {!single && <QuickTabs reviewCount={counts.review} />}
       </div>
 
-      {/* Search this page (Shared → shared with me, Lists → lists, Documents tab → documents) */}
+      {/* Search this page: the tab you're on is its scope (the same rules as the list below); its own saved filters */}
       {(() => {
-        const kind = sharedOnly ? 'shared' : listsOnly ? 'lists' : filter === 'documents' ? 'documents' : 'all';
-        const preset = { shared: { scope: 'shared' }, lists: { types: ['lists'] }, documents: { types: ['documents'] }, all: {} }[kind];
-        const placeholder = { shared: 'Search shared with me…', lists: 'Search lists…', documents: 'Search documents — store, total…', all: 'Search notes, lists, documents…' }[kind];
-        return <NoteSearch key={kind} preset={preset} placeholder={placeholder} onActiveChange={setSearching} />;
+        const tab = listsOnly ? 'lists' : filter;
+        const scope = sharedOnly ? { scope: 'shared', tab: 'all' } : { tab, actions: !!s.showActions };
+        const tabLabel = sharedOnly ? 'Shared with me' : listsOnly ? 'Lists' : filter === 'all' ? null : FILTERS.find(f => f.key === filter)?.label;
+        const placeholder = sharedOnly ? 'Search shared with me…' : listsOnly ? 'Search lists…'
+          : filter === 'documents' ? 'Search documents — store, total…' : tabLabel ? `Search ${tabLabel.toLowerCase()}…` : 'Search notes, lists, documents…';
+        return <NoteSearch scope={scope} scopeLabel={tabLabel} stateKey={page} placeholder={placeholder} onActiveChange={setSearching} resultsHidden={!!(inline && (routeId || focusId))} />;
       })()}
 
-      <div hidden={searching}>
+      {/* "Expand in place" opens a note in the list: show the list for it; Back shows the results again */}
+      <div hidden={searching && !(inline && (routeId || focusId))}>
 
       {sharedOnly && (
         <>

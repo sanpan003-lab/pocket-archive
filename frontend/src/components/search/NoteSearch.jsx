@@ -9,39 +9,29 @@ import { useLayout } from '../../lib/layout';
 import { DOC_TYPES } from '../../lib/documents';
 import { getRecent, addRecent, removeRecent, clearRecent } from '../../lib/recentSearches';
 import { useVoiceSearch } from '../../lib/voiceSearch';
+import { EMPTY_FILTERS, loadFilters, saveFilters, loadQuery, saveQuery } from '../../lib/filterState';
+import { paramsOf, RANGES } from '../../lib/searchParams';
 import { QUICK_TYPES, timeAgo } from '../quick/quickMeta';
 import Highlight from '../Highlight';
 
 const GROUPS = [
   ['notes', 'Notes'], ['lists', 'Lists'], ['documents', 'Documents'], ['projects', 'Projects'], ['actions', 'Actions'], ['recordings', 'Recordings'],
 ];
-const RANGES = [['any', 'Any time'], ['today', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days'], ['year', 'This year'], ['custom', 'Pick dates']];
+const GROUP_LABEL = Object.fromEntries(GROUPS);
+const RANGE_LABEL = Object.fromEntries(RANGES);
 const CATEGORIES = [...new Set(Object.values(DOC_TYPES).map(t => t.category))];
-const EMPTY = { types: [], range: 'any', from: '', to: '', project: '', scope: 'all', attach: false, category: '', status: '' };
-const day = d => d.toLocaleDateString('en-CA');
-
-function rangeDates(f) {
-  const now = new Date();
-  if (f.range === 'today') return { from: day(now) };
-  if (f.range === 'week') return { from: day(new Date(now - 6 * 86400000)) };
-  if (f.range === 'month') return { from: day(new Date(now - 29 * 86400000)) };
-  if (f.range === 'year') return { from: `${now.getFullYear()}-01-01` };
-  if (f.range === 'custom') return { from: f.from || undefined, to: f.to || undefined };
-  return {};
+/** Your filters as removable chips: [{ key, label, clear(f) → f }] */
+function activeChips(f, projectName) {
+  const out = [];
+  for (const t of f.types) out.push({ key: `type-${t}`, label: GROUP_LABEL[t] || t, clear: x => ({ ...x, types: x.types.filter(y => y !== t) }) });
+  if (f.range !== 'any') out.push({ key: 'range', label: f.range === 'custom' ? `${f.from || '…'} – ${f.to || '…'}` : RANGE_LABEL[f.range], clear: x => ({ ...x, range: 'any', from: '', to: '' }) });
+  if (f.project) out.push({ key: 'project', label: f.project === 'none' ? 'Not in a project' : `📁 ${projectName(f.project) || 'Project'}`, clear: x => ({ ...x, project: '' }) });
+  if (f.scope !== 'all') out.push({ key: 'scope', label: f.scope === 'mine' ? 'Mine' : 'Shared with me', clear: x => ({ ...x, scope: 'all' }) });
+  if (f.attach) out.push({ key: 'attach', label: 'Has attachment', clear: x => ({ ...x, attach: false }) });
+  if (f.category) out.push({ key: 'category', label: f.category, clear: x => ({ ...x, category: '' }) });
+  if (f.status) out.push({ key: 'status', label: f.status === 'done' ? 'Done' : 'Open', clear: x => ({ ...x, status: '' }) });
+  return out;
 }
-
-/** The /api/find query for the words + filters (undefined values are left out) */
-function paramsOf(q, f, archive) {
-  const p = {
-    q: q.trim() || undefined, type: f.types.length ? f.types.join(',') : undefined, ...rangeDates(f),
-    project: f.project || undefined, scope: f.scope !== 'all' ? f.scope : undefined, attach: f.attach ? '1' : undefined,
-    category: f.category || undefined, status: f.status || undefined, recordings: archive ? '1' : undefined,
-  };
-  return Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined && v !== ''));
-}
-
-const filterCount = f => (f.types.length ? 1 : 0) + (f.range !== 'any' ? 1 : 0) + (f.project ? 1 : 0) + (f.scope !== 'all' ? 1 : 0)
-  + (f.attach ? 1 : 0) + (f.category ? 1 : 0) + (f.status ? 1 : 0);
 
 function whenLabel(iso) {
   if (!iso) return '';
@@ -76,7 +66,7 @@ function Result({ r, terms, onOpen }) {
   ].filter(Boolean);
   return (
     <li>
-      <button type="button" onClick={() => onOpen(r)} data-search-result={r.kind}
+      <button type="button" onClick={() => onOpen(r)} data-search-result={r.kind} data-id={r.id}
         className="quick-card w-full text-left flex items-start gap-3 px-3.5 py-3 min-h-[56px] hover:border-gold-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold-500">
         <span className="w-6 shrink-0 flex justify-center mt-0.5"><ResultIcon r={r} /></span>
         <span className="flex-1 min-w-0">
@@ -106,21 +96,23 @@ function Chip({ on, onClick, children, label }) {
   );
 }
 
-function Filters({ f, setF, preset, archive }) {
-  const [projects, setProjects] = useState(null);
-  useEffect(() => { getProjects().then(l => setProjects(Array.isArray(l) ? l : [])).catch(() => setProjects([])); }, []);
+function Filters({ f, setF, scope, archive, projects }) {
   const toggleType = t => setF(x => ({ ...x, types: x.types.includes(t) ? x.types.filter(y => y !== t) : [...x.types, t] }));
-  const types = GROUPS.filter(([k]) => (k !== 'recordings' || archive) && (k !== 'actions' || preset.types?.includes('actions')));
+  // Type chips: only kinds this page can show (the Actions page shows actions only, so no type chips there)
+  const types = GROUPS.filter(([k]) => (scope.types ? scope.types.includes(k)
+    : k !== 'actions' && (k !== 'recordings' || archive)));
   const label = 'text-[11px] font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mb-1.5';
   return (
     <div className="mt-2 rounded-2xl border border-navy-100 dark:border-white/10 p-3 space-y-3 bg-white/60 dark:bg-white/[0.03]" data-search-filters="">
-      <div>
-        <p className={label}>Type</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Chip on={!f.types.length} onClick={() => setF(x => ({ ...x, types: [] }))}>All</Chip>
-          {types.map(([k, l]) => <Chip key={k} on={f.types.includes(k)} onClick={() => toggleType(k)}>{l}</Chip>)}
+      {types.length > 1 && (
+        <div>
+          <p className={label}>Type</p>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip on={!f.types.length} onClick={() => setF(x => ({ ...x, types: [] }))}>All</Chip>
+            {types.map(([k, l]) => <Chip key={k} on={f.types.includes(k)} onClick={() => toggleType(k)}>{l}</Chip>)}
+          </div>
         </div>
-      </div>
+      )}
       <div>
         <p className={label}>When</p>
         <div className="flex flex-wrap gap-1.5">
@@ -151,12 +143,14 @@ function Filters({ f, setF, preset, archive }) {
         </label>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
-        <div>
-          <p className={label}>Whose</p>
-          <div className="flex flex-wrap gap-1.5">
-            {[['all', 'All'], ['mine', 'Mine'], ['shared', 'Shared with me']].map(([k, l]) => <Chip key={k} on={f.scope === k} onClick={() => setF(x => ({ ...x, scope: k }))}>{l}</Chip>)}
+        {scope.scope !== 'shared' && (
+          <div>
+            <p className={label}>Whose</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[['all', 'All'], ['mine', 'Mine'], ['shared', 'Shared with me']].map(([k, l]) => <Chip key={k} on={f.scope === k} onClick={() => setF(x => ({ ...x, scope: k }))}>{l}</Chip>)}
+            </div>
           </div>
-        </div>
+        )}
         <div>
           <p className={label}>Status</p>
           <div className="flex flex-wrap gap-1.5">
@@ -175,34 +169,52 @@ function Filters({ f, setF, preset, archive }) {
 /**
  * Search your notes, lists, documents, projects (+ shared with you; recordings for the archive admin).
  * variant: 'bar' (top of a page — onActiveChange hides the page while results show), 'overlay' (global), 'page'.
- * preset: filters this page starts with (e.g. { types: ['documents'] } on Documents, { scope: 'shared' } on Shared).
+ * scope: what this page is about, fixed (not a filter you can remove): { types } (Actions, Projects),
+ *   { tab, actions } (an Inbox tab — the same rules as its list), { scope: 'shared' } (Shared with me).
+ *   scopeLabel names it ("Searching Events").
+ * stateKey: this page's own saved filters (lib/filterState) — kept until cleared, also after opening a note and Back.
  */
-export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, onActiveChange, onClose, autoFocus = false }) {
+export default function NoteSearch({
+  variant = 'bar', scope: scopeProp, scopeLabel, stateKey, placeholder, onActiveChange, onClose, autoFocus = false,
+  resultsHidden = false, recordings = false,
+}) {
   const navigate = useNavigate();
   const { archive } = useLayout();
-  const base = useMemo(() => ({ ...EMPTY, ...preset }), [preset]);
-  const [q, setQ] = useState('');
-  const [f, setF] = useState(base);
+  const scopeKey = JSON.stringify(scopeProp || {});
+  const scope = useMemo(() => JSON.parse(scopeKey), [scopeKey]);
+  const [q, setQ] = useState(() => (stateKey ? loadQuery(stateKey) : ''));
+  const [f, setF] = useState(() => (stateKey ? loadFilters(stateKey) : EMPTY_FILTERS));
   const [showFilters, setShowFilters] = useState(false);
   const [focused, setFocused] = useState(autoFocus);
   const [recent, setRecent] = useState(getRecent);
   const [data, setData] = useState(null);      // { key, res } | { key, error }
   const [more, setMore] = useState({});
+  const [projects, setProjects] = useState(null);
   const input = useRef(null);
   const blurTimer = useRef(null);
 
-  const presetCount = filterCount(base);
-  const count = filterCount(f);
-  const changedFilters = JSON.stringify(f) !== JSON.stringify(base);
-  const active = q.trim().length >= 2 || (changedFilters && count > 0);
-  const params = useMemo(() => paramsOf(q, f, archive), [q, f, archive]);
+  // This page's filters are saved for this page only
+  useEffect(() => { if (stateKey) saveFilters(stateKey, f); }, [stateKey, f]);
+  useEffect(() => { if (stateKey) saveQuery(stateKey, q); }, [stateKey, q]);
+
+  const chips = activeChips(f, id => projects?.find(p => p.id === id)?.name);
+  const count = chips.length;
+  // Names for the project chip (and the Filters list)
+  useEffect(() => {
+    if (!showFilters && !f.project) return;
+    if (projects) return;
+    getProjects().then(l => setProjects(Array.isArray(l) ? l : [])).catch(() => setProjects([]));
+  }, [showFilters, f.project, projects]);
+
+  const active = q.trim().length >= 2 || count > 0;
+  const params = useMemo(() => paramsOf(q, f, scope, recordings && archive), [q, f, scope, recordings, archive]);
   const key = JSON.stringify(params);
 
   useEffect(() => { onActiveChange?.(active); }, [active, onActiveChange]);
 
   // Instant results: 220 ms after the last key, the previous request cancelled
   useEffect(() => {
-    if (!active) return undefined;
+    if (!active || !params) return undefined;
     const ctl = new AbortController();
     const t = setTimeout(() => {
       findNotes(params, ctl.signal)
@@ -213,24 +225,23 @@ export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, 
   }, [active, key, params]);
 
   const voice = useVoiceSearch(useCallback(text => { setQ(text); setRecent(addRecent(text)); input.current?.focus(); }, []));
-  const res = data?.key === key ? data.res : null;
-  const error = data?.key === key ? data.error : null;
+  const impossible = active && !params;
+  const res = impossible ? { groups: {}, terms: [], suggestions: [] } : data?.key === key ? data.res : null;
+  const error = !impossible && data?.key === key ? data.error : null;
   const loading = active && !res && !error;
   const terms = res?.terms || [];
   const total = res ? GROUPS.reduce((n, [g]) => n + (res.groups[g]?.length || 0), 0) : 0;
 
   function open(r) {
     if (q.trim().length >= 2) setRecent(addRecent(q));
-    // A page's own bar: back to the page with the note open
-    if (variant === 'bar') { setQ(''); setF(base); setMore({}); }
     onClose?.();
     navigate(pathOf(r));
   }
-  function clearAll() { setQ(''); setF(base); setMore({}); input.current?.focus(); }
+  const clearFilters = () => { setF(EMPTY_FILTERS); setMore({}); };
   function onKeyDown(e) {
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (q || changedFilters) clearAll();
+      if (q) setQ('');
       else if (onClose) onClose();
       else input.current?.blur();
     } else if (e.key === 'Enter') {
@@ -240,16 +251,17 @@ export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, 
   }
 
   const showIdle = focused && !active;
+  const typesAllowed = t => !scope.types || scope.types.includes(t);
   const shortcuts = [
-    ['Receipts', () => setF(x => ({ ...x, category: 'Receipts' }))],
-    ['Open lists', () => setF(x => ({ ...x, types: ['lists'], status: 'open' }))],
-    ['With attachments', () => setF(x => ({ ...x, attach: true }))],
-    ['This week', () => setF(x => ({ ...x, range: 'week' }))],
-    ['Shared with me', () => setF(x => ({ ...x, scope: 'shared' }))],
-  ].filter(([l]) => !(l === 'Shared with me' && base.scope === 'shared') && !(l === 'Open lists' && base.types.length));
+    ['Receipts', () => setF(x => ({ ...x, category: 'Receipts' })), !scope.types || scope.types.includes('documents')],
+    ['Open lists', () => setF(x => ({ ...x, types: ['lists'], status: 'open' })), typesAllowed('lists') && !scope.tab],
+    ['With attachments', () => setF(x => ({ ...x, attach: true })), true],
+    ['This week', () => setF(x => ({ ...x, range: 'week' })), true],
+    ['Shared with me', () => setF(x => ({ ...x, scope: 'shared' })), scope.scope !== 'shared'],
+  ].filter(([, , ok]) => ok);
 
   return (
-    <div className={variant === 'bar' ? 'mb-4' : ''} data-note-search={variant}>
+    <div className={variant === 'bar' ? 'mb-4' : ''} data-note-search={variant} data-search-scope={scopeLabel || ''}>
       <div className="relative flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
           <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-navy-400 dark:text-white/40 pointer-events-none" />
@@ -269,8 +281,8 @@ export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, 
             onBlur={() => { blurTimer.current = setTimeout(() => setFocused(false), 200); }}
           />
           <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center">
-            {(q || changedFilters) && (
-              <button type="button" className="w-10 h-11 flex items-center justify-center text-navy-400 hover:text-navy-700 dark:text-white/50 dark:hover:text-white" onClick={clearAll} aria-label="Clear search"><X size={17} /></button>
+            {q && (
+              <button type="button" className="w-10 h-11 flex items-center justify-center text-navy-400 hover:text-navy-700 dark:text-white/50 dark:hover:text-white" onClick={() => { setQ(''); input.current?.focus(); }} aria-label="Clear search"><X size={17} /></button>
             )}
             {voice.supported && (
               <button type="button" onClick={voice.start} aria-label={voice.state === 'listening' ? 'Stop listening' : 'Search by voice'} aria-pressed={voice.state === 'listening'}
@@ -281,16 +293,32 @@ export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, 
           </div>
         </div>
         <button type="button" onClick={() => setShowFilters(s => !s)} aria-expanded={showFilters} aria-label={`Filters${count ? ` (${count} on)` : ''}`}
-          className={`relative shrink-0 w-11 h-11 rounded-xl border flex items-center justify-center ${showFilters || count > presetCount ? 'border-gold-400 bg-gold-500/10 text-gold-700 dark:text-gold-300' : 'border-navy-200 dark:border-white/15 text-navy-500 dark:text-white/60'}`}>
+          className={`relative shrink-0 w-11 h-11 rounded-xl border flex items-center justify-center ${showFilters || count ? 'border-gold-400 bg-gold-500/10 text-gold-700 dark:text-gold-300' : 'border-navy-200 dark:border-white/15 text-navy-500 dark:text-white/60'}`}>
           <SlidersHorizontal size={17} />
           {count > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-gold-500 text-[11px] font-bold text-white flex items-center justify-center">{count}</span>}
         </button>
       </div>
       {voice.error && <p className="text-xs text-red-600 dark:text-red-400 mt-1.5" role="alert">{voice.error}</p>}
-      {showFilters && <Filters f={f} setF={setF} preset={base} archive={archive} />}
+      {showFilters && <Filters f={f} setF={setF} scope={scope} archive={recordings && archive} projects={projects} />}
+
+      {/* Active filters: chips (✕ removes one), the result count, Clear filters */}
+      {active && !resultsHidden && (count > 0 || scopeLabel) && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2" data-active-filters="">
+          {scopeLabel && <span className="text-xs text-navy-500 dark:text-white/55 mr-0.5" data-scope-label="">In {scopeLabel}</span>}
+          {chips.map(c => (
+            <button key={c.key} type="button" onClick={() => setF(c.clear)} data-filter-chip={c.key}
+              className="inline-flex items-center gap-1 min-h-[32px] pl-2.5 pr-1.5 rounded-lg bg-gold-500/15 border border-gold-400/60 text-xs font-semibold text-gold-800 dark:text-gold-200"
+              aria-label={`Remove filter ${c.label}`}>
+              {c.label} <X size={13} />
+            </button>
+          ))}
+          {res && <span className="text-xs text-navy-500 dark:text-white/55 ml-1" data-result-count={total}>{total} result{total === 1 ? '' : 's'}</span>}
+          {count > 0 && <button type="button" className="text-xs font-semibold text-gold-700 dark:text-gold-300 min-h-[32px] px-1.5 underline" onClick={clearFilters} data-clear-filters="">Clear filters</button>}
+        </div>
+      )}
 
       {/* Completions from your own data */}
-      {active && res?.suggestions?.length > 0 && (
+      {active && !resultsHidden && res?.suggestions?.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1 -mx-1 px-1" aria-label="Suggestions">
           {res.suggestions.map(s => (
             <button key={s.text} type="button" className="shrink-0 min-h-[32px] px-2.5 rounded-lg bg-navy-50 dark:bg-white/5 text-xs text-navy-700 dark:text-white/75 hover:bg-gold-500/10"
@@ -327,14 +355,19 @@ export default function NoteSearch({ variant = 'bar', preset = {}, placeholder, 
         </div>
       )}
 
-      {active && (
+      {active && !resultsHidden && (
         <div className="mt-3" aria-live="polite" data-search-results="">
           {loading && <p className="flex items-center gap-2 text-sm text-navy-500 dark:text-white/55 py-3"><Loader2 size={15} className="animate-spin" /> Searching…</p>}
           {error && <p className="text-sm text-red-600 dark:text-red-400 py-3" role="alert">{error}</p>}
           {res && total === 0 && (
-            <div className="glass-card p-6 text-center">
-              <p className="font-semibold text-navy-900 dark:text-white">{q.trim() ? <>Nothing matches “{q.trim()}”</> : 'Nothing matches these filters'}</p>
-              <p className="text-sm text-navy-500 dark:text-white/50 mt-1">Try fewer words{count > presetCount ? ' or clear a filter' : ''}.</p>
+            <div className="glass-card p-6 text-center" data-no-matches="">
+              <p className="font-semibold text-navy-900 dark:text-white">No matches</p>
+              <p className="text-sm text-navy-500 dark:text-white/50 mt-1">
+                {q.trim() ? <>Nothing {scopeLabel ? `in ${scopeLabel} ` : ''}matches “{q.trim()}”{count ? ' with these filters' : ''}.</> : 'Nothing matches these filters.'}
+              </p>
+              {count > 0
+                ? <button type="button" className="btn-white text-sm mt-3" onClick={clearFilters} data-clear-filters="">Clear filters</button>
+                : <p className="text-sm text-navy-500 dark:text-white/50 mt-1">Try fewer words.</p>}
             </div>
           )}
           {res && GROUPS.map(([g, label]) => {

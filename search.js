@@ -40,7 +40,24 @@ function hasWord(text, t) {
   return -1;
 }
 
-const kindOf = n => (n.type === 'action' ? 'actions' : n.document?.type ? 'documents' : n.format === 'list' || (n.items || []).length ? 'lists' : 'notes');
+const kindOf = n => (n.type === 'action' ? 'actions' : n.document?.type ? 'documents'
+  : n.type === 'errand' || n.format === 'list' || (n.items || []).length ? 'lists' : 'notes');
+
+// The Inbox tabs (and the Lists page), exactly as the web app filters its list (QuickInboxPage FILTERS / LISTS):
+// a search on a tab returns what that tab shows. m = an entry's meta.
+const TABS = {
+  all:       m => !m.undone,
+  shared:    m => !m.undone && m.shared,
+  review:    m => !m.undone && m.status === 'needs_review',
+  event:     m => !m.undone && m.type === 'event',
+  reminder:  m => !m.undone && m.type === 'reminder',
+  errand:    m => !m.undone && m.type === 'errand',
+  projects:  m => !m.undone && !!m.projectId,
+  notes:     m => !m.undone && (m.type === 'note' || m.type === 'note_link'),
+  documents: m => !m.undone && !!m.document && !m.docOff,
+  undone:    m => m.undone,
+  lists:     m => !m.undone && (m.type === 'errand' || m.format === 'list'),
+};
 const isDone = n => !!(n.errandDone || n.done || n.completed) || (n.format === 'list' && (n.items || []).length > 0 && n.items.every(i => i.done));
 
 /** One note → its index entry */
@@ -62,7 +79,7 @@ function entryFor(n) {
   return {
     id: n.id,
     kind: kindOf(n),
-    hidden: !!(n.undone || n.hidden || n.kind === 'append'),
+    hidden: !!(n.hidden || n.kind === 'append'),
     fields,
     meta: {
       title: n.title || 'Untitled', type: n.type || 'note', format: n.format || null, source: n.source || null,
@@ -70,6 +87,7 @@ function entryFor(n) {
       hasMedia: !!n.media, attachments: (n.attachments || []).length,
       document: n.document?.type ? { type: n.document.type, category: n.document.category || DOC_TYPES[n.document.type]?.category || null, label: DOC_TYPES[n.document.type]?.label || null, icon: DOC_TYPES[n.document.type]?.icon || null } : null,
       done: isDone(n),
+      undone: !!n.undone, status: n.status || null, shared: !!(n.sharedWith || []).length, docOff: n.document?.status === 'off',
       merchant: n.document?.fields?.merchant || n.document?.fields?.company || n.document?.fields?.store || null,
     },
   };
@@ -142,6 +160,8 @@ function parseFilters(qs) {
     attach: qs.attach === '1' || qs.attach === 'true',
     category: qs.category ? String(qs.category).slice(0, 40) : null,
     status: ['done', 'open'].includes(qs.status) ? qs.status : null,
+    tab: Object.hasOwn(TABS, qs.tab) ? qs.tab : null,
+    actions: qs.actions === '1',     // "Show actions in Inbox" is on (with a tab)
   };
 }
 
@@ -149,7 +169,7 @@ function passes(e, f) {
   const m = e.meta;
   if (f.from && (m.capturedAt || '').slice(0, 10) < f.from) return false;
   if (f.to && (m.capturedAt || '').slice(0, 10) > f.to) return false;
-  if (f.project === 'none' ? m.projectId : f.project && m.projectId !== f.project) return false;
+  if (f.project === 'none' ? m.projectId : f.project === 'any' ? !m.projectId : f.project && m.projectId !== f.project) return false;
   if (f.attach && !m.attachments && !m.hasMedia) return false;
   if (f.category && m.document?.category !== f.category) return false;
   if (f.status === 'done' && !m.done) return false;
@@ -177,14 +197,15 @@ function createSearch({ contexts, sharing, searchRecordings, transcribe }) {
     const q = String(qs.q || '').trim().slice(0, 200);
     const ts = terms(q);
     const f = parseFilters(qs);
-    const filtering = f.from || f.to || f.project || f.attach || f.category || f.status || f.scope !== 'all' || f.types.length;
+    const filtering = f.from || f.to || f.project || f.attach || f.category || f.status || f.scope !== 'all' || f.types.length || f.tab;
     const groups = Object.fromEntries(GROUPS.map(g => [g, []]));
     if (!ts.length && !filtering) return { q, terms: [], groups, total: 0, suggestions: [], tookMs: 0 };
 
     const { notes, ownProjects, sharedProjects } = pool(user.id);
     const projectName = new Map([...ownProjects, ...sharedProjects].map(p => [p.id, p.name]));
-    // Actions (alarms, messages…) are private and only searched on the Actions page (type=actions)
-    const want = g => (g === 'actions' ? f.types.includes('actions') : !f.types.length || f.types.includes(g));
+    // Actions (alarms, messages…) are private: only on the Actions page (type=actions), or on an Inbox tab when
+    // "Show actions in Inbox" is on (tab + actions=1). Everything else never returns them.
+    const want = g => (g === 'actions' ? (f.tab ? f.actions && !f.types.length : f.types.includes('actions')) : !f.types.length || f.types.includes(g));
 
     // Notes, lists, documents
     for (const e of notes) {
@@ -192,6 +213,8 @@ function createSearch({ contexts, sharing, searchRecordings, transcribe }) {
       if (f.scope === 'mine' && e.sharedFrom) continue;
       if (f.scope === 'shared' && !e.sharedFrom) continue;
       if (!passes(e, f)) continue;
+      // Deleted notes only on the Deleted tab; a tab filters like the list does
+      if (f.tab ? !TABS[f.tab](e.sharedFrom ? { ...e.meta, shared: true } : e.meta) : e.meta.undone) continue;
       // The project's name counts as a field of its notes
       const pName = e.meta.projectId && projectName.get(e.meta.projectId);
       const withProject = pName ? { ...e, fields: { ...e.fields, project: { raw: pName, lc: norm(pName) } } } : e;
@@ -205,7 +228,7 @@ function createSearch({ contexts, sharing, searchRecordings, transcribe }) {
     }
 
     // Projects (name, aliases, description) — not when filtering by note-only properties
-    if (want('projects') && ts.length && !(f.attach || f.category || f.status || f.from || f.to || f.project)) {
+    if (want('projects') && ts.length && !(f.attach || f.category || f.status || f.from || f.to || (f.project && f.project !== 'any') || f.tab)) {
       for (const [p, shared] of [...ownProjects.map(p => [p, false]), ...sharedProjects.map(p => [p, true])]) {
         if (f.scope === 'mine' && shared) continue;
         if (f.scope === 'shared' && !shared) continue;
@@ -224,7 +247,7 @@ function createSearch({ contexts, sharing, searchRecordings, transcribe }) {
     }
 
     // Hey Pocket recordings: the archive admin only (and only when the Full layout asks)
-    if (want('recordings') && ts.length && qs.recordings === '1' && user.role === 'admin' && f.scope !== 'shared' && searchRecordings) {
+    if (want('recordings') && ts.length && qs.recordings === '1' && user.role === 'admin' && f.scope !== 'shared' && !f.tab && searchRecordings) {
       try {
         // The archive search matches one phrase: the whole query, else its longest word
         let recs = searchRecordings(q);
@@ -298,4 +321,4 @@ function createSearch({ contexts, sharing, searchRecordings, transcribe }) {
   return { register, find, pool };
 }
 
-module.exports = { createSearch, _internal: { terms, hasWord, entryFor, scoreEntry, snippetOf, parseFilters } };
+module.exports = { createSearch, TABS, _internal: { terms, hasWord, entryFor, scoreEntry, snippetOf, parseFilters } };

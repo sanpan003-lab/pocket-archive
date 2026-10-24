@@ -41,7 +41,7 @@ export default function SearchOverlay() {
           <button type="button" className="shrink-0 w-11 h-11 -ml-2 flex items-center justify-center rounded-xl text-navy-600 dark:text-white/70 hover:bg-black/5 dark:hover:bg-white/10"
             onClick={() => setOpen(false)} aria-label="Close search"><ArrowLeft size={20} /></button>
           <div className="flex-1 min-w-0">
-            <NoteSearch variant="overlay" autoFocus onClose={() => setOpen(false)} placeholder="Search everything…" />
+            <NoteSearch variant="overlay" stateKey="global" recordings autoFocus onClose={() => setOpen(false)} placeholder="Search everything…" />
           </div>
         </div>
       </div>

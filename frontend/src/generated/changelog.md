@@ -5,6 +5,16 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.8.1 — Oct 24, 2026
+
+### Search filters fixed
+- Each page searches what it shows: the **Inbox tab** you’re on (All, Events, Reminders, Documents…), **Lists**, **Shared with me**, **Projects** and **Actions**. The results match the list exactly
+- **Actions** only show up on the Actions page, or in the Inbox when **Show actions in Inbox** is on. Choosing a filter on the Actions page can no longer pull in other notes
+- Every page keeps **its own filters** until you clear them — also after you open a note and go Back, or visit another page and come back
+- Filters work together (a list that’s open *and* from today…). The ones you picked show as **chips** — tap one to remove it — with the number of results and **Clear filters**
+- No results? You see **No matches** with a **Clear filters** button
+- Filters saved by an older version are reset once after this update
+
 ## 2.8.0 — Oct 23, 2026
 
 ### Search your notes
