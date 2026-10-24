@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { History, RefreshCw, Trash2, Watch, Smartphone, ChevronDown } from 'lucide-react';
+import { History, RefreshCw, Trash2, Watch, Smartphone, ChevronDown, RotateCcw } from 'lucide-react';
 import { QuickRecorder } from '../native/quickRecorder';
 
 const SCREEN = { off: 'Screen off', locked: 'Locked', on: 'Unlocked' };
@@ -65,6 +65,39 @@ function Entry({ e }) {
   );
 }
 
+/**
+ * Set aside in the last 30 s (no speech / too short) and still on the phone: Restore here too, so dismissing
+ * the toast never loses it. Counts down; gone when the phone deletes it.
+ */
+function KeptRecordings({ onRestored }) {
+  const [kept, setKept] = useState([]);
+  const [now, setNow] = useState(() => Date.now());
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => { QuickRecorder.getIgnored?.().then(r => setKept(r.kept || [])).catch(() => setKept([])); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { if (!kept.length) return undefined; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [kept.length]);
+  const live = kept.filter(k => k.until > now);
+  if (!live.length && !msg) return null;
+  async function restore(name) {
+    const r = await QuickRecorder.restoreIgnored({ name }).catch(() => null);
+    setMsg(r?.restored ? 'Restored — sending it now' : 'Too late — it was already deleted');
+    load(); onRestored?.();
+  }
+  return (
+    <div className="mb-2 rounded-xl border border-gold-400/50 bg-gold-500/10 px-3 py-2" data-kept-recordings="">
+      {live.map((k, i) => (
+        <div key={k.name} className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 text-xs text-navy-800 dark:text-white/85">
+            {i === 0 ? 'Set aside just now' : 'Also set aside'} — deleted in {Math.max(0, Math.ceil((k.until - now) / 1000))} s
+          </span>
+          <button type="button" className="btn-gold text-xs min-h-[36px] px-3" onClick={() => restore(k.name)}><RotateCcw size={13} /> Restore</button>
+        </div>
+      ))}
+      {msg && <p className="text-xs text-navy-700 dark:text-white/75 mt-1" role="status">{msg}</p>}
+    </div>
+  );
+}
+
 /** Settings → Accidental recordings: the last 20 recording starts, to see what's misfiring */
 export default function RecordingStartsLog() {
   const [entries, setEntries] = useState(null);
@@ -89,6 +122,7 @@ export default function RecordingStartsLog() {
       <p className="text-xs text-navy-500 dark:text-white/50 mb-2">
         What started each recording (phone and watch), how the screen was, the proximity sensor, what was heard, and what happened. Kept on this phone only.
       </p>
+      <KeptRecordings onRestored={load} />
       {text && <p className="text-xs rounded-xl bg-gold-500/10 text-navy-800 dark:text-white/85 px-3 py-2 mb-2">{text}</p>}
       {entries.length === 0
         ? <p className="text-xs text-navy-400 dark:text-white/40">Nothing yet — starts are listed from now on.</p>

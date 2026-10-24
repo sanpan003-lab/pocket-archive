@@ -7,6 +7,9 @@ import { getActions, deleteAction, reportActionResult } from '../lib/api';
 import { ACTION_FILTERS, canRunActions, runPhoneAction, undoPhoneAction, findChoices } from '../lib/phoneActions';
 import { timeAgo } from '../components/quick/quickMeta';
 import { onQuickChanged } from '../lib/uiBus';
+import NoteSearch from '../components/search/NoteSearch';
+
+const ACTION_SEARCH = { types: ['actions'] };
 import { useLayout } from '../lib/layout';
 
 const STATUS = {
@@ -69,6 +72,7 @@ export default function ActionsPage() {
   const [busy, setBusy] = useState(null);
   const [choosing, setChoosing] = useState(null);
   const [toast, setToast] = useState(null);
+  const [searching, setSearching] = useState(false);
   const focus = params.get('focus') || params.get('choose');
 
   const load = useCallback(() => getActions(filter || undefined).then(l => { setList(l); setError(''); }).catch(err => setError(err.message || 'Couldn’t load actions')), [filter]);
@@ -119,6 +123,9 @@ export default function ActionsPage() {
         {!canRunActions && <> <Smartphone size={13} className="inline -mt-0.5" /> Open the Android app to run or undo them.</>}
       </p>
 
+      <NoteSearch preset={ACTION_SEARCH} placeholder="Search actions…" onActiveChange={setSearching} />
+
+      <div hidden={searching}>
       <div className="overflow-x-auto -mx-1 px-1 mb-4">
         <div className="tab-bar w-max">
           {ACTION_FILTERS.map(f => (
@@ -169,6 +176,7 @@ export default function ActionsPage() {
           })}
         </ul>
       )}
+      </div>
       {chooser && <Chooser entry={chooser} onClose={closeChooser} onPick={c => { const e = chooser; closeChooser(); run(e, c); }} />}
     </div>
   );

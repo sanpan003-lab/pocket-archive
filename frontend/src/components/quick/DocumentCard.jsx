@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw, Pencil, Check, X, FolderKanban, BellPlus, UserPlus, AlertTriangle, ChevronDown, Sparkles } from 'lucide-react';
 import {
   getQuickNote, reprocessDocument, editDocument, resolveDocumentConflict, decideDocumentProject, documentReminder,
@@ -8,15 +7,14 @@ import { DOC_TYPES, DOC_FIELDS, money, niceDate, documentActions, saveContact } 
 import { noteRole, isOwner } from '../../lib/sharing';
 import { NOTE_UPDATED } from '../../lib/opsQueue';
 import { notifyQuickChanged } from '../../lib/uiBus';
+import Toast from '../Toast';
 
 const canEdit = note => !note.undone && ['owner', 'edit'].includes(noteRole(note));
 
-function Toast({ text, onDone }) {
-  useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
-  return createPortal(
-    <div className="fixed left-1/2 -translate-x-1/2 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+5rem))] z-[300] rounded-full bg-navy-900 text-white dark:bg-white dark:text-navy-900 text-sm font-medium px-4 py-2 shadow-xl animate-fade-in" role="status">{text}</div>,
-    document.body,
-  );
+/** "Details updated" etc. — the shared toast stack */
+function DocToast({ text, onDone }) {
+  const [id] = useState(() => Date.now());
+  return <Toast toast={{ id, icon: '📄', text, tone: 'neutral', duration: 3500 }} onDismiss={onDone} />;
 }
 
 /** While the document is being read: check again every few seconds */
@@ -106,6 +104,7 @@ export default function DocumentCard({ note, onChanged }) {
   const doc = note.document;
   const [error, setError] = useState('');
   const [toast, setToast] = useState(null);
+  const dismissToast = useCallback(() => setToast(null), []);
   const seen = useRef(doc?.changedAt || null);
   usePendingPoll(note, onChanged);
 
@@ -134,7 +133,7 @@ export default function DocumentCard({ note, onChanged }) {
     return (
       <section className="mb-3 rounded-2xl border border-gold-400/40 bg-gold-500/5 px-3 py-2.5 text-sm text-navy-700 dark:text-white/75 flex items-center gap-2" aria-live="polite">
         <Loader2 size={15} className="animate-spin text-gold-500" /> Reading the document…
-        {toast && <Toast text={toast} onDone={() => setToast(null)} />}
+        {toast && <DocToast key={toast} text={toast} onDone={dismissToast} />}
       </section>
     );
   }
@@ -227,7 +226,7 @@ export default function DocumentCard({ note, onChanged }) {
         </div>
       )}
       {error && <p className="text-xs text-red-500 mt-1.5" role="alert">{error}</p>}
-      {toast && <Toast text={toast} onDone={() => setToast(null)} />}
+      {toast && <DocToast key={toast} text={toast} onDone={dismissToast} />}
     </section>
   );
 }

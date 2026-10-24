@@ -33,3 +33,7 @@ export function onQuickChanged(fn) {
 /** Settings → Welcome tour: open the first-sign-in walkthrough again */
 export const OPEN_WELCOME = 'pa:open-welcome';
 export function openWelcome() { window.dispatchEvent(new Event(OPEN_WELCOME)); }
+
+/** Global search (header search, Ctrl+K, "/") */
+export const OPEN_SEARCH = 'pa:open-search';
+export function openSearch() { window.dispatchEvent(new Event(OPEN_SEARCH)); }

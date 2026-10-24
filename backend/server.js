@@ -528,6 +528,10 @@ app.use('/api/audio', express.static(DIRS.recordings, {
 accounts.registerPrivate(app);
 sharing.register(app);
 
+// Search: your notes + what's shared with you (+ the archive for the admin) — GET /api/find
+const { createSearch } = require('./search');
+createSearch({ contexts, sharing, searchRecordings: q => searchRecordings(q), transcribe: require('./quickCapture').transcribe }).register(app);
+
 // Over-the-air updates for the phone and watch apps (ARCHIVE/_updates, device tokens only)
 const { createUpdates } = require('./updates');
 const updates = createUpdates({ archivePath: ARCHIVE_PATH, users });
@@ -997,39 +1001,43 @@ app.get('/api/recordings/:id/attachments/:filename', (req, res) => {
 
 // ── Search ─────────────────────────────────────────────────────────────────
 
-app.get('/api/search', (req, res) => {
-  const q = (req.query.q || '').trim().toLowerCase();
-  if (q.length < 2) return res.json([]);
+/** Hey Pocket recordings whose title, AI notes, notes or transcript contain q (the admin's archive) */
+function searchRecordings(query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const results = [];
+  for (const id of getAllIds()) {
+    const title = getTitle(id).toLowerCase();
+    let matched = title.includes(q);
+    let snippet = '';
 
-  try {
-    const results = [];
-    for (const id of getAllIds()) {
-      const title = getTitle(id).toLowerCase();
-      let matched = title.includes(q);
-      let snippet = '';
-
-      if (!matched) {
-        const sources = [
-          path.join(DIRS.aiNotes,     `${id}.md`),
-          path.join(DIRS.notes,       `${id}.md`),
-          path.join(DIRS.transcripts, `${id}.md`),
-        ];
-        for (const src of sources) {
-          const raw = readFileSafe(src);
-          if (!raw) continue;
-          const idx = raw.toLowerCase().indexOf(q);
-          if (idx !== -1) {
-            matched = true;
-            const start = Math.max(0, idx - 60);
-            const end   = Math.min(raw.length, idx + 140);
-            snippet = raw.slice(start, end).replace(/\n+/g, ' ').trim();
-            break;
-          }
+    if (!matched) {
+      const sources = [
+        path.join(DIRS.aiNotes,     `${id}.md`),
+        path.join(DIRS.notes,       `${id}.md`),
+        path.join(DIRS.transcripts, `${id}.md`),
+      ];
+      for (const src of sources) {
+        const raw = readFileSafe(src);
+        if (!raw) continue;
+        const idx = raw.toLowerCase().indexOf(q);
+        if (idx !== -1) {
+          matched = true;
+          const start = Math.max(0, idx - 60);
+          const end   = Math.min(raw.length, idx + 140);
+          snippet = raw.slice(start, end).replace(/\n+/g, ' ').trim();
+          break;
         }
       }
-      if (matched) results.push({ ...buildMeta(id), snippet });
     }
-    res.json(results);
+    if (matched) results.push({ ...buildMeta(id), snippet });
+  }
+  return results;
+}
+
+app.get('/api/search', (req, res) => {
+  try {
+    res.json(searchRecordings(req.query.q));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

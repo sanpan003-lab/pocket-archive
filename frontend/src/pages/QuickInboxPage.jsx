@@ -14,6 +14,7 @@ import { useLayout } from '../lib/layout';
 import TargetPicker from '../components/quick/TargetPicker';
 import CombineDialog from '../components/quick/CombineDialog';
 import QuickToast from '../components/quick/QuickToast';
+import NoteSearch from '../components/search/NoteSearch';
 import QuickTabs from '../components/quick/QuickTabs';
 import QuickNoteEditor from '../components/quick/QuickNoteEditor';
 import NoteCard from '../components/quick/NoteCard';
@@ -118,6 +119,7 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
   const [selected, setSelected] = useState(() => new Set());
   const [picker, setPicker] = useState(null);         // { mode: 'merge'|'project', ids }
   const [combining, setCombining] = useState(false);
+  const [searching, setSearching] = useState(false);  // the search bar shows results instead of the list
   const [toast, setToast] = useState(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -476,6 +478,16 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
         {!single && <QuickTabs reviewCount={counts.review} />}
       </div>
 
+      {/* Search this page (Shared → shared with me, Lists → lists, Documents tab → documents) */}
+      {(() => {
+        const kind = sharedOnly ? 'shared' : listsOnly ? 'lists' : filter === 'documents' ? 'documents' : 'all';
+        const preset = { shared: { scope: 'shared' }, lists: { types: ['lists'] }, documents: { types: ['documents'] }, all: {} }[kind];
+        const placeholder = { shared: 'Search shared with me…', lists: 'Search lists…', documents: 'Search documents — store, total…', all: 'Search notes, lists, documents…' }[kind];
+        return <NoteSearch key={kind} preset={preset} placeholder={placeholder} onActiveChange={setSearching} />;
+      })()}
+
+      <div hidden={searching}>
+
       {sharedOnly && (
         <>
           <p className="text-sm text-navy-500 dark:text-white/50 -mt-2 mb-4">
@@ -546,6 +558,7 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
           <NoteView {...viewProps} />
         </div>
       ) : list}
+      </div>
 
       {openNote && !side && <NoteView {...viewProps} />}
 

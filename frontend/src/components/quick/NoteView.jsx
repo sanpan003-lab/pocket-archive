@@ -161,7 +161,7 @@ export default function NoteView({
     return (
       <aside
         ref={panelRef}
-        className="note-surface rounded-3xl border border-navy-100 dark:border-white/10 shadow-xl flex flex-col max-h-[calc(100vh-3rem)] sticky top-6 note-anim-fade"
+        className="note-surface rounded-3xl border border-navy-100 dark:border-white/10 shadow-xl flex flex-col max-h-[calc(100vh-5.5rem)] sticky top-[4.5rem] note-anim-fade"
         style={colorStyle}
         aria-labelledby="note-view-title"
       >

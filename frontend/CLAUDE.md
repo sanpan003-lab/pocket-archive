@@ -166,6 +166,19 @@ inside the Android app (`android/`). The backend lives in
   (@simplewebauthn/browser), Settings → Security `PasskeysBlock`, Login "Sign in with a passkey".
   Browser test uses Chrome's WebAuthn virtual authenticator over CDP (`fftools/passkey-ui.cjs`).
 
+## Search, settings search, toasts (2.8.0) — docs/search.md
+
+- Notes search: `GET /api/find` in backend `search.js` — pool = req.user's store + `sharing.sharedNotes` (+ own/shared
+  projects; recordings only for the admin with `recordings=1`; actions only with `type=actions`). Never widen the
+  pool without a cross-user test (`search-e2e.cjs`). In-memory index per store folder, refreshed by file mtime on
+  each query. Voice: `POST /api/find/voice` (transcribe, nothing saved). Web: `components/search/NoteSearch.jsx`
+  (bar / overlay / page), `SearchOverlay` (header 🔍, Ctrl+K, "/").
+- Settings search: `lib/settingsIndex.js` (add every new setting there, with synonyms and flags), `SettingsSearch.jsx`.
+- Toasts: always `components/Toast.jsx` (or `QuickToast`) — never a hand-made fixed popup. Swipe hook in
+  `lib/swipeDismiss.js`. Stack below the top bar; ✕ 44 px; body taps don't dismiss.
+- `main` in AppLayout is `overflow-x-clip`, not `overflow-auto` (that made `sticky` never stick). Desktop has a
+  sticky header (h-14) now: sticky things go at `top-14` or lower.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

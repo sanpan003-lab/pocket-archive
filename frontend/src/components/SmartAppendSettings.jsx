@@ -34,7 +34,7 @@ export default function SmartAppendSettings() {
   const pct = v => `${Math.round(v * 100)}%`;
 
   return (
-    <div className="glass-panel p-6 mb-4">
+    <div id="smart-append" className="glass-panel p-6 mb-4 scroll-mt-20">
       <div className="flex items-center gap-2 mb-1">
         <Wand2 size={18} className="text-gold-500" />
         <h2 className="font-bold text-navy-900 dark:text-white">Smart append</h2>

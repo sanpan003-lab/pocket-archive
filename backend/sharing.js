@@ -99,6 +99,13 @@ function createSharing({ users, contexts, getConfig }) {
     return [...out.values()];
   }
 
+  /** Projects shared with userId (with sharedFrom) */
+  function sharedProjects(userId) {
+    return allShares().filter(s => s.userId === userId && s.kind === 'project' && active(s.ownerId))
+      .map(s => { const p = ownProject(s.ownerId, s.itemId); return p && { ...p, sharedFrom: { ownerId: s.ownerId, ...personOf(s.ownerId), role: s.role } }; })
+      .filter(Boolean);
+  }
+
   /** For userContext: editable shared notes as a store-like accessor (smart append + errand feeds) */
   function foreignFor(userId) {
     const strip = n => { const { sharedFrom, ...rest } = n; return rest; };
@@ -271,10 +278,7 @@ function createSharing({ users, contexts, getConfig }) {
     // Shared with me
     app.get('/api/shared', (req, res) => {
       const notes = sharedNotes(req.user.id).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-      const projects = allShares().filter(s => s.userId === req.user.id && s.kind === 'project' && active(s.ownerId))
-        .map(s => { const p = ownProject(s.ownerId, s.itemId); return p && { ...p, sharedFrom: { ownerId: s.ownerId, ...personOf(s.ownerId), role: s.role } }; })
-        .filter(Boolean);
-      res.json({ notes, projects });
+      res.json({ notes, projects: sharedProjects(req.user.id) });
     });
 
     // Changes by others since a time (phone background check → widget + notification)
@@ -318,7 +322,7 @@ function createSharing({ users, contexts, getConfig }) {
     return family && isShared(ownerId, note) ? family : fallback;
   }
 
-  return { route, register, foreignFor, noteWritten, isShared, calendarIdFor, publish, sharedNotes, SHARES_PATH };
+  return { route, register, foreignFor, noteWritten, isShared, calendarIdFor, publish, sharedNotes, sharedProjects, SHARES_PATH };
 }
 
 module.exports = { createSharing };

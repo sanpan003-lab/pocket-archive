@@ -2422,6 +2422,7 @@ function createQuickCapture(deps) {
 
 module.exports = {
   createQuickCapture,
+  transcribe,
   // exported for tests
   _internal: {
     applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,

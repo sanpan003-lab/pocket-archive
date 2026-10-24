@@ -20,6 +20,7 @@ import SecuritySettings from '../components/SecuritySettings';
 import CalendarSettings from '../components/CalendarSettings';
 import SharingSettings from '../components/SharingSettings';
 import UsersAdmin from '../components/UsersAdmin';
+import SettingsSearch from '../components/SettingsSearch';
 
 function StatRow({ label, value, icon, accent }) {
   return (
@@ -68,6 +69,8 @@ export default function SettingsPage() {
         <p className="text-sm text-navy-600 dark:text-white/60 mt-1">{archive ? 'Your account, app and server settings' : 'Your account and app settings'}</p>
       </div>
 
+      <SettingsSearch />
+
       {/* ── Admin: Full or Lite layout on this device ───────────────────────── */}
       {isAdmin && (
         <div id="layout" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
@@ -93,7 +96,7 @@ export default function SettingsPage() {
       <NotificationSettings />
 
       {/* ── Backend status (server details: the archive admin) ───────────────── */}
-      {archive && <div className="glass-card p-5 mb-4 flex items-center justify-between gap-4">
+      {archive && <div id="backend" className="glass-card p-5 mb-4 flex items-center justify-between gap-4 scroll-mt-20">
         <div className="flex items-center gap-3">
           {loading ? (
             <div className="w-2.5 h-2.5 rounded-full bg-navy-200 dark:bg-white/20 animate-pulse" />
@@ -118,7 +121,7 @@ export default function SettingsPage() {
       </div>}
 
       {/* ── Archive info (admin) ────────────────────────────────────────────── */}
-      {archive && <div className="glass-panel p-6 mb-4">
+      {archive && <div id="archive" className="glass-panel p-6 mb-4 scroll-mt-20">
         <div className="flex items-center gap-2 mb-5">
           <HardDrive size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Archive</h2>
@@ -165,7 +168,7 @@ export default function SettingsPage() {
       {!lite && <UsersAdmin />}
 
       {/* ── Sync (admin) ────────────────────────────────────────────────────── */}
-      {archive && <div className="glass-panel p-6 mb-4">
+      {archive && <div id="sync" className="glass-panel p-6 mb-4 scroll-mt-20">
         <div className="flex items-center gap-2 mb-4">
           <RefreshCw size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Syncing Recordings</h2>
@@ -199,7 +202,7 @@ export default function SettingsPage() {
           {' '}inside the archive folder.
         </p>
       </div>}
-      <div className="glass-panel p-5 sm:p-6 mb-4">
+      <div id="welcome" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
         <div className="flex items-center gap-2 mb-1">
           <Compass size={18} className="text-gold-500" />
           <h2 className="font-bold text-navy-900 dark:text-white">Welcome tour</h2>

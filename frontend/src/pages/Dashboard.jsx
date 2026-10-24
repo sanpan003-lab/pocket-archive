@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Layers, Headphones, Sparkles,
@@ -8,6 +8,7 @@ import { getRecordings, getStats } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { useAppearance } from '../context/appearanceStore';
 import TimelineView, { TimelineSkeletonRows } from '../components/TimelineView';
+import QuickToast from '../components/quick/QuickToast';
 
 // ── Stat Card ────────────────────────────────────────────────────────────────
 
@@ -114,16 +115,8 @@ export default function Dashboard() {
   const [error, setError]           = useState(null);
   const [activeTab, setActiveTab]   = useState('all');
   const [search, setSearch]         = useState('');
-  const [toast, setToast]           = useState(location.state?.toast || null);
-  const toastTimer                  = useRef(null);
-
-  useEffect(() => {
-    if (toast) {
-      clearTimeout(toastTimer.current);
-      toastTimer.current = setTimeout(() => setToast(null), 3500);
-    }
-    return () => clearTimeout(toastTimer.current);
-  }, [toast]);
+  const [toast, setToast]           = useState(() => (location.state?.toast ? { id: Date.now(), icon: '🗑️', text: location.state.toast, tone: 'success', duration: 3500 } : null));
+  const dismissToast                = useCallback(() => setToast(null), []);
 
   useEffect(() => {
     setLoading(true);
@@ -180,13 +173,7 @@ export default function Dashboard() {
           onClick={() => navigate('/quick/inbox')} />
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-sm font-medium text-white shadow-xl animate-slide-up"
-          style={{ background: 'linear-gradient(135deg,#10B981,#059669)', boxShadow: '0 8px 24px rgba(16,185,129,0.35)' }}>
-          {toast}
-        </div>
-      )}
+      <QuickToast toast={toast} onDismiss={dismissToast} />
 
       {/* Toolbar: tabs + search + view toggle */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-5">

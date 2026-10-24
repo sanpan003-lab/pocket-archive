@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FolderKanban, Plus, Archive, Sparkles } from 'lucide-react';
 import { getProjects, createProject } from '../lib/api';
+import NoteSearch from '../components/search/NoteSearch';
+
+// Projects page search: projects first, and notes found by their project's name
+const PROJECT_SEARCH = { types: ['projects', 'notes', 'lists', 'documents'] };
 import { summaryPreview, timeAgo } from '../components/quick/quickMeta';
 
 /** Projects: named groups of quick notes, each with a living summary. */
@@ -10,6 +14,7 @@ export default function ProjectsPage() {
   const [error, setError] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [name, setName] = useState('');
+  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
@@ -49,6 +54,10 @@ export default function ProjectsPage() {
       <p className="text-sm text-navy-600 dark:text-white/60 mb-4">
         Group quick notes by project. Say “start a project called …”, or “for the … project: …” to add to one.
       </p>
+
+      <NoteSearch preset={PROJECT_SEARCH} placeholder="Search projects and their notes…" onActiveChange={setSearching} />
+
+      <div hidden={searching}>
 
       {!showArchived && (
         <form onSubmit={add} className="flex gap-2 mb-5">
@@ -102,6 +111,7 @@ export default function ProjectsPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -135,6 +135,13 @@ export const quickMediaUrl      = id => withMediaToken(`${API_BASE}/quick/${id}/
 export const restoreQuickNote   = id => http.post(`/quick/${id}/restore`).then(r => r.data);
 export const setQuickMeta       = (id, meta) => http.patch(`/quick/${id}/meta`, meta).then(r => r.data);
 export const searchQuickNotes   = q => http.get('/quick/search', { params: { q } }).then(r => r.data);
+// Search (2.8.0): your notes + shared with you, grouped — { q, terms, groups: { notes, lists, documents, projects, recordings, actions }, suggestions }
+export const findNotes = (params, signal) => http.get('/find', { params, signal }).then(r => r.data);
+export const voiceSearch = blob => {
+  const fd = new FormData();
+  fd.append('audio', blob, /mp4|aac/.test(blob.type) ? 'q.m4a' : /ogg/.test(blob.type) ? 'q.ogg' : 'q.webm');
+  return http.post('/find/voice', fd).then(r => r.data);
+};
 // Attachments on a note (photos, scans, any file ≤ 25 MB) — returns the updated note
 export function uploadNoteAttachment(noteId, file, { name, thumb, source = 'file', pages, read } = {}, onProgress) {
   const fd = new FormData();

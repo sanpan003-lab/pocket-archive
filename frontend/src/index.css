@@ -588,3 +588,36 @@ html[data-theme="black"] .note-surface { background: #000; border: 1px solid rgb
   -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
 }
+
+/* ─── Toasts (components/Toast.jsx): one stack below the top bar; taps pass through around the toasts ─── */
+.toast-stack {
+  position: fixed; z-index: 250; left: 0; right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + 3.5rem + .5rem);   /* under the mobile top bar */
+  display: flex; flex-direction: column; align-items: center; gap: .5rem;
+  padding: 0 1rem; pointer-events: none;
+}
+.toast-stack > :nth-last-child(n+4) { display: none; }   /* the newest three */
+@media (min-width: 768px) {
+  /* Desktop: under the header, centred over the page (right of the sidebar) */
+  .toast-stack { left: var(--sidebar-w, 0px); }
+}
+.toast-card { animation: toast-in .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+html[data-motion="reduced"] .toast-card, html[data-motion="off"] .toast-card { animation: none; }
+@media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .toast-card { animation: none; } }
+
+/* ─── Search (2.8.0) ─────────────────────────────────────────────────────── */
+.search-mark { background: rgb(var(--accent-500) / .28); color: inherit; border-radius: 3px; padding: 0 1px; }
+.dark .search-mark { background: rgb(var(--accent-500) / .38); }
+/* Settings search: pinned under the mobile top bar, frosted like it */
+.settings-search-bar { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: rgba(248, 250, 252, .94); }
+.dark .settings-search-bar { background: rgba(0, 0, 0, .94); }
+.settings-search-bar .search-input { background: #FFFFFF; }
+.dark .settings-search-bar .search-input { background: #141418; }
+/* The setting you jumped to */
+@keyframes setting-flash { 0%, 60% { box-shadow: 0 0 0 3px rgb(var(--accent-500) / .9); background-color: rgb(var(--accent-500) / .14); } 100% { box-shadow: 0 0 0 3px rgb(var(--accent-500) / 0); background-color: transparent; } }
+.setting-flash { animation: setting-flash 2.4s ease-out; border-radius: .75rem; scroll-margin: 8rem; }
+html[data-motion="reduced"] .setting-flash, html[data-motion="off"] .setting-flash { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent-500) / .9); background-color: rgb(var(--accent-500) / .14); }
+@media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .setting-flash { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent-500) / .9); background-color: rgb(var(--accent-500) / .14); } }
+/* Our own ✕ in search boxes: hide the browser's */
+input[type="search"]::-webkit-search-cancel-button, input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -236,9 +237,20 @@ class QuickRecorderPlugin : Plugin() {
         call.resolve()
     }
 
-    /** "Restore" on the in-app toast after a recording was set aside (no speech / too short) */
+    /** "Restore" on the in-app toast (the newest) or in the Accidental recordings log ({ name }) */
     @PluginMethod
-    fun restoreIgnored(call: PluginCall) = call.resolve(JSObject().put("restored", AccidentalStore.restoreLatest(context)))
+    fun restoreIgnored(call: PluginCall) {
+        val name = call.getString("name")
+        call.resolve(JSObject().put("restored", if (name.isNullOrBlank()) AccidentalStore.restoreLatest(context) else AccidentalStore.restore(context, name)))
+    }
+
+    /** Recordings set aside in the last 30 s that can still be restored: { kept: [{ name, until }] } */
+    @PluginMethod
+    fun getIgnored(call: PluginCall) {
+        val arr = JSArray()
+        for ((name, until) in AccidentalStore.kept(context)) arr.put(JSObject().put("name", name).put("until", until))
+        call.resolve(JSObject().put("kept", arr))
+    }
 
     // ── Over-the-air updates (Settings → About, banner) ──────────────────────
 

@@ -203,7 +203,7 @@ export default function AppearanceSettings() {
         Saved to your account and shared across devices — or pick “This device” for a group (e.g. a different layout on the phone).
       </p>
 
-      <div className="md:sticky md:top-2 z-10 mb-3"><Preview /></div>
+      <div className="md:sticky md:top-[8.5rem] z-10 mb-3"><Preview /></div>
 
       <Group group="opening">
         <Segmented id="ap-style" label="Note opening style" value={opening.style} options={OPTIONS.style} onChange={set('opening', 'style')} />

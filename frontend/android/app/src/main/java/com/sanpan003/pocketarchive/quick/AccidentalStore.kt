@@ -55,6 +55,7 @@ object AccidentalStore {
         if (recording == null || !recording.exists() || recording.length() == 0L) { recording?.delete(); return }
         val kept = File(dir(app), recording.name)
         if (!recording.renameTo(kept)) { recording.copyTo(kept, overwrite = true); recording.delete() }
+        kept.setLastModified(System.currentTimeMillis())   // = when it was set aside (see kept())
         notify(app, kept, text)
         main.postDelayed({
             if (kept.exists()) kept.delete()
@@ -72,6 +73,11 @@ object AccidentalStore {
         WidgetState.uploading(ctx)
         return true
     }
+
+    /** Still kept (Settings → Accidental recordings → Restore, after the toast is gone): name → deleted at (ms) */
+    fun kept(ctx: Context): List<Pair<String, Long>> =
+        dir(ctx).listFiles()?.filter { it.isFile && it.length() > 0 }?.sortedByDescending { it.lastModified() }
+            ?.map { it.name to it.lastModified() + KEEP_MS }?.filter { it.second > System.currentTimeMillis() } ?: emptyList()
 
     /** The app's "Restore" (in-app toast): the newest one still kept */
     fun restoreLatest(ctx: Context): Boolean {

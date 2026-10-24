@@ -5,6 +5,29 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.8.0 — Oct 23, 2026
+
+### Search your notes
+- A **search bar** at the top of Inbox, Lists, Shared with me, Documents, Projects and Actions, and a **search button in the header** (Ctrl+K on a computer) that searches everything
+- Finds titles, AI summaries, transcripts, typed text, checklist items, document details (store, total, due date…), attachment names, text read from photos and scans, project names and places
+- Results appear as you type, grouped into **Notes, Lists, Documents, Projects** (and Recordings for the archive), with the matching words highlighted
+- **Filters:** type, date (today, last 7 or 30 days, this year, or pick dates), project, mine or shared with me, has an attachment, document category (Receipts, Bills…), open or done
+- **Recent searches** on each device (clear them any time) and suggestions as you type
+- Tap the **mic** to search by voice
+- You only ever see your own notes and what people shared with you
+
+### Search settings
+- **Search settings…** stays at the top of Settings. Try “fingerprint”, “dark”, “volume”, “update”, “password” or “watch”
+- Each result shows where it lives, like *Security › Lock app with fingerprint*. Tap it to jump there; the setting lights up for a moment
+- Only settings you can actually use are shown (phone or web, Lite or Full). On a computer, **/** jumps to the box and **Esc** clears it
+
+### Pop-ups you can dismiss
+- Every pop-up message has an **✕** in the corner. You can also **swipe it up or sideways**; tapping the message itself no longer closes it by accident
+- Pop-ups sit below the top bar, stack neatly when there are several, and never block the rest of the screen
+- **Undo** and **Restore** stay available after a pop-up is gone: deleted notes are in **Deleted** with Restore, and a recording set aside for no speech can be restored for 30 seconds from **Settings › Accidental recordings**
+- The update banner also has an ✕ (it comes back the next time you open the app; **Later** waits for the next version)
+- Follows your animation setting (reduced motion), in light and dark
+
 ## 2.7.0 — Oct 23, 2026
 
 ### Lock the app with your fingerprint

@@ -255,7 +255,7 @@ export default function QuickCapturePage() {
       setMessage("Didn't hear anything — tap to try again");
       warn("I didn't hear anything.");
       // Set aside for 30 s (accidental-recording protection): Restore keeps it as a normal capture
-      setToast({ id: Date.now(), icon: '🎙️', text: 'No speech — set aside for 30 s', tone: 'review', duration: 30000,
+      setToast({ id: Date.now(), icon: '🎙️', text: 'No speech — set aside for 30 s', detail: 'Restore it here or in Settings › Accidental recordings', tone: 'review', duration: 30000,
         actions: [{ label: 'Restore', onClick: async () => { const r = await QuickRecorder.restoreIgnored().catch(() => null); setToast({ id: Date.now(), icon: r?.restored ? '↩️' : '⚠️', text: r?.restored ? 'Restored — sending it now' : 'Nothing left to restore', tone: r?.restored ? 'success' : 'review' }); } }] });
     },
     onError: ({ message: m } = {}) => {
