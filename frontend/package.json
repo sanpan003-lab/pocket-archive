@@ -1,19 +1,20 @@
 {
   "name": "pocket-archive",
   "private": true,
-  "version": "2.8.1",
+  "version": "2.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/changelog.mjs",
+    "prebuild": "node scripts/changelog.mjs && node scripts/shared-code.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:android": "node scripts/changelog.mjs && vite build --mode android && cap sync android && node scripts/android-config.mjs",
+    "build:android": "node scripts/changelog.mjs && node scripts/shared-code.mjs && vite build --mode android && cap sync android && node scripts/android-config.mjs",
     "icons": "node scripts/icons/build.mjs",
     "icons:design": "node scripts/icons/design.mjs",
     "icons:preview": "node scripts/icons/preview.mjs",
-    "changelog": "node scripts/changelog.mjs"
+    "changelog": "node scripts/changelog.mjs",
+    "shared": "node scripts/shared-code.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

@@ -183,6 +183,18 @@ inside the Android app (`android/`). The backend lives in
 - `main` in AppLayout is `overflow-x-clip`, not `overflow-auto` (that made `sticky` never stick). Desktop has a
   sticky header (h-14) now: sticky things go at `top-14` or lower.
 
+## Offline mode (2.9.0) — docs/offline.md
+
+- The app works without the NAS: bundled screens (ShellClient + `offline.html` = the app, same NAS origin), an
+  encrypted local copy (SQLCipher + MediaVault, key behind the app lock — OfflineKeys), a queue replayed in order, and
+  the web layer's `src/lib/offline/adapter.js` answering /api from the copy (`localApi.js`).
+- A new GET endpoint whose answer the app needs offline → add it to `KV_ROUTES` (localApi.js) and `KV_SYNC`
+  (SyncEngine.kt). A new mutation that should work offline → a route in localApi.js (local change + enqueue) and make
+  the server's create idempotent (clientId). Anything else answers "needs a connection".
+- The search core is the backend's `search-core.mjs`; the frontend copy is generated (`npm run shared`) — never edit
+  `src/lib/offline/searchCore.js`. Release builds must include `bundle-version.json` (build:android writes it).
+- Never widen `/api/offline/*` beyond req.user's own store + sharing.sharedNotes; the capture token must stay refused.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

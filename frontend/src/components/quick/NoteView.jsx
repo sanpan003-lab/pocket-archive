@@ -10,6 +10,7 @@ import AskPrompt from './AskPrompt';
 import SharedBadge from './SharedBadge';
 import ActionChip from './ActionChip';
 import NoteActivity from './NoteActivity';
+import { OfflineBadge, OfflineNoteBanner } from '../offline/OfflineNote';
 
 const fullDate = iso => (iso ? new Date(iso).toLocaleString('en-US', {
   weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
@@ -27,6 +28,7 @@ function NoteHeader({ note, projectName }) {
         {note.undone && <span className="badge badge-slate">Deleted</span>}
         {note.pinned && <span className="badge badge-gold"><Pin size={11} /> Pinned</span>}
         <SharedBadge note={note} />
+        <OfflineBadge note={note} />
         <ActionChip note={note} link />
         {projectName && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
         {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
@@ -48,6 +50,7 @@ function NotePanelBody({ note, projectName, onChanged, arrivalReady, onReload })
     <>
       <div className="px-5 sm:px-6 pt-1 pb-3" data-note-body>
         {pending && <div className="mb-3"><AskPrompt note={note} onResolved={() => onReload?.()} /></div>}
+        <OfflineNoteBanner note={note} onChanged={() => onReload?.()} />
         <NoteContent note={note} onChanged={onChanged} projectName={projectName} arrivalReady={arrivalReady} />
         <NoteActivity note={note} />
       </div>

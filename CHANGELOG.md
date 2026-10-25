@@ -5,6 +5,33 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.9.0 — Oct 25, 2026
+
+### Works offline (Android app)
+- The app opens and works **without a connection** — in airplane mode, with no signal, or when the NAS is down. No more “can’t reach the server” page
+- The phone keeps an **encrypted copy** of everything you can see: notes, AI summaries, transcripts, lists and errands, projects, actions, documents and their details, places, reminders, settings, and what people shared with you (with who shared it). For the archive account also the Hey Pocket recordings, AI notes and summaries
+- Photos, scans, PDFs, attachments and audio are kept too, so you can open a receipt or play a recording offline
+- **Search works offline** with the same results and filters as online
+- **Make changes offline**: new voice, text, list, photo and scan notes, edits, checking off items, combine, move to a project, delete and restore, pin, color. They’re sent **in order** when you’re back online — never twice
+- AI work (summaries, sorting, reading documents) shows **“Will be processed when online”** and runs by itself afterwards
+- Changed the same note on two devices? You choose: **Keep mine**, **Keep theirs** or **Keep both**. List items still merge item by item
+
+### Syncing
+- The first download runs in the background with progress — notes first, then thumbnails, then photos and audio. It picks up where it left off, and photos and audio wait for Wi-Fi unless you change that
+- After that only changes are fetched: live while the app is open, and every 15 minutes in the background
+- The header shows **Offline · last synced 2 h ago**, **Syncing 12 changes…** or **Up to date**
+- The home-screen widget and the watch use the offline copy when there’s no connection
+
+### Settings › Offline & storage
+- **What to keep**: Everything (default), Text + thumbnails, Text only, or Pinned + last 30 days — and **Keep offline** on any note or project to keep it in full anyway
+- Storage used for text, photos, scans, files, audio and recordings, a **storage limit** with a warning, Photos and audio over Wi-Fi only, **Sync now**, **Free up space** (removes photos and audio, keeps every note) and **Delete offline data**
+- Shows how big a full copy of your account is before it downloads
+- Optional: keep the map for offline use (large)
+
+### Privacy
+- Everything kept offline is encrypted on the phone, with the key in the phone’s secure hardware. With the **app lock** on, the copy only opens after your fingerprint or PIN
+- Signing out deletes the copy right away. A device removed in Settings › Security › Where you’re signed in deletes it the next time it connects. Only your own data and what’s shared with you is ever downloaded
+
 ## 2.8.1 — Oct 24, 2026
 
 ### Search filters fixed

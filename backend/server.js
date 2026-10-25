@@ -532,6 +532,10 @@ sharing.register(app);
 const { createSearch } = require('./search');
 createSearch({ contexts, sharing, searchRecordings: q => searchRecordings(q), transcribe: require('./quickCapture').transcribe }).register(app);
 
+// Offline copy for the Android app (2.9.0): what changed, all ids, media lists — GET /api/offline/*
+const { createOffline } = require('./offline');
+createOffline({ contexts, sharing, archive: archiveFiles(), maps: () => maps.list() }).register(app);
+
 // Over-the-air updates for the phone and watch apps (ARCHIVE/_updates, device tokens only)
 const { createUpdates } = require('./updates');
 const updates = createUpdates({ archivePath: ARCHIVE_PATH, users });
@@ -550,7 +554,8 @@ app.put('/api/admin/family-calendar', requireAdmin, (req, res) => {
 });
 
 // ── Self-hosted map (09_Maps/*.pmtiles) — shared, read-only ─────────────────
-createMaps({ archivePath: ARCHIVE_PATH }).register(app);
+const maps = createMaps({ archivePath: ARCHIVE_PATH });
+maps.register(app);
 
 /** The admin's own Quick Capture (recordings link to the admin's notes) */
 function adminQuick() {
@@ -1000,6 +1005,45 @@ app.get('/api/recordings/:id/attachments/:filename', (req, res) => {
 });
 
 // ── Search ─────────────────────────────────────────────────────────────────
+
+/**
+ * The archive's files per recording (offline copy, 2.9.0): text (notes, transcript, AI notes, metadata) and media
+ * (audio, attachments), with the request path the screens use for media. Folder listings are cached for 10 s.
+ */
+function archiveFiles() {
+  let cache = null;
+  const listing = () => {
+    if (cache && Date.now() - cache.at < 10000) return cache.byId;
+    const byId = new Map();
+    const add = (id, entry) => { if (!byId.has(id)) byId.set(id, []); byId.get(id).push(entry); };
+    for (const [key, dir] of Object.entries(DIRS)) {
+      if (key === 'deleted' || key === 'attachments' || !fs.existsSync(dir)) continue;
+      for (const name of fs.readdirSync(dir)) {
+        const dot = name.indexOf('.');
+        if (dot <= 0) continue;
+        const id = name.slice(0, dot);
+        const file = path.join(dir, name);
+        if (key === 'recordings') add(id, { key: `/api/audio/${name}`, file, kind: 'audio' });
+        else add(id, { key: null, file, kind: 'text' });
+      }
+    }
+    if (fs.existsSync(DIRS.attachments)) {
+      for (const id of fs.readdirSync(DIRS.attachments)) {
+        const dir = path.join(DIRS.attachments, id);
+        let names = [];
+        try { names = fs.readdirSync(dir); } catch { continue; }
+        for (const name of names) add(id, { key: `/api/recordings/${id}/attachments/${encodeURIComponent(name)}`, file: path.join(dir, name), kind: 'file' });
+      }
+    }
+    cache = { at: Date.now(), byId };
+    return byId;
+  };
+  return {
+    ids: () => getAllIds(),
+    files: id => listing().get(id) || [],
+    stamp: id => Math.max(0, ...(listing().get(id) || []).map(f => { try { return fs.statSync(f.file).mtimeMs; } catch { return 0; } })),
+  };
+}
 
 /** Hey Pocket recordings whose title, AI notes, notes or transcript contain q (the admin's archive) */
 function searchRecordings(query) {

@@ -123,8 +123,15 @@ dependencies {
     implementation "com.google.android.gms:play-services-mlkit-document-scanner:16.0.0"
     // Galaxy Watch app link (Data Layer)
     implementation "com.google.android.gms:play-services-wearable:20.0.1"
+    // Offline copy (2.9.0): encrypted local database (SQLCipher, key in the Android Keystore)
+    implementation "net.zetetic:sqlcipher-android:4.6.1@aar"
+    implementation "androidx.sqlite:sqlite:2.4.0"
+    // App shell: is DOCUMENT_START_SCRIPT supported (the bundled screens get Capacitor's bridge that way)
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    // Offline sync engine tests on the JVM (Android's org.json is a stub there)
+    testImplementation "org.json:json:20240303"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

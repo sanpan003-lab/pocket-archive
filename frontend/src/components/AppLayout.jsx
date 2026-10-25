@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { ArrivalPermissionPrompt } from '../native/arrival';
 import { Menu, Moon, Sun, Search } from 'lucide-react';
 import Sidebar from './Sidebar';
@@ -15,6 +15,7 @@ import { useLayout } from '../lib/layout';
 import LiveToast from './LiveToast';
 import UpdateBanner from './UpdateBanner';
 import SearchOverlay from './search/SearchOverlay';
+import OfflineChip from './offline/OfflineChip';
 import { openSearch } from '../lib/uiBus';
 
 export default function AppLayout() {
@@ -26,6 +27,9 @@ export default function AppLayout() {
   const isMobile = useIsMobile();
   const { appName } = useLayout();
   useEffect(() => { document.title = appName; }, [appName]);
+  // Where to come back to if the app restarts on its bundled screens (offline)
+  const { pathname, search } = useLocation();
+  useEffect(() => { try { sessionStorage.setItem('pa_lastPath', pathname + search); } catch { /* ignore */ } }, [pathname, search]);
 
   // Send Quick Capture recordings that were queued while offline
   useEffect(() => startQueueFlusher(), []);
@@ -71,8 +75,9 @@ export default function AppLayout() {
           >
             <Menu size={22} />
           </button>
-          <span className="font-bold text-navy-900 dark:text-white text-sm tracking-tight">
-            {appName}
+          <span className="flex flex-col items-center min-w-0 leading-tight">
+            <span className="font-bold text-navy-900 dark:text-white text-sm tracking-tight">{appName}</span>
+            <OfflineChip compact />
           </span>
           <span className="flex items-center">
             <button
@@ -97,7 +102,8 @@ export default function AppLayout() {
         </div>
 
         {/* Desktop header: global search */}
-        <div className="hidden md:flex sticky top-0 z-30 h-14 items-center justify-end px-6 backdrop-blur-md bg-white/60 dark:bg-black/60 border-b border-white/20 dark:border-white/10">
+        <div className="hidden md:flex sticky top-0 z-30 h-14 items-center justify-end gap-3 px-6 backdrop-blur-md bg-white/60 dark:bg-black/60 border-b border-white/20 dark:border-white/10">
+          <OfflineChip />
           <button type="button" onClick={openSearch} data-header-search=""
             className="flex items-center gap-2 w-72 h-10 px-3.5 rounded-xl border border-navy-200 dark:border-white/15 bg-white/70 dark:bg-white/5 text-sm text-navy-400 dark:text-white/45 hover:border-gold-300">
             <Search size={16} />

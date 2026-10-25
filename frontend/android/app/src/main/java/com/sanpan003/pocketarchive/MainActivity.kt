@@ -24,11 +24,31 @@ class MainActivity : BridgeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(QuickRecorderPlugin::class.java)
+        registerPlugin(com.sanpan003.pocketarchive.offline.OfflinePlugin::class.java)
         super.onCreate(savedInstanceState)
+        startShell()
         Notifications.ensureChannels(this)
         DiscardStore.cleanup(this)
         com.sanpan003.pocketarchive.quick.PocketCheck.watchScreen(this)
         if (savedInstanceState == null) handleLaunch(intent)
+    }
+
+    /**
+     * Offline (2.9.0): the app shell serves the bundled screens and the offline copy's media. If the NAS can't be
+     * reached at start (no signal, NAS down), open the bundled screens now instead of waiting for the page to time out.
+     */
+    private fun startShell() {
+        val b = bridge ?: return
+        b.setWebViewClient(com.sanpan003.pocketarchive.offline.ShellClient(b, applicationContext))
+        val api = com.sanpan003.pocketarchive.quick.TokenStore.apiBase(this)
+        Thread {
+            if (!com.sanpan003.pocketarchive.offline.NasProbe.check(api, maxAgeMs = 0)) {
+                runOnUiThread {
+                    val wv = b.webView
+                    if (wv.progress < 100) { wv.stopLoading(); wv.loadUrl(b.appUrl) }
+                }
+            }
+        }.start()
     }
 
     override fun onNewIntent(intent: Intent) {

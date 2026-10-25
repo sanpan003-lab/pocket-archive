@@ -12,6 +12,7 @@ import TargetPicker from '../components/quick/TargetPicker';
 import ShareSheet from '../components/quick/ShareSheet';
 import { onQuickChanged } from '../lib/uiBus';
 import SharedBadge from '../components/quick/SharedBadge';
+import { KeepOfflineButton } from '../components/offline/OfflineNote';
 import { QUICK_TYPES, cardTime, summaryPreview } from '../components/quick/quickMeta';
 
 /** Project: living summary on top, then the notes (newest first). */
@@ -106,6 +107,7 @@ export default function ProjectDetailPage() {
               {archived ? <><ArchiveRestore size={13} /> Unarchive</> : <><Archive size={13} /> Archive</>}
             </button>
             <button className="btn-ghost text-xs" onClick={() => setMerging(true)}><Combine size={13} /> Merge into…</button>
+            <KeepOfflineButton id={id} />
             <button
               className="btn-ghost text-xs text-red-500 dark:text-red-400"
               onClick={() => window.confirm(`Move “${project.name}” to Trash? Its notes stay in the Inbox.`) && act('delete', async () => { await deleteProject(id); navigate('/projects'); })}

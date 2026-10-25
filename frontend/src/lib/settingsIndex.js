@@ -4,7 +4,7 @@
 // when its row is really on this Settings page (some blocks hide themselves, e.g. without a fingerprint sensor).
 
 export const SECTIONS = {
-  layout: 'Layout on this device', appearance: 'Appearance & layout', recording: 'Recording & shortcuts',
+  layout: 'Layout on this device', appearance: 'Appearance & layout', offline: 'Offline & storage', recording: 'Recording & shortcuts',
   alarms: 'Alarms & phone actions', notifications: 'Notifications', backend: 'Server', archive: 'Archive',
   'smart-append': 'Smart append', documents: 'Documents', places: 'Places & errands', sharing: 'Shared lists',
   calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
@@ -46,6 +46,16 @@ const ENTRIES = [
   E('appearance', 'Create (+) button', '', 'plus fab new create'),
   E('appearance', 'Haptics', 'Short vibrations on long-press and the create menu', 'vibrate vibration buzz'),
   E('appearance', 'Reset to defaults', 'Undo all appearance changes', 'reset default'),
+
+  // Offline & storage (the phone app, 2.9.0)
+  E('offline', 'Offline & storage', 'An encrypted copy so everything works without a connection', 'offline airplane no signal storage space download sync cache', { offline: true }),
+  E('offline', 'What to keep on this phone', 'Everything, text + thumbnails, text only, or pinned + last 30 days', 'keep offline mode download everything text thumbnails', { offline: true }),
+  E('offline', 'Photos and audio over Wi-Fi only', '', 'wifi wi-fi mobile data cellular media download', { offline: true }),
+  E('offline', 'Storage limit', 'Warns when the offline copy is almost full', 'storage space limit full gb', { offline: true }),
+  E('offline', 'Sync now', 'Send waiting changes and fetch what’s new', 'sync refresh upload pending changes', { offline: true }),
+  E('offline', 'Free up space', 'Removes photos and audio, keeps the notes', 'free space clear cache delete photos', { offline: true }),
+  E('offline', 'Delete offline data', 'Remove the offline copy from this phone', 'delete wipe remove offline copy', { offline: true }),
+  E('offline', 'Keep the map for offline use', '', 'map offline maps places', { offline: true }),
 
   // Recording & shortcuts (the phone app)
   E('recording', 'Recording & shortcuts', 'Volume keys, side key, widget, accidental recordings, watch', 'volume keys record recorder shortcut', { native: true }),
@@ -130,9 +140,9 @@ const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-�
 const words = s => norm(s).split(/[^a-z0-9]+/).filter(Boolean);
 
 /** The settings this user / device can have (before checking the page) */
-export function visibleEntries({ lite, archive, isAdmin, isNative }) {
+export function visibleEntries({ lite, archive, isAdmin, isNative, offline = isNative }) {
   return ENTRIES.filter(({ flags: f }) =>
-    (!f.native || isNative) && (!f.web || !isNative) && (!f.admin || isAdmin) && (!f.full || !lite) && (!f.archive || archive));
+    (!f.offline || offline) && (!f.native || isNative) && (!f.web || !isNative) && (!f.admin || isAdmin) && (!f.full || !lite) && (!f.archive || archive));
 }
 
 /** Best matches first: every word must start a word in the title, synonyms, section or description */

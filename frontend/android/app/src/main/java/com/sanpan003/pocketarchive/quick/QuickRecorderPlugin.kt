@@ -73,6 +73,8 @@ class QuickRecorderPlugin : Plugin() {
             ErrandWorker.syncNow(ctx)
             WidgetData.refreshAsync(ctx)
             QuickToggleWidget.updateAll(ctx)
+            // The offline copy can be opened again (its key is behind the same lock)
+            com.sanpan003.pocketarchive.offline.OfflineWorker.now(ctx, "unlocked")
         }
 
         /** Over-the-air update state changed (banner, Settings → About) */
@@ -547,6 +549,8 @@ class QuickRecorderPlugin : Plugin() {
                     try {
                         AppLock.storeFull(context, full)          // behind the fingerprint key
                         TokenStore.setCaptureToken(context, capture)
+                        com.sanpan003.pocketarchive.offline.OfflineKeys.onLockOn(context, full) // the offline copy too
+                        com.sanpan003.pocketarchive.offline.OfflineStore.close()
                         AppLock.markEnabled(context, true)
                         TokenStore.setPlain(context, null)         // the full token is no longer stored openly
                         LockScreen.applySecure(act)
@@ -573,6 +577,8 @@ class QuickRecorderPlugin : Plugin() {
             val full = try { AppLock.unlockedToken(context) ?: AppLock.unlock(context) } catch (e: Exception) {
                 return@prompt call.reject("Unlock the app first (your fingerprints may have changed)")
             }
+            com.sanpan003.pocketarchive.offline.OfflineKeys.onLockOff(context, full)
+            com.sanpan003.pocketarchive.offline.OfflineStore.close()
             TokenStore.setPlain(context, full)
             TokenStore.setCaptureToken(context, null)
             AppLock.reset(context)
@@ -594,6 +600,9 @@ class QuickRecorderPlugin : Plugin() {
         ChangesWorker.cancel(context)
         ErrandSync.clear(context)
         WearBridge.clearToken(context) // signed out → the watch can't upload either
+        // Nothing of the account stays on the phone
+        com.sanpan003.pocketarchive.offline.OfflineWorker.cancel(context)
+        com.sanpan003.pocketarchive.offline.OfflineStore.wipe(context, "signout")
         call.resolve()
     }
 

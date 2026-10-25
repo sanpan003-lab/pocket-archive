@@ -123,8 +123,12 @@ object WearBridge {
         if (watches(ctx, reachable = false).isEmpty()) return // no watch app installed
         val apiBase = TokenStore.apiBase(ctx) ?: return
         val token = TokenStore.token(ctx) ?: return
-        val recent = get("$apiBase/api/quick/recent?limit=5&summary=1", token) ?: return
-        val errands = get("$apiBase/api/errands/open", token)?.let { JSONObject(it).optJSONArray("errands")?.toString() } ?: return
+        // No connection: from the offline copy (2.9.0) — the watch keeps its own small cache as before
+        val local by lazy { runCatching { com.sanpan003.pocketarchive.offline.OfflineStore.open(ctx) }.getOrNull() }
+        val recent = get("$apiBase/api/quick/recent?limit=5&summary=1", token)
+            ?: local?.let { com.sanpan003.pocketarchive.offline.OfflineViews.recent(it.notes("own"), 5, true).toString() } ?: return
+        val errands = get("$apiBase/api/errands/open", token)?.let { JSONObject(it).optJSONArray("errands")?.toString() }
+            ?: local?.let { com.sanpan003.pocketarchive.offline.OfflineViews.openErrands(it.notes("own"), it.notes("shared")).toString() } ?: return
         val req = PutDataMapRequest.create(DATA_STATE).apply {
             dataMap.putString("recent", recent)
             dataMap.putString("errands", errands)

@@ -6,6 +6,8 @@ import { isInstalledApp } from '../lib/pwa';
 import { signInWithPasskey } from '../lib/passkeys';
 import { AppearanceProvider } from './AppearanceContext';
 import { isNative } from '../lib/platform';
+import { offlineStore, offlineCapable } from '../lib/offline/native';
+import { clearMemory } from '../lib/offline/localData';
 import {
   saveDeviceToken, clearDeviceToken, startMediaTokens, deviceName, syncNativeUser,
 } from '../native/nativeSession';
@@ -47,6 +49,12 @@ function useLocalStorage(key, defaultValue) {
   return [value, setValue];
 }
 
+/** Signed out / device revoked: nothing of this account stays on the phone (2.9.0) */
+async function wipeOfflineCopy(reason) {
+  try { (await offlineStore())?.wipe({ reason }); } catch { /* native also wipes on its own */ }
+  clearMemory();
+}
+
 export function AppProvider({ children }) {
   const [favorites, setFavorites]     = useLocalStorage('pa_favorites', []);
   const [viewMode, setViewMode]       = useLocalStorage('pocket:viewMode', 'list');
@@ -83,10 +91,11 @@ export function AppProvider({ children }) {
       .finally(() => setIsCheckingAuth(false));
   }, []);
 
-  // App: device token revoked or expired → sign in again
+  // App: device token revoked or expired → sign in again, and the offline copy on this phone is wiped
   useEffect(() => {
     if (!isNative) return;
     const onUnauthorized = () => {
+      wipeOfflineCopy('revoked');
       clearDeviceToken();
       setIsAuthenticated(false);
       rememberAuth(false);
@@ -140,6 +149,7 @@ export function AppProvider({ children }) {
   async function logout() {
     if (isNative) {
       try { await revokeCurrentDevice(); } catch { /* offline: still sign out locally */ }
+      await wipeOfflineCopy('signout');
       await clearDeviceToken();
       setIsAuthenticated(false);
       rememberAuth(false);
@@ -148,6 +158,7 @@ export function AppProvider({ children }) {
       return;
     }
     await authLogout();
+    if (offlineCapable()) await wipeOfflineCopy('signout'); // the browser tests' stand-in copy
     setIsAuthenticated(false);
     rememberAuth(false);
     rememberUser(null);

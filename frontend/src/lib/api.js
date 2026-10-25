@@ -1,10 +1,13 @@
 import axios from 'axios';
 import { API_BASE, isNative } from './platform';
 import { getDeviceToken, getMediaToken } from '../native/nativeSession';
+import { installOfflineAdapter } from './offline/adapter';
 
 // Web: same-origin "/api" + session cookie (unchanged).
 // Android app: server URL from .env.android + "Authorization: Bearer <device token>".
 const http = axios.create({ baseURL: API_BASE, withCredentials: true });
+// Android app (2.9.0): without a connection the offline copy answers and changes wait in the queue
+installOfflineAdapter(http);
 
 if (isNative) {
   http.interceptors.request.use(config => {
@@ -136,6 +139,8 @@ export const restoreQuickNote   = id => http.post(`/quick/${id}/restore`).then(r
 export const setQuickMeta       = (id, meta) => http.patch(`/quick/${id}/meta`, meta).then(r => r.data);
 export const searchQuickNotes   = q => http.get('/quick/search', { params: { q } }).then(r => r.data);
 // Search (2.8.0): your notes + shared with you, grouped — { q, terms, groups: { notes, lists, documents, projects, recordings, actions }, suggestions }
+// Offline copy (2.9.0, Android app): what a full copy of this account needs (bytes per kind)
+export const getOfflineManifest = () => http.get('/offline/manifest').then(r => r.data);
 export const findNotes = (params, signal) => http.get('/find', { params, signal }).then(r => r.data);
 export const voiceSearch = blob => {
   const fd = new FormData();

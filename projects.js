@@ -228,9 +228,14 @@ function createProjects({ archivePath, getNote, listNotes, updateNote, onChange 
 
     app.post('/api/projects', (req, res) => {
       try {
+        // Offline creates (2.9.0) are retried: the same clientId gives back the same project
+        const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId.slice(0, 64) : null;
+        if (clientId) { const made = list({ includeDeleted: false }).find(p => p.clientId === clientId); if (made) return res.json(made); }
         const existing = findByName(req.body?.name, { includeArchived: false });
         if (existing && req.body?.allowDuplicate !== true) return res.status(409).json({ error: `“${existing.name}” already exists`, project: existing });
-        res.json(create({ name: req.body?.name, aliases: req.body?.aliases || [] }));
+        const made = create({ name: req.body?.name, aliases: req.body?.aliases || [] });
+        if (clientId) { made.clientId = clientId; write(made); }
+        res.json(made);
       } catch (err) {
         res.status(err.status || 500).json({ error: err.message });
       }

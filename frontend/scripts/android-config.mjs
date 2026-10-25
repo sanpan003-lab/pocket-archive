@@ -41,4 +41,11 @@ writeFileSync(configFile, `${JSON.stringify(config, null, '\t')}\n`);
 // offline.html reads this to know where "Retry" goes
 writeFileSync(join(assets, 'public', 'server-url.js'), `window.PA_SERVER_URL = ${JSON.stringify(`${origin}/`)};\n`);
 
-console.log(`android-config: app loads ${origin} (offline page: offline.html)`);
+// Offline (2.9.0): Capacitor's error page IS the app — the screens bundled here, opened at the NAS address when it
+// can't be reached (the app then runs on its offline copy). The app shell (ShellClient) also serves them directly.
+const publicDir = join(assets, 'public');
+writeFileSync(join(publicDir, 'offline.html'), readFileSync(join(publicDir, 'index.html')));
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+writeFileSync(join(publicDir, 'bundle-version.json'), `${JSON.stringify({ version, builtAt: new Date().toISOString() })}\n`);
+
+console.log(`android-config: app loads ${origin}; bundled screens ${version} (offline: offline.html = the app)`);

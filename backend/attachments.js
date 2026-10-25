@@ -283,6 +283,9 @@ function createAttachments({ store, readText, onChanged = () => {} }) {
       const file = req.files?.file?.[0];
       const pages = req.files?.page || [];
       if (!file?.size && !pages.length) return res.status(400).json({ error: 'No file' });
+      // Offline uploads (2.9.0) are retried: the same clientId never adds a second copy
+      const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId.slice(0, 64) : null;
+      if (clientId && (note.attachments || []).some(a => a.clientId === clientId)) return res.json(note);
       if ((note.attachments || []).length >= MAX_PER_NOTE) return res.status(409).json({ error: `A note can have up to ${MAX_PER_NOTE} attachments` });
       try {
         const by = req.user?.id || null;
@@ -299,6 +302,7 @@ function createAttachments({ store, readText, onChanged = () => {} }) {
           if (p > 0 && p < 1000) att.pages = Math.floor(p);
         }
         // Document processing reads photos/scans itself; "Read text" only for the rest (or when it's off)
+        if (clientId) att.clientId = clientId;
         const docs = onChanged(note.id, 'added', att) === true;
         const wantRead = !docs && req.body?.read === '1' && canRead(att);
         if (wantRead) att.textStatus = 'reading';

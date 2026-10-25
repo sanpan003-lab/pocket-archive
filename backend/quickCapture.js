@@ -196,6 +196,20 @@ function newId() {
   return `qn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Title / text edited on another device since this edit started (offline edits send baseTextRev = the note's
+ * textRev when the edit began)? → the 409 body { conflict, error, note }, else null. Changes to other fields,
+ * an edit that matches what's there now, or no baseTextRev (online edits) never conflict.
+ */
+function textConflict(note, body) {
+  if (!Number.isInteger(body?.baseTextRev)) return null;
+  if ((note.textRev || 0) === body.baseTextRev) return null;
+  const changesTitle = typeof body.title === 'string' && body.title.trim() !== (note.title || '').trim();
+  const changesText = typeof body.content === 'string' && body.content !== (note.content || '');
+  if (!changesTitle && !changesText) return null;
+  return { conflict: true, error: 'Edited on another device', note };
+}
+
 function isQuickId(id) {
   return typeof id === 'string' && /^qn_\d+_[a-z0-9]+$/.test(id);
 }
@@ -975,14 +989,14 @@ function createQuickCapture(deps) {
         }
         case 'editText': {
           const text = String(o.text ?? '').slice(0, 20000);
-          if (text !== (note.content || '')) { note.content = text; note.contentEdited = true; logActivity(note, actor, 'edited the text'); }
+          if (text !== (note.content || '')) { note.content = text; note.contentEdited = true; note.textRev = (note.textRev || 0) + 1; logActivity(note, actor, 'edited the text'); }
           applied.push({ op: o.op });
           break;
         }
         case 'rename': {
           const title = String(o.title || '').trim().slice(0, 120);
           if (!title) { skipped.push({ ...o, reason: 'empty' }); break; }
-          if (title !== note.title) { logActivity(note, actor, 'renamed', title); note.title = title; }
+          if (title !== note.title) { logActivity(note, actor, 'renamed', title); note.title = title; note.textRev = (note.textRev || 0) + 1; }
           applied.push({ op: o.op });
           break;
         }
@@ -1917,6 +1931,10 @@ function createQuickCapture(deps) {
 
       const wasType = note.type;
       const before = { title: note.title, content: note.content };
+      // Offline edits (2.9.0) carry the text version they started from: if the title / text was changed on
+      // another device since, answer 409 with the current note instead of overwriting it
+      const conflict = textConflict(note, body);
+      if (conflict) return res.status(409).json(conflict);
       try {
         // Document notes: a title the user typed is never replaced by document processing
         if (typeof body.title === 'string' && body.title.trim() && body.title.trim() !== (note.title || '').trim()) note.titleEdited = true;
@@ -1957,6 +1975,7 @@ function createQuickCapture(deps) {
         note.unlinkedFrom = null;
         if (before.title !== note.title) logActivity(note, actorOf(req), 'renamed', note.title);
         if ((before.content || '') !== (note.content || '')) logActivity(note, actorOf(req), 'edited the text');
+        if (before.title !== note.title || (before.content || '') !== (note.content || '')) note.textRev = (note.textRev || 0) + 1;
         await syncCal(note);
         const resummarize = body.regenerateSummary === true && markSummaryPending(note);
         res.json(finalize(note));
@@ -1987,6 +2006,16 @@ function createQuickCapture(deps) {
       if (!note) return;
       const ops = Array.isArray(req.body?.ops) ? req.body.ops : [];
       const itemOps = ops.some(o => /Item$/.test(o?.op || ''));
+      // Offline text edits (2.9.0): same conflict rule as PUT (list items always merge per item)
+      const textOps = ops.filter(o => o?.op === 'editText' || o?.op === 'rename');
+      if (textOps.length) {
+        const conflict = textConflict(note, {
+          baseTextRev: req.body?.baseTextRev,
+          title: textOps.filter(o => o.op === 'rename').pop()?.title,
+          content: textOps.filter(o => o.op === 'editText').pop()?.text,
+        });
+        if (conflict) return res.status(409).json(conflict);
+      }
       if (itemOps && note.type !== 'errand' && note.format !== 'list') return res.status(409).json({ error: 'Only lists and errands have a checklist' });
       const result = applyOps(note, ops, actorOf(req));
       rememberOrigin(req);
@@ -2425,7 +2454,7 @@ module.exports = {
   transcribe,
   // exported for tests
   _internal: {
-    applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
+    textConflict, applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
     normalizeItems, isActiveArrival, arrivalExpiresOn, errandDescription, isActiveGeo,
   },
 };

@@ -45,6 +45,12 @@ if (fs.existsSync(NAS_FRONTEND)) {
   line(false, `NAS build folder (${NAS_FRONTEND})`, 'not reachable (map the Z: drive)');
 }
 
+// Offline search uses the server's search code (2.9.0): the copy in this folder must match the backend
+try {
+  execFileSync(process.execPath, [path.join(root, 'scripts', 'shared-code.mjs'), '--check'], { stdio: 'pipe' });
+  line(true, 'Search core (offline = server)', 'same code');
+} catch { line(false, 'Search core (offline = server)', 'differs — run npm run shared'); }
+
 // Over-the-air updates: what the phones and watches will be offered (ARCHIVE/_updates on the NAS)
 let published = false;
 if (args.includes('--published')) {
@@ -72,6 +78,11 @@ if (args.includes('--phone') || args.some(a => a.startsWith('--watch='))) {
     versions.built = props.match(/^VERSION_NAME=(.+)$/m)?.[1]?.trim();
     line(versions.built === want, 'Built phone app (version.properties)', versions.built);
   } catch { line(false, 'Built phone app', 'version.properties missing'); }
+  // Offline (2.9.0): the screens bundled in the app (used without a connection) are this release's
+  try {
+    const bundled = JSON.parse(fs.readFileSync(path.join(root, 'android', 'app', 'src', 'main', 'assets', 'public', 'bundle-version.json'), 'utf8')).version;
+    line(bundled === want, 'Bundled screens in the app (offline)', bundled);
+  } catch { line(false, 'Bundled screens in the app (offline)', 'bundle-version.json missing — run npm run build:android'); }
   let devices = [];
   try {
     devices = execFileSync(ADB, ['devices'], { encoding: 'utf8' }).split(/\r?\n/).slice(1)

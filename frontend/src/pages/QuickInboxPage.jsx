@@ -150,6 +150,12 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
   }, [sharedOnly]);
 
   useEffect(() => { load(); }, [load]);
+  // Made offline, now on the server under its real id (2.9.0): keep showing it
+  useEffect(() => {
+    const onIdMap = e => { if (e.detail?.tempId && e.detail.tempId === routeId) navigate(`/quick/${e.detail.id}`, { replace: true, state: location.state }); };
+    window.addEventListener('pa:offline-idmap', onIdMap);
+    return () => window.removeEventListener('pa:offline-idmap', onIdMap);
+  }, [routeId, navigate, location.state]);
   useEffect(() => onQuickChanged(() => load()), [load]);
   // Checklist changes saved by the server (lib/opsQueue)
   useEffect(() => {

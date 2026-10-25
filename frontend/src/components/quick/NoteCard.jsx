@@ -12,6 +12,7 @@ import NoteContent from './NoteContent';
 import NoteToolbar from './NoteToolbar';
 import SharedBadge, { PersonDot } from './SharedBadge';
 import ActionChip from './ActionChip';
+import { OfflineBadge } from '../offline/OfflineNote';
 import { hasChecklist, previewText, noteColorStyle } from './noteHelpers';
 
 const capturedAt = n => n.capturedAt || n.createdAt;
@@ -140,6 +141,7 @@ export default function NoteCard({
               {review &&<span className="badge badge-orange">Needs review</span>}
               {pending && <span className="badge badge-gold">Waiting for your answer</span>}
               {note.undone && <span className="badge badge-slate">Deleted</span>}
+              <OfflineBadge note={note} />
               {projectName && !grid && <span className="badge badge-gold"><FolderKanban size={11} /> {projectName}</span>}
               {(note.updates || []).length > 0 && <span className="badge badge-slate">Updated {note.updates.length}×</span>}
               {(note.attachments || []).length > 0 && <span className="badge badge-slate" title={`${note.attachments.length} attachment${note.attachments.length > 1 ? 's' : ''}`}><Paperclip size={11} /> {note.attachments.length}</span>}

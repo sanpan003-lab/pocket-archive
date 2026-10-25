@@ -21,6 +21,7 @@ import CalendarSettings from '../components/CalendarSettings';
 import SharingSettings from '../components/SharingSettings';
 import UsersAdmin from '../components/UsersAdmin';
 import SettingsSearch from '../components/SettingsSearch';
+import OfflineSettings from '../components/offline/OfflineSettings';
 
 function StatRow({ label, value, icon, accent }) {
   return (
@@ -91,6 +92,7 @@ export default function SettingsPage() {
       )}
 
       <AppearanceSettings />
+      <OfflineSettings />
       <RecordingSettings />
       <PhoneActionsSettings />
       <NotificationSettings />

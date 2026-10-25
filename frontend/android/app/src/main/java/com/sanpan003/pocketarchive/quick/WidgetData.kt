@@ -101,7 +101,11 @@ object WidgetData {
                 }
             }
         } catch (e: IOException) {
-            prefs(ctx).edit().putBoolean("offline", true).apply()
+            // No connection: the offline copy's newest notes (2.9.0), still marked offline
+            val local = runCatching {
+                com.sanpan003.pocketarchive.offline.OfflineStore.open(ctx)?.let { d -> com.sanpan003.pocketarchive.offline.OfflineViews.recent(d.notes("own"), LIMIT, false) }
+            }.getOrNull()
+            prefs(ctx).edit().putBoolean("offline", true).apply { if (local != null && local.length() > 0) putString("items", local.toString()) }.apply()
             false
         } catch (e: JSONException) {
             false

@@ -3,6 +3,7 @@ import { Search, X, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLayout } from '../lib/layout';
 import { isNative } from '../lib/platform';
+import { offlineCapable } from '../lib/offline/native';
 import { SECTIONS, visibleEntries, searchSettings, findSettingElement, revealSetting } from '../lib/settingsIndex';
 import Highlight from './Highlight';
 
@@ -19,7 +20,7 @@ export default function SettingsSearch() {
   const [active, setActive] = useState(0);
   const [missing, setMissing] = useState('');
   const input = useRef(null);
-  const entries = useMemo(() => visibleEntries({ lite, archive, isAdmin, isNative }), [lite, archive, isAdmin]);
+  const entries = useMemo(() => visibleEntries({ lite, archive, isAdmin, isNative, offline: offlineCapable() }), [lite, archive, isAdmin]);
   // Only what's really on this page (a block can hide itself, e.g. no fingerprint sensor)
   const results = useMemo(() => searchSettings(entries, q, 30).filter(e => findSettingElement(e)).slice(0, 12), [entries, q]);
   const terms = termsOf(q);

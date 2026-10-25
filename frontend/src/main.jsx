@@ -4,9 +4,20 @@ import './index.css'
 import App from './App.jsx'
 import { isNative } from './lib/platform'
 import { initNativeSession } from './native/nativeSession'
+import { startOfflineStatus } from './lib/offline/status'
 
-// In the Android app, load the stored device token before the first request
-initNativeSession().finally(() => {
+// Android app without a connection (2.9.0): Capacitor opens its error page — which is these same screens, bundled
+// in the app (scripts/android-config.mjs) — at the NAS address. Go back to where the user was (or the start).
+if (window.location.pathname === '/offline.html') {
+  let last = '/';
+  try { last = sessionStorage.getItem('pa_lastPath') || '/'; } catch { /* ignore */ }
+  window.history.replaceState(null, '', last.startsWith('/') && last !== '/offline.html' ? last : '/');
+}
+// These screens came with the app (offline start), not from the NAS
+window.PA_BUNDLED = import.meta.env.MODE === 'android';
+
+// In the Android app, load the stored device token and the offline copy's status before the first request
+Promise.all([initNativeSession(), Promise.race([startOfflineStatus(), new Promise(r => setTimeout(r, 400))])]).finally(() => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
       <App />
