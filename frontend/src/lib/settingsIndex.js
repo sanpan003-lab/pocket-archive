@@ -1,4 +1,5 @@
 // Settings search (2.8.0): every setting by title, description, section and everyday words for it.
+// 2.11.0: each section belongs to a Settings category (settingsCategories.js); a result opens that category's screen.
 // [section id, title, description, synonyms, { native | web | admin | full | archive, boost }, anchor text if not the title]
 // Visibility: the flags first (Lite / Full / admin, phone vs web), then the page itself — a result is only shown
 // when its row is really on this Settings page (some blocks hide themselves, e.g. without a fingerprint sensor).
@@ -8,30 +9,31 @@ export const SECTIONS = {
   alarms: 'Alarms & phone actions', notifications: 'Notifications', backend: 'Server', archive: 'Archive',
   'smart-append': 'Smart append', documents: 'Documents', places: 'Places & errands', sharing: 'Shared lists',
   calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
-  about: 'About',
+  about: 'About', 'notes-look': 'Notes & inbox', watch: 'Galaxy Watch',
 };
 
-const E = (section, title, desc = '', synonyms = '', flags = {}, anchor = null) => ({ section, title, desc, synonyms, flags, anchor });
+const E = (section, title, desc = '', synonyms = '', flags = {}, anchor = null) => ({ key: `${section}|${title}`, section, title, desc, synonyms, flags, anchor });
 
 const ENTRIES = [
   E('layout', 'Use Lite layout on this device', 'Pocket Notes only; hides the archive and admin settings here', 'lite full simple mode', { admin: true }),
 
-  // Appearance & layout
-  E('appearance', 'Appearance & layout', 'Theme, layout, colors, toolbar and more — per account or this device', 'look style customize'),
-  E('appearance', 'Note opening style', 'How a note opens: floating, full screen, side panel', 'open popup sheet'),
-  E('appearance', 'Background behind floating notes', '', 'blur dim backdrop'),
-  E('appearance', 'Swipe between notes', 'Swipe left/right for the next or previous note', 'gesture next previous'),
-  E('appearance', 'Inbox layout', 'Grid, list or compact cards', 'layout grid list masonry columns'),
-  E('appearance', 'Card preview', 'How much text each card shows', 'lines snippet'),
-  E('appearance', 'Sort', 'Newest, oldest, recently changed', 'order sorting'),
-  E('appearance', 'Show on cards', 'Audio player, type badge, accent bar, time', 'badge time audio accent bar'),
-  E('appearance', 'Group by day', 'Today / Yesterday / dates', 'dates headers'),
-  E('appearance', 'Pinned notes at the top', '', 'pin pinned'),
-  E('appearance', 'Show actions in Inbox', 'Alarms, timers, directions, messages in the Inbox', 'actions alarms timers'),
-  E('appearance', 'Note toolbar', 'Reorder, show or hide the buttons in a note', 'buttons toolbar tools'),
-  E('appearance', 'Card style', '', 'cards border shadow flat'),
-  E('appearance', 'Note colors', 'Soft colors for notes, like Keep', 'colour color keep'),
-  E('appearance', 'Show transcript by default', '', 'transcript text'),
+  // Notes & inbox (notes-look) and Appearance & app icon (appearance)
+  E('notes-look', 'Notes & inbox', 'How notes open, Inbox layout, sort, cards, toolbar, colors', 'inbox notes cards look'),
+  E('appearance', 'Appearance & layout', 'Theme, accent, text size, app icon, Capture screen, start screen', 'look style customize'),
+  E('notes-look', 'Note opening style', 'How a note opens: floating, full screen, side panel', 'open popup sheet'),
+  E('notes-look', 'Background behind floating notes', '', 'blur dim backdrop'),
+  E('notes-look', 'Swipe between notes', 'Swipe left/right for the next or previous note', 'gesture next previous'),
+  E('notes-look', 'Inbox layout', 'Grid, list or compact cards', 'layout grid list masonry columns'),
+  E('notes-look', 'Card preview', 'How much text each card shows', 'lines snippet'),
+  E('notes-look', 'Sort', 'Newest, oldest, recently changed', 'order sorting'),
+  E('notes-look', 'Show on cards', 'Audio player, type badge, accent bar, time', 'badge time audio accent bar'),
+  E('notes-look', 'Group by day', 'Today / Yesterday / dates', 'dates headers'),
+  E('notes-look', 'Pinned notes at the top', '', 'pin pinned'),
+  E('notes-look', 'Show actions in Inbox', 'Alarms, timers, directions, messages in the Inbox', 'actions alarms timers'),
+  E('notes-look', 'Note toolbar', 'Reorder, show or hide the buttons in a note', 'buttons toolbar tools'),
+  E('notes-look', 'Card style', '', 'cards border shadow flat'),
+  E('notes-look', 'Note colors', 'Soft colors for notes, like Keep', 'colour color keep'),
+  E('notes-look', 'Show transcript by default', '', 'transcript text'),
   E('appearance', 'Theme', 'Light, dark or follow the system', 'dark light night mode black white appearance'),
   E('appearance', 'Accent color', 'Buttons, highlights and active tabs', 'colour gold blue purple green accent'),
   E('appearance', 'Text size', '', 'font bigger smaller large small zoom'),
@@ -85,7 +87,7 @@ const ENTRIES = [
   E('recording', 'Prevent double actions', '', 'double duplicate guard', { native: true }),
   E('recording', 'Double-press volume up to start recording', 'Accessibility shortcut', 'double press accessibility', { native: true }),
   E('recording', 'Double-press volume down to stop', '', 'double press accessibility', { native: true }),
-  E('recording', 'Galaxy Watch', 'The watch’s own recording settings', 'watch wear galaxy wrist', { native: true }),
+  E('watch', 'Galaxy Watch', 'The watch’s own recording settings', 'watch wear galaxy wrist', { native: true }),
 
   // Alarms, notifications (the phone app)
   E('alarms', 'Alarms & phone actions', 'Alarms, timers, calls, messages from a voice note', 'alarm timer call text message phone actions', { native: true }),
@@ -135,6 +137,9 @@ const ENTRIES = [
   E('about', 'What’s new', 'Release notes', 'changelog release notes news update updates version', {}, 'What’s new'),
   E('about', 'App updates', 'Publish phone and watch updates', 'ota publish apk', { admin: true }),
 ];
+
+/** An entry by its key (search results travel to the category screen as a key) */
+export const entryByKey = key => ENTRIES.find(e => e.key === key) || null;
 
 const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[’'“”"]/g, '');
 const words = s => norm(s).split(/[^a-z0-9]+/).filter(Boolean);

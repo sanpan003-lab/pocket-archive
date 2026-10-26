@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import {
-  HardDrive, RefreshCw, Headphones, Sparkles,
-  FileText, Info, Folder, CheckCircle2, XCircle, LayoutTemplate, Compass,
-} from 'lucide-react';
-import { useLayout, setLiteOnDevice } from '../lib/layout';
-import { openWelcome } from '../lib/uiBus';
-import { getStats, getHealth } from '../lib/api';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { useLayout } from '../lib/layout';
 import { useApp } from '../context/AppContext';
+import { isNative } from '../lib/platform';
+import { offlineCapable } from '../lib/offline/native';
+import { CATEGORIES, CATEGORY_NAME, visibleCategories, categoryOf, lastCategory, rememberCategory } from '../lib/settingsCategories';
+import { useSettingsSummaries } from '../lib/settingsSummaries';
+import { findSettingElement, revealSetting, entryByKey } from '../lib/settingsIndex';
 import PlacesSettings from '../components/PlacesSettings';
 import SmartAppendSettings from '../components/SmartAppendSettings';
 import DocumentSettings from '../components/DocumentSettings';
@@ -22,198 +22,176 @@ import SharingSettings from '../components/SharingSettings';
 import UsersAdmin from '../components/UsersAdmin';
 import SettingsSearch from '../components/SettingsSearch';
 import OfflineSettings from '../components/offline/OfflineSettings';
+import { ServerStatus, SyncInstructions } from '../components/settings/ServerSettings';
+import { LayoutOnDevice, WelcomeTour, Advanced } from '../components/settings/SmallSettings';
 
-function StatRow({ label, value, icon, accent }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-navy-50/50 dark:bg-white/5">
-      <span className="text-sm text-navy-600 dark:text-white/60 flex items-center gap-2">
-        {icon && <span style={{ color: accent }}>{icon}</span>}
-        {label}
-      </span>
-      <span className="font-bold text-navy-900 dark:text-white">{value ?? '—'}</span>
-    </div>
+const WIDE = '(min-width: 900px)';
+function useWide() {
+  return useSyncExternalStore(
+    fn => { const m = window.matchMedia(WIDE); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); },
+    () => window.matchMedia(WIDE).matches,
   );
 }
 
-export default function SettingsPage() {
-  const [stats, setStats]     = useState(null);
-  const [health, setHealth]   = useState(null);
-  const [loading, setLoading] = useState(true);
+/** What each category screen shows (every setting lives in exactly one) */
+function CategoryContent({ id, lite, archive, isAdmin }) {
+  switch (id) {
+    case 'account': return <SecuritySettings />;
+    case 'recording': return <><RecordingSettings /><PhoneActionsSettings /></>;
+    case 'notes': return <><AppearanceSettings part="notes" />{!lite && <SmartAppendSettings />}</>;
+    case 'places': return <><PlacesSettings /><CalendarSettings /></>;
+    case 'documents': return <DocumentSettings />;
+    case 'sharing': return <><SharingSettings /><NotificationSettings /></>;
+    case 'offline': return <OfflineSettings />;
+    case 'appearance': return <>{isAdmin && <LayoutOnDevice />}<AppearanceSettings part="app" /></>;
+    case 'watch': return <RecordingSettings part="watch" />;
+    case 'admin': return <>{!lite && <UsersAdmin />}{archive && <ServerStatus />}{archive && <Advanced><SyncInstructions /></Advanced>}</>;
+    case 'about': return <><AboutSection /><Advanced><WelcomeTour /></Advanced></>;
+    default: return null;
+  }
+}
 
-  const { isAdmin } = useApp();
-  const { lite, archive, liteOnDevice } = useLayout();
-  function refresh() {
-    setLoading(true);
-    // Archive stats are the admin's (Hey Pocket recordings)
-    Promise.all([archive ? getStats() : Promise.resolve(null), getHealth()])
-      .then(([s, h]) => { setStats(s); setHealth(h); })
-      .catch(() => setHealth(null))
-      .finally(() => setLoading(false));
+function CategoryList({ cats, summaries, selected, onOpen }) {
+  return (
+    <nav aria-label="Settings categories">
+      <ul className="glass-panel p-1.5 divide-y divide-navy-100/70 dark:divide-white/5" data-settings-categories="">
+        {cats.map(c => (
+          <li key={c.id}>
+            <button type="button" onClick={() => onOpen(c.id)} data-category={c.id} aria-current={selected === c.id ? 'page' : undefined}
+              className={`w-full min-h-[64px] flex items-center gap-3 px-3 py-2.5 text-left rounded-xl transition-colors ${selected === c.id ? 'bg-gold-500/10' : 'hover:bg-black/[0.03] dark:hover:bg-white/5'}`}>
+              <span className="w-10 h-10 shrink-0 rounded-xl bg-gold-500/10 flex items-center justify-center text-gold-600 dark:text-gold-400"><c.icon size={19} /></span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-semibold text-navy-900 dark:text-white">{c.name}</span>
+                <span className="block text-xs text-navy-500 dark:text-white/50 truncate" data-summary="">{summaries[c.id] || ' '}</span>
+              </span>
+              <ChevronRight size={17} className="shrink-0 text-navy-300 dark:text-white/30" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * Settings (2.11.0), like a phone's settings menu: search + categories with a live summary; a category opens its own
+ * screen (back arrow; Android Back / swipe-back go back too). From 900 px: categories on the left, the category on the
+ * right. The last category opened is remembered on this device. Old links (/settings#places …) land in the right
+ * category, and search results open their category and light the setting up.
+ */
+export default function SettingsPage() {
+  const { category } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const wide = useWide();
+  const { isAdmin, user } = useApp();
+  const { lite, archive } = useLayout();
+  const { summaries, watchKnown } = useSettingsSummaries({ user, isAdmin, lite, archive });
+  const ctx = useMemo(() => ({ lite, archive, isAdmin, isNative, offline: offlineCapable(), watch: watchKnown }), [lite, archive, isAdmin, watchKnown]);
+  const cats = visibleCategories(ctx);
+  // A direct link to Watch works before we know a watch was seen
+  const allowed = id => visibleCategories({ ...ctx, watch: true }).some(c => c.id === id);
+
+  // /settings#places (old links, notifications, fix-its) → /settings/places#places
+  useEffect(() => {
+    const section = location.hash.slice(1);
+    if (!section) return;
+    const cat = categoryOf(section);
+    if (cat && cat !== category) navigate(`/settings/${cat}${location.hash}`, { replace: true, state: location.state });
+  }, [location.hash, category, navigate, location.state]);
+
+  // Unknown or not for this account → the list
+  useEffect(() => {
+    if (category && !allowed(category)) navigate('/settings', { replace: true });
+  });  
+
+  // Wide screens always show a category: the last one opened here, else the first
+  useEffect(() => {
+    if (!wide || category || location.hash) return;
+    const last = lastCategory();
+    navigate(`/settings/${last && allowed(last) ? last : cats[0]?.id || 'account'}`, { replace: true });
+  });  
+
+  useEffect(() => { if (category && allowed(category)) rememberCategory(category); });  
+
+  // After opening a category: the setting from a search result, or the #section from a link
+  useEffect(() => {
+    if (!category) return undefined;
+    const want = location.state?.reveal ? entryByKey(location.state.reveal) : null;
+    const section = location.hash.slice(1);
+    let tries = 0;
+    const t = setInterval(() => {
+      tries++;
+      if (want) {
+        if (findSettingElement(want)) { clearInterval(t); revealSetting(want); }
+      } else if (section) {
+        const el = document.getElementById(section);
+        if (el) { clearInterval(t); el.scrollIntoView({ block: 'start' }); }
+      } else { clearInterval(t); window.scrollTo(0, 0); }
+      if (tries > 40) { // settings that load from the phone can take a moment
+        clearInterval(t);
+        if (want) window.dispatchEvent(new CustomEvent('pa:settings-missing', { detail: { title: want.title } }));
+      }
+    }, 120);
+    return () => clearInterval(t);
+  }, [category, location.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const open = id => navigate(`/settings/${id}`, { replace: wide && !!category });
+  const back = () => {
+    if ((window.history.state?.idx ?? 0) > 0 && !wide) navigate(-1);
+    else navigate('/settings', { replace: true });
+  };
+  const current = category && allowed(category) ? category : null;
+
+  const header = current && (
+    <div className="flex items-center gap-2 mb-3">
+      {!wide && (
+        <button type="button" onClick={back} aria-label="Back to Settings" data-settings-back=""
+          className="w-11 h-11 -ml-2 shrink-0 flex items-center justify-center rounded-xl text-navy-700 dark:text-white/80 hover:bg-black/5 dark:hover:bg-white/10">
+          <ArrowLeft size={21} />
+        </button>
+      )}
+      <h1 className="text-xl sm:text-2xl font-bold text-navy-900 dark:text-white">{CATEGORY_NAME[current]}</h1>
+    </div>
+  );
+  const body = current && <CategoryContent id={current} lite={lite} archive={archive} isAdmin={isAdmin} />;
+  const subtitle = archive ? 'Your account, app and server settings' : 'Your account and app settings';
+  const search = <SettingsSearch categories={cats.map(c => c.id)} />;
+
+  if (wide) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto" data-settings-wide="">
+        <h1 className="text-2xl font-bold text-navy-900 dark:text-white mb-1">Settings</h1>
+        <p className="text-sm text-navy-600 dark:text-white/60 mb-3">{subtitle}</p>
+        {search}
+        <div className="grid grid-cols-[minmax(0,320px)_minmax(0,1fr)] gap-6 items-start">
+          <div className="sticky top-[8.5rem]"><CategoryList cats={cats} summaries={summaries} selected={current} onOpen={open} /></div>
+          {current && <section key={current} aria-label={CATEGORY_NAME[current]} className="min-w-0" data-category-screen={current}>{header}{body}</section>}
+        </div>
+      </div>
+    );
   }
 
-  useEffect(() => { refresh(); }, [archive]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // /settings#places (e.g. from an errand without a home location)
-  const { hash } = useLocation();
-  useEffect(() => {
-    if (!hash) return;
-    const t = setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
-    return () => clearTimeout(t);
-  }, [hash]);
-
-  const isConnected = health?.ok === true;
-
+  // Phone: the list, or one category (back arrow + title on top, then the search, then its settings)
+  if (current) {
+    return (
+      <section key={current} aria-label={CATEGORY_NAME[current]} className="p-4 sm:p-6 max-w-2xl mx-auto note-anim-right" data-settings-narrow="" data-category-screen={current}>
+        {header}
+        {search}
+        {body}
+      </section>
+    );
+  }
   return (
-    <div className="p-6 max-w-2xl mx-auto animate-slide-up">
-      <div className="mb-6">
+    <div className="p-4 sm:p-6 max-w-2xl mx-auto" data-settings-narrow="">
+      <div className="mb-3">
         <h1 className="text-2xl font-bold text-navy-900 dark:text-white">Settings</h1>
-        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">{archive ? 'Your account, app and server settings' : 'Your account and app settings'}</p>
+        <p className="text-sm text-navy-600 dark:text-white/60 mt-1">{subtitle}</p>
       </div>
-
-      <SettingsSearch />
-
-      {/* ── Admin: Full or Lite layout on this device ───────────────────────── */}
-      {isAdmin && (
-        <div id="layout" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
-          <div className="flex items-center gap-2 mb-1">
-            <LayoutTemplate size={18} className="text-gold-500" />
-            <h2 className="font-bold text-navy-900 dark:text-white">Layout on this device</h2>
-          </div>
-          <label className="flex items-start gap-3 mt-2 cursor-pointer">
-            <input type="checkbox" className="accent-amber-500 w-4 h-4 mt-0.5" checked={liteOnDevice} onChange={e => setLiteOnDevice(e.target.checked)} />
-            <span>
-              <span className="block text-sm font-semibold text-navy-900 dark:text-white">Use Lite layout on this device</span>
-              <span className="block text-xs text-navy-500 dark:text-white/50">
-                Pocket Notes: Capture, Inbox, Lists, Projects, Shared with me, Calendar and Search. The archive, sync and admin settings are hidden here until you turn this off. Other devices keep their layout.
-              </span>
-            </span>
-          </label>
-        </div>
-      )}
-
-      <AppearanceSettings />
-      <OfflineSettings />
-      <RecordingSettings />
-      <PhoneActionsSettings />
-      <NotificationSettings />
-
-      {/* ── Backend status (server details: the archive admin) ───────────────── */}
-      {archive && <div id="backend" className="glass-card p-5 mb-4 flex items-center justify-between gap-4 scroll-mt-20">
-        <div className="flex items-center gap-3">
-          {loading ? (
-            <div className="w-2.5 h-2.5 rounded-full bg-navy-200 dark:bg-white/20 animate-pulse" />
-          ) : isConnected ? (
-            <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
-          ) : (
-            <XCircle size={18} className="text-red-400 shrink-0" />
-          )}
-          <div>
-            <p className="font-semibold text-navy-900 dark:text-white text-sm">
-              {loading ? 'Connecting…' : isConnected ? 'Backend connected' : 'Backend not reachable'}
-            </p>
-            <p className="text-xs text-navy-400 dark:text-white/40 mt-0.5">
-              Express API on <code className="font-mono">http://localhost:3001</code>
-            </p>
-          </div>
-        </div>
-        <button className="btn-ghost shrink-0" onClick={refresh} title="Refresh status">
-          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>}
-
-      {/* ── Archive info (admin) ────────────────────────────────────────────── */}
-      {archive && <div id="archive" className="glass-panel p-6 mb-4 scroll-mt-20">
-        <div className="flex items-center gap-2 mb-5">
-          <HardDrive size={18} className="text-gold-500" />
-          <h2 className="font-bold text-navy-900 dark:text-white">Archive</h2>
-        </div>
-
-        {loading ? (
-          <div className="space-y-3">
-            <div className="h-10 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />
-            <div className="grid grid-cols-2 gap-3">
-              {[1,2,3,4].map(i => <div key={i} className="h-12 rounded-xl bg-navy-100 dark:bg-white/10 animate-pulse" />)}
-            </div>
-          </div>
-        ) : stats ? (
-          <>
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4 font-mono text-xs text-navy-600 dark:text-white/60 break-all bg-navy-50/60 dark:bg-white/5">
-              <Folder size={13} className="text-navy-400 dark:text-white/40 shrink-0" />
-              {stats.archivePath}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <StatRow label="Total recordings" value={stats.total}          icon={<Info size={13} />}       accent="#6366F1" />
-              <StatRow label="With audio"        value={stats.withAudio}     icon={<Headphones size={13} />} accent="#F59E0B" />
-              <StatRow label="AI Notes"          value={stats.withAiNotes}   icon={<Sparkles size={13} />}   accent="#8B5CF6" />
-              <StatRow label="Transcripts"       value={stats.withTranscript} icon={<FileText size={13} />}  accent="#10B981" />
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-red-500">
-            Could not load archive stats. Make sure the backend is running.
-          </p>
-        )}
-      </div>}
-
-      {!lite && <SmartAppendSettings />}
-
-      <DocumentSettings />
-      <PlacesSettings />
-
-      <SharingSettings />
-
-      <CalendarSettings />
-
-      <SecuritySettings />
-
-      {!lite && <UsersAdmin />}
-
-      {/* ── Sync (admin) ────────────────────────────────────────────────────── */}
-      {archive && <div id="sync" className="glass-panel p-6 mb-4 scroll-mt-20">
-        <div className="flex items-center gap-2 mb-4">
-          <RefreshCw size={18} className="text-gold-500" />
-          <h2 className="font-bold text-navy-900 dark:text-white">Syncing Recordings</h2>
-        </div>
-        <p className="text-sm text-navy-600 dark:text-white/60 mb-4 leading-relaxed">
-          New recordings from Hey Pocket are imported by running the Python sync
-          script. It downloads audio, transcripts, original notes, and generates
-          AI-enhanced summaries via Claude.
-        </p>
-        <div
-          className="rounded-xl px-5 py-4 mb-3 font-mono text-sm"
-          style={{ background: '#0F172A', color: '#4ADE80' }}
-        >
-          <span style={{ color: '#475569' }}>$ </span>
-          python pocket_sync.py
-        </div>
-        <div
-          className="rounded-xl px-5 py-4 font-mono text-sm"
-          style={{ background: '#0F172A', color: '#4ADE80' }}
-        >
-          <span style={{ color: '#475569' }}>$ </span>
-          python pocket_sync.py --dry-run
-          <span style={{ color: '#475569', marginLeft: 12 }}># preview without downloading</span>
-        </div>
-        <p className="text-xs text-navy-400 dark:text-white/40 mt-3">
-          After syncing, refresh the Dashboard to see new recordings appear.
-          The script lives in{' '}
-          <code className="font-mono bg-navy-100 dark:bg-white/10 px-1.5 py-0.5 rounded text-navy-700 dark:text-white/70">
-            PocketSync_Project/
-          </code>
-          {' '}inside the archive folder.
-        </p>
-      </div>}
-      <div id="welcome" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
-        <div className="flex items-center gap-2 mb-1">
-          <Compass size={18} className="text-gold-500" />
-          <h2 className="font-bold text-navy-900 dark:text-white">Welcome tour</h2>
-        </div>
-        <p className="text-sm text-navy-600 dark:text-white/60 mb-3">Password, two-step verification, home, permissions, calendar and a quick tour.</p>
-        <button className="btn-white text-sm" onClick={openWelcome}>Show the welcome tour</button>
-      </div>
-
-      <AboutSection />
+      {search}
+      <CategoryList cats={cats} summaries={summaries} selected={null} onOpen={open} />
     </div>
   );
 }
+
+export { CATEGORIES };

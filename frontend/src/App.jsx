@@ -112,6 +112,7 @@ export default function App() {
             <Route path="search"    element={<SearchPage />} />
             <Route path="favorites" element={<ArchiveRoute><FavoritesPage /></ArchiveRoute>} />
             <Route path="settings"  element={<SettingsPage />} />
+            <Route path="settings/:category" element={<SettingsPage />} />
 
             <Route path="ai-notes" element={<ArchiveRoute>
               <FilteredListPage

@@ -619,5 +619,11 @@ html[data-motion="reduced"] .toast-card, html[data-motion="off"] .toast-card { a
 .setting-flash { animation: setting-flash 2.4s ease-out; border-radius: .75rem; scroll-margin: 8rem; }
 html[data-motion="reduced"] .setting-flash, html[data-motion="off"] .setting-flash { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent-500) / .9); background-color: rgb(var(--accent-500) / .14); }
 @media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .setting-flash { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent-500) / .9); background-color: rgb(var(--accent-500) / .14); } }
+/* Settings (2.11.0): collapsible "Advanced" at the bottom of a category */
+.settings-advanced > summary { list-style: none; gap: .4rem; }
+.settings-advanced > summary::-webkit-details-marker { display: none; }
+.settings-advanced > summary::before { content: ""; width: .5rem; height: .5rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s; margin-right: .25rem; }
+.settings-advanced[open] > summary::before { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .settings-advanced > summary::before { transition: none; } }
 /* Our own ✕ in search boxes: hide the browser's */
 input[type="search"]::-webkit-search-cancel-button, input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }

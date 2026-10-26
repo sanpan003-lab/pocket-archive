@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Search, X, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLayout } from '../lib/layout';
 import { isNative } from '../lib/platform';
 import { offlineCapable } from '../lib/offline/native';
-import { SECTIONS, visibleEntries, searchSettings, findSettingElement, revealSetting } from '../lib/settingsIndex';
+import { SECTIONS, visibleEntries, searchSettings } from '../lib/settingsIndex';
+import { CATEGORY_NAME, categoryOf } from '../lib/settingsCategories';
 import Highlight from './Highlight';
 
 const termsOf = q => String(q || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter(Boolean);
 
 /**
- * Settings → "Search settings…" (pinned at the top). Results: the setting with its section path; choosing one
- * scrolls to it, opens what it's in and flashes it. "/" focuses (web), Esc clears, ↑/↓ + Enter pick.
+ * Settings → "Search settings…" (pinned at the top). Results: the setting with its category › section path; choosing
+ * one opens that category's screen, scrolls to the setting, opens what it's in and flashes it (SettingsPage does that). "/" focuses (web), Esc clears, ↑/↓ + Enter pick.
  */
-export default function SettingsSearch() {
+export default function SettingsSearch({ categories = [] }) {
+  const navigate = useNavigate();
+  const { category } = useParams();
   const { isAdmin } = useApp();
   const { lite, archive } = useLayout();
   const [q, setQ] = useState('');
@@ -21,8 +25,8 @@ export default function SettingsSearch() {
   const [missing, setMissing] = useState('');
   const input = useRef(null);
   const entries = useMemo(() => visibleEntries({ lite, archive, isAdmin, isNative, offline: offlineCapable() }), [lite, archive, isAdmin]);
-  // Only what's really on this page (a block can hide itself, e.g. no fingerprint sensor)
-  const results = useMemo(() => searchSettings(entries, q, 30).filter(e => findSettingElement(e)).slice(0, 12), [entries, q]);
+  // Only settings in a category this account / device has
+  const results = useMemo(() => searchSettings(entries, q, 30).filter(e => categories.includes(categoryOf(e.section))).slice(0, 12), [entries, q, categories]);
   const terms = termsOf(q);
 
   // "/" focuses the box (not while typing somewhere else)
@@ -34,15 +38,19 @@ export default function SettingsSearch() {
       e.preventDefault();
       input.current?.focus();
     };
+    // A setting that hides itself here (e.g. no fingerprint sensor) never shows up after opening its category
+    const onMissing = e => setMissing(`${e.detail?.title || 'That setting'} isn’t available here`);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('pa:settings-missing', onMissing);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('pa:settings-missing', onMissing); };
   }, []);
 
   function pick(e) {
     setQ('');
     setActive(0);
     input.current?.blur();
-    if (!revealSetting(e)) setMissing(`${e.title} isn’t available here`);
+    const cat = categoryOf(e.section);
+    navigate(`/settings/${cat}`, { state: { reveal: e.key }, replace: cat === category });
   }
 
   function onKeyDown(e) {
@@ -96,7 +104,7 @@ export default function SettingsSearch() {
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-semibold text-navy-900 dark:text-white"><Highlight text={e.title} terms={terms} /></span>
                     <span className="block text-xs text-navy-500 dark:text-white/50 truncate">
-                      {e.title === SECTIONS[e.section] ? 'Section' : `${SECTIONS[e.section]} › ${e.title}`}
+                      {CATEGORY_NAME[categoryOf(e.section)]}{e.title === SECTIONS[e.section] || SECTIONS[e.section] === CATEGORY_NAME[categoryOf(e.section)] ? '' : ` › ${SECTIONS[e.section]}`}
                       {e.desc ? ` · ${e.desc}` : ''}
                     </span>
                   </span>

@@ -174,8 +174,12 @@ function Preview() {
   );
 }
 
-/** Settings → Appearance & layout */
-export default function AppearanceSettings() {
+/**
+ * part: 'notes' (Settings › Notes & inbox: opening notes, inbox layout, toolbar, notes look — with the live preview) |
+ *       'app' (Settings › Appearance & app icon: theme, app icon, capture screen, behavior)
+ */
+export default function AppearanceSettings({ part = 'app' }) {
+  const notes = part === 'notes';
   const { lite, archive } = useLayout();
   // Without the archive there is no Dashboard: the app opens on Capture (or Inbox / Projects)
   const screens = archive ? OPTIONS.defaultScreen
@@ -186,10 +190,10 @@ export default function AppearanceSettings() {
   const { opening, inbox, look, theme, behavior } = settings;
 
   return (
-    <div id="appearance" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
+    <div id={notes ? 'notes-look' : 'appearance'} className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
       <div className="flex items-center gap-2 mb-1">
         <Palette size={18} className="text-gold-500" />
-        <h2 className="font-bold text-navy-900 dark:text-white flex-1">Appearance &amp; layout</h2>
+        <h2 className="font-bold text-navy-900 dark:text-white flex-1">{notes ? 'Notes & inbox' : 'Appearance & layout'}</h2>
         {confirmReset ? (
           <span className="flex items-center gap-1">
             <button className="btn-ghost text-xs text-red-600 dark:text-red-400" onClick={() => { reset(); setConfirmReset(false); }}>Reset everything</button>
@@ -203,8 +207,9 @@ export default function AppearanceSettings() {
         Saved to your account and shared across devices — or pick “This device” for a group (e.g. a different layout on the phone).
       </p>
 
-      <div className="md:sticky md:top-[8.5rem] z-10 mb-3"><Preview /></div>
+      {notes && <div className="md:sticky md:top-[8.5rem] z-10 mb-3"><Preview /></div>}
 
+      {notes && <>
       <Group group="opening">
         <Segmented id="ap-style" label="Note opening style" value={opening.style} options={OPTIONS.style} onChange={set('opening', 'style')} />
         <Segmented id="ap-backdrop" label="Background behind floating notes" value={opening.backdrop} options={OPTIONS.backdrop} onChange={set('opening', 'backdrop')} />
@@ -238,6 +243,9 @@ export default function AppearanceSettings() {
         <Switch label="Show transcript by default" checked={look.transcriptOpen} onChange={set('look', 'transcriptOpen')} />
       </Group>
 
+      </>}
+
+      {!notes && <>
       <Group group="theme">
         <Segmented id="ap-theme" label="Theme" value={theme.theme} options={OPTIONS.theme} onChange={set('theme', 'theme')} />
         <div className="py-2.5">
@@ -273,6 +281,7 @@ export default function AppearanceSettings() {
         <Segmented id="ap-create" label="Create (+) button" value={behavior.createButton} options={OPTIONS.createButton} onChange={set('behavior', 'createButton')} />
         <Switch label="Haptics" hint="Short vibrations on long-press and the create menu (Android)" checked={behavior.haptics} onChange={set('behavior', 'haptics')} />
       </Group>
+      </>}
     </div>
   );
 }

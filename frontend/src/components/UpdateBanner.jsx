@@ -37,7 +37,7 @@ export default function UpdateBanner() {
         </p>
         {s.status !== 'downloading' && s.status !== 'deferred' && (
           <>
-            <button className="btn-gold text-xs py-1.5 px-3" onClick={s.canInstall ? start : () => navigate('/settings#about')}>Update</button>
+            <button className="btn-gold text-xs py-1.5 px-3" onClick={s.canInstall ? start : () => navigate('/settings/about')}>Update</button>
             <button className="btn-ghost text-xs py-1.5 px-2" onClick={hide}>Later</button>
           </>
         )}

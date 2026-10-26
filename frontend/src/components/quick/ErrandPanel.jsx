@@ -89,7 +89,7 @@ export default function ErrandPanel({ note, arrivalReady = true }) {
               <p className="text-xs text-amber-700 dark:text-amber-300 break-words">
                 {place.error}
                 {/home location/i.test(place.error) && (
-                  <> · <Link to="/settings#places" className="font-semibold underline">Settings</Link></>
+                  <> · <Link to="/settings/places" className="font-semibold underline">Settings</Link></>
                 )}
               </p>
             )}

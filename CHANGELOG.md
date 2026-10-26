@@ -5,6 +5,18 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.11.0 — Oct 26, 2026
+
+### Settings, organized like your phone’s
+- Settings opens on a short list: **Account & security**, **Recording & shortcuts**, **Notes & inbox**, **Places & reminders**, **Documents**, **Sharing & notifications**, **Offline & storage**, **Appearance & app icon**, **Watch**, **Admin** and **About & updates**
+- Each one shows a live summary, like “App lock on · 2 devices”, “Everything · 2.1 GB” or “2.10.0 · Up to date”
+- Tap one to open it. The ← arrow, Android Back and swipe-back take you back to the list
+- Settings you rarely need are tucked under **Advanced** at the bottom
+- You only see what your account and device can use: no admin settings for family members, no recording or watch settings on the web, and Watch only once a watch has connected
+- **Search settings** jumps straight to the right screen and lights up the setting
+- On a wide screen the list stays on the left and the settings show on the right
+- Settings remembers the screen you last opened on this device. Links from elsewhere in the app (the offline chip, update banner, notifications, errand lists) open the right screen
+
 ## 2.10.0 — Oct 26, 2026
 
 ### A better widget

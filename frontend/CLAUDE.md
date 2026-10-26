@@ -210,6 +210,22 @@ inside the Android app (`android/`). The backend lives in
 - Server: POST /api/quick/:id/done now also marks timed reminders done (reminderDone); snooze = PUT dueDate.
 - The phone APK is arm64-v8a only (`ndk { abiFilters }` in app/build.gradle); the watch build is unchanged.
 
+## Settings categories (2.11.0)
+
+- Routes `/settings` (list) and `/settings/:category` (one screen). `lib/settingsCategories.js`: `CATEGORIES`,
+  `SECTION_CATEGORY` (every settings block's element id → its category; old `/settings#<id>` links are redirected
+  with it), `visibleCategories(ctx)` (Lite / admin / native / offline / watch seen), last category in
+  `pa_settingsCategory`. What each screen shows: `CategoryContent` in `pages/SettingsPage.jsx`.
+- A new settings block: give it an element id, add the id to `SECTION_CATEGORY`, render it in `CategoryContent`,
+  and add its rows to `lib/settingsIndex.js`. Rarely used options go in `<Advanced>` (components/settings/SmallSettings).
+- Live summaries: `lib/settingsSummaries.js` (each fetched on its own; a failure shows a generic line).
+- Search: results navigate to `/settings/<cat>` with `state.reveal = entry.key`; SettingsPage waits for the row
+  (up to ~5 s), then `revealSetting`; not found → `pa:settings-missing` event → "isn’t available here".
+- From 900 px: two panes (list left, category right; `/settings` opens the remembered one; switching uses replace).
+  Phones: the back arrow does `navigate(-1)` when there is history, else replaces to `/settings` (Android Back =
+  `history.back()` in NativeBridge). Link to a category with `/settings/<cat>` (native notifications still use hashes).
+- Test: `fftools/s211-ui.cjs` (navigation, back, hash links, search deep links, Lite / admin / offline, two-pane).
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

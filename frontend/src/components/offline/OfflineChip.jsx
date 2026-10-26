@@ -19,7 +19,7 @@ export default function OfflineChip({ compact = false }) {
   const reload = window.PA_BUNDLED && st.online && !st.pending;
   return (
     <button type="button" data-offline-chip={tone}
-      onClick={() => (reload ? window.location.reload() : navigate('/settings#offline'))}
+      onClick={() => (reload ? window.location.reload() : navigate('/settings/offline'))}
       className={`inline-flex items-center gap-1 rounded-full border px-2 ${compact ? 'h-6 text-[10px] max-w-[11rem]' : 'h-7 text-xs'} font-semibold ${TONE[tone]} min-w-0`}
       aria-label={reload ? 'Back online — tap to load the latest screens' : `${text}. Open offline settings`}>
       <Icon size={compact ? 11 : 13} className={`shrink-0 ${tone === 'busy' ? 'animate-spin [animation-duration:2s]' : ''}`} />

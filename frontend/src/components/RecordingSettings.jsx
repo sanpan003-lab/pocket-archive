@@ -248,7 +248,10 @@ function ShortcutExplainer({ onContinue, onCancel }) {
  * Settings → Recording & shortcuts (Android app only). Stored on this phone
  * (and the watch's own settings on the watch) — not shared with the web.
  */
-export default function RecordingSettings() {
+/**
+ * part: 'phone' (Settings › Recording & shortcuts — rarely used options under Advanced) | 'watch' (Settings › Watch)
+ */
+export default function RecordingSettings({ part = 'phone' }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [explain, setExplain] = useState(null);   // 'doublePressUpStart' | 'doublePressDownStop'
@@ -304,6 +307,27 @@ export default function RecordingSettings() {
 
   const methods = startMethods(status, act);
   const reopenHint = 'Quick Record icon, side key, a routine or “Hey Google”';
+
+  if (part === 'watch') return (
+    <div id="watch" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
+      <div className="flex items-center gap-2 mb-1">
+        <Watch size={18} className="text-gold-500" />
+        <h2 className="font-bold text-navy-900 dark:text-white">Galaxy Watch</h2>
+      </div>
+      <p className="text-xs text-navy-500 dark:text-white/50">The watch’s own settings — also editable on the watch (swipe to the last page). Setup: watch Settings → Advanced features → Customize keys → Double press → Quick Record.</p>
+      <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-4 mb-1">While recording</h3>
+      <Segmented id="rw-reopen" label="Quick Record / tile while recording" value={w.quickRecordWhileRecording} options={OPTIONS.reopen} onChange={v => saveWatch({ quickRecordWhileRecording: v })} />
+      <Segmented id="rw-silence" label="Auto-stop after silence" value={w.silenceSec} options={OPTIONS.silence} onChange={v => saveWatch({ silenceSec: v })} />
+      <Segmented id="rw-max" label="Maximum length" value={w.maxMinutes} options={OPTIONS.max} onChange={v => saveWatch({ maxMinutes: v })} />
+      <Switch label="Start/stop vibration" checked={w.feedback !== 'none'} onChange={on => saveWatch({ feedback: on ? 'vibrate' : 'none' })} />
+      <Switch label="Countdown before recording starts" checked={!!w.countdown} onChange={on => saveWatch({ countdown: on })} />
+      <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-4 mb-1">Accidental recordings</h3>
+      <Switch label="Discard if no speech at the start" hint="Kept for 30 seconds with Restore on the watch" checked={w.noSpeechDiscard !== false} onChange={on => saveWatch({ noSpeechDiscard: on })} />
+      {w.noSpeechDiscard !== false && <Segmented id="rw-nospeech" label="No speech within" value={w.noSpeechSec || 4} options={OPTIONS.noSpeech} onChange={v => saveWatch({ noSpeechSec: v })} />}
+      <Switch label="Discard recordings shorter than 2 seconds" checked={w.minLengthDiscard !== false} onChange={on => saveWatch({ minLengthDiscard: on })} />
+      <p className="text-[11px] text-navy-400 dark:text-white/40 mt-1"><Smartphone size={11} className="inline" /> Changes reach the watch the next time it’s connected.</p>
+    </div>
+  );
 
   return (
     <div id="recording" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20">
@@ -375,6 +399,9 @@ export default function RecordingSettings() {
       {s.noSpeechDiscard && <Segmented id="rs-nospeech" label="No speech within" value={s.noSpeechSec} options={OPTIONS.noSpeech} onChange={set('noSpeechSec')} />}
       <Switch label="Discard recordings shorter than 2 seconds" checked={s.minLengthDiscard} onChange={set('minLengthDiscard')} />
       <p className="text-xs text-navy-500 dark:text-white/50 mt-1">After anything is ignored, new start presses are ignored for 3 seconds.</p>
+
+      <details className="settings-advanced mt-5" data-advanced="">
+        <summary className="cursor-pointer select-none text-sm font-semibold text-navy-700 dark:text-white/80 min-h-[44px] flex items-center">Advanced</summary>
       <RecordingStartsLog />
 
       <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-5 mb-1">Prevent double actions</h3>
@@ -402,20 +429,7 @@ export default function RecordingSettings() {
         )}
       </div>
 
-      {/* Watch */}
-      <h3 className="text-xs font-bold uppercase tracking-wider text-navy-400 dark:text-white/45 mt-5 mb-1 flex items-center gap-1.5">
-        <Watch size={12} /> Galaxy Watch
-      </h3>
-      <p className="text-xs text-navy-500 dark:text-white/50">The watch’s own settings — also editable on the watch (swipe to the last page). Setup: watch Settings → Advanced features → Customize keys → Double press → Quick Record.</p>
-      <Segmented id="rw-reopen" label="Quick Record / tile while recording" value={w.quickRecordWhileRecording} options={OPTIONS.reopen} onChange={v => saveWatch({ quickRecordWhileRecording: v })} />
-      <Segmented id="rw-silence" label="Auto-stop after silence" value={w.silenceSec} options={OPTIONS.silence} onChange={v => saveWatch({ silenceSec: v })} />
-      <Segmented id="rw-max" label="Maximum length" value={w.maxMinutes} options={OPTIONS.max} onChange={v => saveWatch({ maxMinutes: v })} />
-      <Switch label="Start/stop vibration" checked={w.feedback !== 'none'} onChange={on => saveWatch({ feedback: on ? 'vibrate' : 'none' })} />
-      <Switch label="Countdown before recording starts" checked={!!w.countdown} onChange={on => saveWatch({ countdown: on })} />
-      <Switch label="Discard if no speech at the start" hint="Kept for 30 seconds with Restore on the watch" checked={w.noSpeechDiscard !== false} onChange={on => saveWatch({ noSpeechDiscard: on })} />
-      {w.noSpeechDiscard !== false && <Segmented id="rw-nospeech" label="No speech within" value={w.noSpeechSec || 4} options={OPTIONS.noSpeech} onChange={v => saveWatch({ noSpeechSec: v })} />}
-      <Switch label="Discard recordings shorter than 2 seconds" checked={w.minLengthDiscard !== false} onChange={on => saveWatch({ minLengthDiscard: on })} />
-      <p className="text-[11px] text-navy-400 dark:text-white/40 mt-1"><Smartphone size={11} className="inline" /> Changes reach the watch the next time it’s connected.</p>
+      </details>
 
       {explain && (
         <ShortcutExplainer

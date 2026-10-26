@@ -75,7 +75,7 @@ export default function QuickSettings({ readAloud, onReadAloud, feedback, onFeed
             onChange={onFeedback}
           />
           {isNative && (
-            <Link to="/settings#recording" className="mt-3 flex items-center justify-between rounded-xl bg-gold-500/10 px-3 py-2 text-sm font-semibold text-gold-700 dark:text-gold-300">
+            <Link to="/settings/recording" className="mt-3 flex items-center justify-between rounded-xl bg-gold-500/10 px-3 py-2 text-sm font-semibold text-gold-700 dark:text-gold-300">
               Volume keys, auto-stop &amp; shortcuts <span aria-hidden="true">→</span>
             </Link>
           )}
