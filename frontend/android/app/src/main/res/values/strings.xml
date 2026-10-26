@@ -25,4 +25,6 @@
     <string name="widget_scan_description">Scan a document into a new note</string>
     <string name="tile_scan_label">Quick Scan</string>
     <string name="capture_label">Scan</string>
+    <string name="widget_list_label">Pocket Archive · List</string>
+    <string name="widget_list_description">One list or errand — tick items off and add new ones from the home screen</string>
 </resources>

@@ -35,7 +35,8 @@ object WidgetData {
     }
 
     private const val PREFS = "widget_cache"
-    private const val LIMIT = 5
+    // The widget shows up to 50 (2.10.0) — with the fields its filters, Up next and checklists need (full=1)
+    private const val LIMIT = 50
 
     private val io = Executors.newSingleThreadExecutor()
     private val client by lazy {
@@ -49,6 +50,14 @@ object WidgetData {
 
     fun items(ctx: Context): List<Item> =
         runCatching { parse(JSONArray(prefs(ctx).getString("items", "[]"))) }.getOrDefault(emptyList())
+
+    /** The saved list as the server sent it (the widget model reads these when there's no offline copy) */
+    fun raw(ctx: Context): List<JSONObject> = runCatching {
+        val a = JSONArray(prefs(ctx).getString("items", "[]"))
+        (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+    }.getOrDefault(emptyList())
+
+    fun fetchedAt(ctx: Context): Long = prefs(ctx).getLong("fetchedAt", 0L)
 
     /** Last refresh couldn't reach the server (list may be out of date). */
     fun offline(ctx: Context) = prefs(ctx).getBoolean("offline", false)
@@ -72,7 +81,7 @@ object WidgetData {
         // App locked: the capture-only token can't read notes (and the widget doesn't show them then)
         if (AppLock.isLocked(ctx)) return true
         val request = Request.Builder()
-            .url("$apiBase/api/quick/recent?limit=$LIMIT")
+            .url("$apiBase/api/quick/recent?limit=$LIMIT&full=1")
             .header("Authorization", "Bearer $token")
             .build()
         val ok = try {

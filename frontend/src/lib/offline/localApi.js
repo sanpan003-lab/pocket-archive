@@ -288,7 +288,9 @@ on('POST', new RegExp(`^/quick/${NOTE}/done$`), async ({ m, body }) => {
   const done = body?.done !== false;
   const next = n.geo && n.type !== 'errand' && n.format !== 'list'
     ? { ...n, reminderDone: done, geo: { ...n.geo, status: done ? 'done' : 'active', doneAt: done ? now() : null } }
-    : { ...n, errandDone: done, completedAt: done ? (n.completedAt || now()) : null };
+    : n.type === 'reminder' && n.format !== 'list'
+      ? { ...n, reminderDone: done, completedAt: done ? (n.completedAt || now()) : null }
+      : { ...n, errandDone: done, completedAt: done ? (n.completedAt || now()) : null };
   const saved = await data.saveNote(touched(next));
   await enqueue({ method: 'POST', path: `/api/quick/${n.id}/done`, body: { done }, noteId: n.id, label: done ? 'Done' : 'Reopen' });
   return saved;

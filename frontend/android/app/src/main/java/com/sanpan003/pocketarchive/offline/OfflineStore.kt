@@ -141,6 +141,7 @@ object OfflineStore {
             else -> Unit
         }
         emit("status", status(ctx))
+        com.sanpan003.pocketarchive.widget.Widgets.refresh(ctx) // the widgets show the copy
         return stop
     }
 

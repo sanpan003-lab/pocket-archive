@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Pocket Archive · List" (2.10.0): one list with its checklist -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="140dp"
+    android:minResizeHeight="90dp"
+    android:maxResizeWidth="530dp"
+    android:maxResizeHeight="600dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_list"
+    android:previewLayout="@layout/widget_list"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/widget_list_description"
+    android:configure="com.sanpan003.pocketarchive.widget.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable"
+    android:widgetCategory="home_screen" />

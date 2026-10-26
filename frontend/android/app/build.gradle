@@ -46,6 +46,9 @@ android {
     namespace = "com.sanpan003.pocketarchive"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
+        // Our phones are all arm64: the phone app carries only those native libraries (SQLCipher…) — about half the size.
+        // The watch app (android/wear) is built as before.
+        ndk { abiFilters "arm64-v8a" }
         applicationId "com.sanpan003.pocketarchive"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
@@ -128,6 +131,8 @@ dependencies {
     implementation "androidx.sqlite:sqlite:2.4.0"
     // App shell: is DOCUMENT_START_SCRIPT supported (the bundled screens get Capacitor's bridge that way)
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+    // Widgets (2.10.0): scrollable lists on every launcher (RemoteCollectionItems, backported below Android 12)
+    implementation "androidx.core:core-remoteviews:1.1.0"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     // Offline sync engine tests on the JVM (Android's org.json is a stub there)

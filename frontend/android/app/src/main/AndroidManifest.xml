@@ -272,6 +272,39 @@
             </intent-filter>
         </service>
 
+        <!-- Widgets (2.10.0): the list widget, settings per widget, taps that do something without the app -->
+        <receiver
+            android:name=".widget.PinnedListWidget"
+            android:label="@string/widget_list_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_list_info" />
+        </receiver>
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:label="Widget settings"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".widget.WidgetActionActivity"
+            android:theme="@style/Theme.Trampoline"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:windowSoftInputMode="stateAlwaysVisible" />
+
         <receiver
             android:name=".quick.QuickToggleWidget"
             android:label="@string/widget_label"

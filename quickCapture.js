@@ -1677,7 +1677,8 @@ function createQuickCapture(deps) {
     // (registered before /api/quick/:id so "recent" isn't treated as an id)
     app.get('/api/quick/recent', (req, res) => {
       try {
-        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 20);
+        const full = req.query.full === '1'; // the widget (2.10.0): filters, Up next, checklists
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), full ? 50 : 20);
         const withSummary = req.query.summary === '1';
         const recent = store.list()
           .filter(n => !n.undone && (!n.hidden || n.kind === 'append'))
@@ -1699,6 +1700,13 @@ function createQuickCapture(deps) {
             } : {}),
             ...(withSummary ? {
               summary: n.summaryStatus === 'done' && n.summary ? String(n.summary).slice(0, 1500) : null,
+            } : {}),
+            ...(full ? {
+              format: n.format || null, start: n.start || null, dueDate: n.dueDate || null, pinned: !!n.pinned,
+              docCategory: n.document?.type ? (n.document.category || null) : null, isDocument: !!n.document?.type,
+              shared: !!(n.sharedWith || []).length, reminderDone: !!n.reminderDone, errandDone: !!n.errandDone,
+              textRev: n.textRev || 0,
+              items: (n.type === 'errand' || n.format === 'list') ? (n.items || []).slice(0, 50).map(i => ({ id: i.id, text: i.text, done: !!i.done })) : undefined,
             } : {}),
           }));
         res.json(recent);
@@ -1994,7 +2002,8 @@ function createQuickCapture(deps) {
       const note = store.read(id);
       if (!note) { res.status(404).json({ error: 'Quick note not found' }); return null; }
       if (note.undone) { res.status(409).json({ error: 'This capture was undone' }); return null; }
-      if (note.type !== 'errand' && note.format !== 'list' && !(note.geo && req.path.match(/\/(done|triggered)$/))) {
+      if (note.type !== 'errand' && note.format !== 'list' && !(note.geo && req.path.match(/\/(done|triggered)$/))
+        && !(note.type === 'reminder' && /\/done$/.test(req.path))) {
         res.status(409).json({ error: 'Only lists and errands have a checklist' }); return null;
       }
       return note;
@@ -2072,6 +2081,14 @@ function createQuickCapture(deps) {
         const done = req.body?.done !== false;
         note.geo = { ...note.geo, status: done ? 'done' : (Number.isFinite(note.geo.lat) ? 'active' : 'needs_place'), doneAt: done ? new Date().toISOString() : null };
         note.reminderDone = done;
+        return res.json(finalize(note));
+      }
+      if (note.type === 'reminder' && note.format !== 'list') {
+        // A timed reminder done (widget "Done", 2.10.0)
+        const done = req.body?.done !== false;
+        note.reminderDone = done;
+        note.completedAt = done ? (note.completedAt || new Date().toISOString()) : null;
+        logActivity(note, actorOf(req), done ? 'done' : 'reopened');
         return res.json(finalize(note));
       }
       if (!!note.errandDone !== (req.body?.done !== false)) logActivity(note, actorOf(req), req.body?.done !== false ? 'done' : 'reopened');

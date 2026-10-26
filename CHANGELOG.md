@@ -5,6 +5,30 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.10.0 — Oct 26, 2026
+
+### A better widget
+- The list **scrolls** and shows up to **50** notes
+- The record button is now the **Purple Neon Bolt** in a dark circle, like Scan and Camera. While recording it gets a red ring and a timer — tap to stop
+- **✏️ Type** next to Scan and Camera: a quick text note without opening the app
+- **Filter chips**: All · Notes · Reminders · Lists · Documents · Shared (and Actions if you want them — they’re hidden by default)
+- **Up next** at the top: your next 3 reminders and events with a countdown, like “Call Citibank · 12 PM · in 2 h”
+- **Right from the widget**: tick off list items, mark a reminder **Done**, or **Snooze** it an hour — also offline, sent when you’re back online
+- A status line: **Offline · 2 waiting to upload**, **Syncing…** or when it last synced
+
+### Each widget your way
+- Long-press the widget → **Settings** (it also opens when you add one): which filter it opens on, which chips show, actions on or off, newest first or due soonest, compact or comfortable rows, dark / light / match the phone, how see-through it is, times on or off, and **always hide titles**
+- Several widgets can each have their own settings
+
+### New: list widget
+- **Pocket Archive · List** shows one list — say Publix — so you can tick items off and **+ Add item** from the home screen
+
+### Privacy
+- While the app is locked the widgets show no titles, and taps that would change something open the app to unlock first
+
+### Smaller app
+- The phone app is now about half the size
+
 ## 2.9.0 — Oct 25, 2026
 
 ### Works offline (Android app)

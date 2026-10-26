@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4x2 and larger (2.10.0): header with status line + Bolt / Scan / Camera / Type, filter chips, Up next,
+     and a scrollable list (up to 50). Recording / uploading take the list's place. Colors and transparency are set
+     per widget (QuickToggleWidget). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/fd_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_shape"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="6dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/fd_header"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:id="@+id/fd_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:text="Pocket Archive"
+                    android:textColor="#FFA78BFA"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/fd_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/fd_bolt"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:contentDescription="Start Quick Capture">
+                <ImageView
+                    android:id="@+id/fd_bolt_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:src="@drawable/widget_bg_bolt"
+                    android:importantForAccessibility="no" />
+                <ImageView
+                    android:id="@+id/fd_bolt_icon"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_bolt_neon"
+                    android:importantForAccessibility="no" />
+            </FrameLayout>
+            <FrameLayout
+                android:id="@+id/fd_scan"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="Scan a document">
+                <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_bg_tool" android:importantForAccessibility="no" />
+                <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/ic_scan_white" android:importantForAccessibility="no" />
+            </FrameLayout>
+            <FrameLayout
+                android:id="@+id/fd_camera"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="Photo note">
+                <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_bg_tool" android:importantForAccessibility="no" />
+                <ImageView android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:src="@drawable/ic_camera_white" android:importantForAccessibility="no" />
+            </FrameLayout>
+            <FrameLayout
+                android:id="@+id/fd_type"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="Type a note">
+                <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_bg_tool" android:importantForAccessibility="no" />
+                <ImageView android:layout_width="16dp" android:layout_height="16dp" android:layout_gravity="center" android:src="@drawable/ic_pencil_white" android:importantForAccessibility="no" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/fd_chips"
+            android:layout_width="match_parent"
+            android:layout_height="28dp"
+            android:layout_marginTop="7dp"
+            android:orientation="horizontal">
+            <TextView android:id="@+id/fd_chip0" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip1" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip2" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip3" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip4" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip5" style="@style/WidgetChip" />
+            <TextView android:id="@+id/fd_chip6" style="@style/WidgetChip" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/fd_upnext"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/fd_up_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UP NEXT"
+                android:textColor="#FFA78BFA"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+            <TextView android:id="@+id/fd_up1" style="@style/WidgetUpNext" />
+            <TextView android:id="@+id/fd_up2" style="@style/WidgetUpNext" />
+            <TextView android:id="@+id/fd_up3" style="@style/WidgetUpNext" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/fd_rec"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <Chronometer
+                android:id="@+id/fd_chrono"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FFEF4444"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+            <FrameLayout
+                android:id="@+id/fd_stop"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_marginTop="6dp"
+                android:contentDescription="Stop recording">
+                <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_bg_rec_ring" android:importantForAccessibility="no" />
+                <ImageView android:layout_width="26dp" android:layout_height="26dp" android:layout_gravity="center" android:src="@drawable/ic_stop_white" android:importantForAccessibility="no" />
+            </FrameLayout>
+            <TextView
+                android:id="@+id/fd_rec_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Recording · tap to stop"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/fd_busy"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <ProgressBar
+                    android:id="@+id/fd_spinner"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="8dp"
+                    android:indeterminate="true"
+                    android:indeterminateTint="#FFA78BFA" />
+                <TextView
+                    android:id="@+id/fd_busy_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textSize="14sp" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/fd_actions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+                <TextView android:id="@+id/fd_action1" style="@style/WidgetPill" />
+                <TextView android:id="@+id/fd_action2" style="@style/WidgetPill" android:layout_marginStart="8dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/fd_list_area"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="4dp">
+            <ListView
+                android:id="@+id/fd_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:divider="@null"
+                android:dividerHeight="0dp"
+                android:scrollbars="none" />
+            <TextView
+                android:id="@+id/fd_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:padding="8dp"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

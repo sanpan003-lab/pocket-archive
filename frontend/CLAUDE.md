@@ -195,6 +195,21 @@ inside the Android app (`android/`). The backend lives in
   `src/lib/offline/searchCore.js`. Release builds must include `bundle-version.json` (build:android writes it).
 - Never widen `/api/offline/*` beyond req.user's own store + sharing.sharedNotes; the capture token must stay refused.
 
+## Widgets (2.10.0) — android/app/.../widget/ (+ quick/QuickToggleWidget.kt)
+
+- Two providers: `QuickToggleWidget` (1x1 bolt, 2x1/3x1 bolt + Scan/Camera/Type, 4x2+ feed: chips, Up next, list of
+  up to 50) and `widget/PinnedListWidget` (one list, tick + "+ Add item"). Per-widget settings `WidgetConfig`
+  (prefs `widget_config`, key `w<id>`), screen `WidgetConfigActivity` (on add + long-press → Settings).
+- Data: `WidgetSource.notes` = the offline copy when open, else `WidgetData.raw` (GET /api/quick/recent?limit=50&full=1).
+  `WidgetModel` (pure, JVM-tested) does filters / sort / Up next / countdowns. Draw everything through
+  `Widgets.refresh` (single background thread — opening the encrypted copy must not run on the main thread).
+- Lists scroll via `RemoteViewsCompat.setRemoteAdapter` (androidx core-remoteviews; RemoteCollectionItems). Row taps:
+  one mutable template PendingIntent per list → `WidgetActionActivity` (invisible trampoline; fill-in extras kind /
+  noteId / itemId). Inline changes = `WidgetActions.plan` → offline copy + queue (same as the app's offline changes),
+  else a direct call. App locked → no titles; changes open the app.
+- Server: POST /api/quick/:id/done now also marks timed reminders done (reminderDone); snooze = PUT dueDate.
+- The phone APK is arm64-v8a only (`ndk { abiFilters }` in app/build.gradle); the watch build is unchanged.
+
 ## Every release (rule)
 
 1. Bump the version and add an entry at the top of `pocket-archive-monorepo\CHANGELOG.md` (the single

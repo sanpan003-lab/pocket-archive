@@ -14,5 +14,6 @@
     android:previewLayout="@layout/widget_quick"
     android:previewImage="@mipmap/ic_launcher"
     android:description="@string/widget_description"
+    android:configure="com.sanpan003.pocketarchive.widget.WidgetConfigActivity"
     android:widgetFeatures="reconfigurable"
     android:widgetCategory="home_screen" />
