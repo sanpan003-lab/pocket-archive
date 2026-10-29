@@ -22,12 +22,12 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_FIRE -> if (id != null) ReminderAlarms.fire(ctx, id)
             ACTION_DONE -> if (id != null) {
-                ReminderAlarms.cancel(ctx, id)
+                ReminderAlarms.cancel(ctx, id, "Done from the notification")
                 ErrandWorker.markDone(ctx, id) // retries until online; the server marks it done
             }
             ACTION_SNOOZE_10, ACTION_SNOOZE_60 -> if (id != null) {
                 androidx.core.app.NotificationManagerCompat.from(ctx).cancel(ReminderAlarms.notificationId(id))
-                ReminderAlarms.snooze(ctx, id, if (intent.action == ACTION_SNOOZE_10) ReminderAlarms.SNOOZE_SHORT_MS else ReminderAlarms.SNOOZE_LONG_MS, null, null)
+                ReminderAlarms.snooze(ctx, id, if (intent.action == ACTION_SNOOZE_10) ReminderAlarms.SNOOZE_SHORT_MS else ReminderAlarms.SNOOZE_LONG_MS)
             }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_TIME_CHANGED,
             "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" -> ReminderAlarms.rescheduleAll(ctx)

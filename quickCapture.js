@@ -13,6 +13,7 @@ const fs     = require('fs');
 const path   = require('path');
 const multer = require('multer');
 const gcal   = require('./googleCalendar');
+const reminderIntent = require('./reminderIntent');
 const { convertToM4a, ffmpegAvailable } = require('./audioConvert');
 const { createProjects } = require('./projects');
 const { createAppender } = require('./quickAppend');
@@ -391,7 +392,7 @@ const CLASSIFY_SYSTEM = `You turn a short voice memo, dictated while driving, in
 
 Choose "type":
 - "event": something scheduled for a specific day (appointment, meeting, call, pickup). Fill start/end.
-- "reminder": a task or to-do ("remind me to…", "I need to…", "don't forget…"). Put any deadline in dueDate.
+- "reminder": a task or to-do ("remind me to…", "I need to…", "don't forget…"). Put any deadline in dueDate. EVERY "remind me …" / "set a reminder …" request is a reminder, never an event, even with a time ("remind me at 3 to call Mom", "remind me in 5 minutes to check the oven": dueDate is that time, with the UTC offset).
 - "errand": a trip to a store or place to buy or pick up things, and/or a list of things to get ("Tomorrow I need to go to Publix for milk and eggs", "Remind me when I get to Publix to buy soda", "Pick up at Home Depot: screws, tape", "I need milk, bread and coffee"). Prefer "errand" over "event" or "reminder" whenever the memo lists things to buy or get, or ties a task to arriving at a store.
 - "note_link": the memo adds information to ONE of the listed recordings (same topic, person, or case). Set linkedRecordingId to that recording's id and linkConfidence to how sure you are (0–1). Only choose this when linkConfidence >= 0.7; otherwise use "note".
 - "note": anything else.
@@ -570,6 +571,39 @@ async function suggestTitle(notes) {
 }
 
 // ── Classification → note fields ───────────────────────────────────────────
+
+/**
+ * Deterministic pass after the classifier (reminderIntent.js): "remind me …" is always a reminder with its
+ * due time; "in N minutes/hours" is computed from when it was said; "at 3 pm" fills a missing time.
+ */
+function applyReminderIntent(note, text, now = new Date()) {
+  if (!text || note.geo || note.type === 'errand' || note.type === 'note_link') return note;
+  const a = reminderIntent.analyze(text);
+  if (note.type !== 'reminder') {
+    if (!a.intent) return note;
+    const when = note.type === 'event' ? note.start : note.dueDate;
+    note.type = 'reminder';
+    note.dueDate = when || null;
+    note.start = null;
+    note.end = null;
+  }
+  let due = note.dueDate || null;
+  if (a.relativeMs != null) {
+    due = toZonedIso(new Date(now.getTime() + a.relativeMs));
+  } else if (a.clock && (!due || DATE_ONLY_RE.test(due))) {
+    const base = due || toZonedIso(now).slice(0, 10);
+    const day = !due && a.tomorrow ? addDays(base, 1) : base;
+    const hours = a.clock.meridiem ? [a.clock.h % 12 + (a.clock.meridiem === 'pm' ? 12 : 0)]
+      : a.clock.h >= 13 ? [a.clock.h % 24] : [a.clock.h % 12, a.clock.h % 12 + 12];
+    const options = hours.map(h => parseZoned(`${day}T${pad(h)}:${pad(a.clock.mi)}:00`)).filter(Boolean);
+    let pick = options.find(d => d.getTime() > now.getTime());
+    if (!pick && !due && options.length) pick = new Date(options[0].getTime() + 86400000);
+    if (pick) due = toZonedIso(pick);
+  }
+  note.dueDate = due;
+  note.allDay = !due || DATE_ONLY_RE.test(due);
+  return note;
+}
 
 function applyFields(note, fields, { recordingExists }) {
   const type = QUICK_TYPES.includes(fields.type) ? fields.type : note.type || 'note';
@@ -1336,6 +1370,7 @@ function createQuickCapture(deps) {
         const pa = phone.normalize(note.classification.phoneAction);
         if (pa && !pa.alsoNote) return finalize(await phone.convert(note, pa)); // a command: action entry only
         applyFields(note, note.classification, deps);
+        applyReminderIntent(note, note.transcript, now);
         note.spokenConfirmation = String(note.classification.spokenConfirmation || '').trim() || `Saved: ${note.title}`;
         await routeIntent(note, note.classification, now);
         if (pa) await phone.attach(note, pa, now); // note + action chip
@@ -1386,6 +1421,7 @@ function createQuickCapture(deps) {
       if (pa && !pa.alsoNote) return finalize(await phone.convert(note, pa));
       if (pa) note.pendingAction = pa;
       applyFields(note, cls, deps);
+      applyReminderIntent(note, text, now);
       if (typed.title) note.title = typed.title;
       if (typed.body) note.content = typed.body;
       else if (note.source === 'image' || note.source === 'list') note.content = typed.caption || '';
@@ -2147,14 +2183,16 @@ function createQuickCapture(deps) {
     app.get('/api/reminders/timed', (_req, res) => {
       try {
         const since = Date.now() - 10 * 60000;
+        // Events (timed start) are listed too: the phone alerts for them only when "Alert for events" is on
+        const whenOf = n => (n.type === 'reminder' ? n.dueDate : n.type === 'event' && !n.allDay ? n.start : null);
         const reminders = [...store.list(), ...(foreign?.listAll?.() || [])]
-          .filter(n => n.type === 'reminder' && n.format !== 'list' && !n.geo && typeof n.dueDate === 'string' && !DATE_ONLY_RE.test(n.dueDate)
+          .filter(n => (n.type === 'reminder' || n.type === 'event') && n.format !== 'list' && !n.geo && typeof whenOf(n) === 'string' && !DATE_ONLY_RE.test(whenOf(n))
             && !n.reminderDone && !n.undone && !n.hidden && !n.cancelled && n.status !== 'pending_decision')
-          .map(n => ({ n, at: parseZoned(n.dueDate) }))
+          .map(n => ({ n, at: parseZoned(whenOf(n)) }))
           .filter(({ at }) => at && at.getTime() >= since)
           .sort((a, b) => a.at - b.at)
           .slice(0, 200)
-          .map(({ n, at }) => ({ id: n.id, title: n.title, text: String(n.content || n.title || '').slice(0, 300), dueAt: at.getTime() }));
+          .map(({ n, at }) => ({ id: n.id, clientId: n.clientId || null, kind: n.type, title: n.title, text: String(n.content || n.title || '').slice(0, 300), dueAt: at.getTime() }));
         res.json({ generatedAt: new Date().toISOString(), reminders });
       } catch (err) {
         res.status(500).json({ error: err.message });
@@ -2492,7 +2530,7 @@ module.exports = {
   transcribe,
   // exported for tests
   _internal: {
-    textConflict, applyFields, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
+    textConflict, applyFields, applyReminderIntent, normalizeWhen, parseZoned, toZonedIso, desiredGoogleEvent, describeNow, syncGoogle, confirmationFor,
     normalizeItems, isActiveArrival, arrivalExpiresOn, errandDescription, isActiveGeo,
   },
 };

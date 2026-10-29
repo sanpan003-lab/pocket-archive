@@ -5,6 +5,16 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.12.1 — Oct 29, 2026
+
+### Reminder alerts that actually arrive
+- **Fixed:** reminders you said out loud (or from the watch or widget) never got their phone alert in 2.12.0 — a bug in the background sync stopped the alarm from being set. They do now, the moment the result comes back
+- “Remind me …” is **always** a reminder with its time, never just a calendar event. “In 2 minutes” / “in an hour and a half” are now computed exactly from when you said it
+- An alert you set is never cancelled just because the server hasn’t caught up yet; it’s only cancelled when you mark the reminder done, delete or undo it, or change its time
+- Calendar events with a time can alert too: **Settings → Places & reminders → Reminder alerts → Alert for events** (on by default)
+- Every timed reminder shows **🔔 Alert set for 3:00 PM**, or **⚠ Alert not set — tap to fix**
+- New **Alert log** in Reminder alerts: what was scheduled, fired or cancelled, and why (no note text)
+
 ## 2.12.0 — Oct 29, 2026
 
 ### Reminders now alert you at the due time

@@ -4,6 +4,9 @@ import { AlarmClock, CheckCircle2, AlertTriangle, Loader2, RefreshCw } from 'luc
 import { isNative } from '../../lib/platform';
 import { QuickRecorder } from '../../native/quickRecorder';
 
+const LOG_LABEL = { scheduled: '🔔 Scheduled', fired: '⏰ Fired', cancelled: '✖ Cancelled', skipped: '⚠ Skipped', settings: '⚙ Setting' };
+const stamp = ms => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
 /**
  * Settings › Places & reminders (Android app): alerts for reminders with a due time, a test button
  * (phone + watch) and a health check — notifications, exact alarms, battery "Unrestricted".
@@ -12,8 +15,13 @@ export default function ReminderAlerts() {
   const [h, setH] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [log, setLog] = useState([]);
 
-  const load = useCallback(() => { QuickRecorder.getReminderHealth().then(setH).catch(() => setH(null)); }, []);
+  const loadLog = useCallback(() => { QuickRecorder.getReminderLog().then(r => setLog(r.entries || [])).catch(() => setLog([])); }, []);
+  const load = useCallback(() => {
+    QuickRecorder.getReminderHealth().then(setH).catch(() => setH(null));
+    loadLog();
+  }, [loadLog]);
 
   useEffect(() => {
     if (!isNative) return undefined;
@@ -29,6 +37,17 @@ export default function ReminderAlerts() {
 
   async function toggle(on) {
     setH(await QuickRecorder.setReminderAlerts({ enabled: on }).catch(() => h));
+    loadLog();
+  }
+
+  async function toggleEvents(on) {
+    setH(await QuickRecorder.setReminderAlerts({ alertEvents: on }).catch(() => h));
+    loadLog();
+  }
+
+  async function clearLog() {
+    await QuickRecorder.clearReminderLog().catch(() => {});
+    setLog([]);
   }
 
   async function test() {
@@ -38,6 +57,7 @@ export default function ReminderAlerts() {
       const r = await QuickRecorder.testReminderAlert();
       setMsg(!r.sent ? 'Notifications are off for Pocket Archive — fix that below, then try again.'
         : r.watchApp ? 'Sent to this phone and your watch.' : 'Sent to this phone (no Pocket Archive watch app found).');
+      loadLog();
     } catch (err) {
       setMsg(err.message || 'Could not send the test');
     } finally {
@@ -83,6 +103,16 @@ export default function ReminderAlerts() {
             </span>
           </button>
 
+          <button type="button" role="switch" aria-checked={h.alertEvents} onClick={() => toggleEvents(!h.alertEvents)} className="w-full flex items-center gap-3 py-2.5 text-left">
+            <span className="flex-1">
+              <span className="block text-sm font-semibold text-navy-900 dark:text-white">Alert for events</span>
+              <span className="block text-xs text-navy-500 dark:text-white/50">Also alert when a calendar event with a time starts</span>
+            </span>
+            <span className={`w-10 h-6 rounded-full p-0.5 transition-colors ${h.alertEvents ? 'bg-gold-500' : 'bg-navy-200 dark:bg-white/20'}`}>
+              <span className={`block w-5 h-5 rounded-full bg-white transition-transform ${h.alertEvents ? 'translate-x-4' : ''}`} />
+            </span>
+          </button>
+
           <div className="rounded-xl bg-navy-50/50 dark:bg-white/5 px-3 py-1 mt-1 divide-y divide-navy-100 dark:divide-white/10">
             {checks.map(c => (
               <div key={c.key} className="flex items-start gap-2.5 py-2.5">
@@ -103,6 +133,29 @@ export default function ReminderAlerts() {
             </button>
           </div>
           {msg && <p className="text-sm text-navy-600 dark:text-white/70 mt-2" role="status">{msg}</p>}
+
+          <details className="mt-3" data-reminder-log="">
+            <summary className="cursor-pointer select-none text-sm font-semibold text-navy-600 dark:text-white/70 min-h-[44px] flex items-center">
+              Alert log ({log.length})
+            </summary>
+            {log.length === 0 ? (
+              <p className="text-xs text-navy-500 dark:text-white/50">Nothing yet. Scheduled, fired and cancelled alerts show up here, with the reason (no note text).</p>
+            ) : (
+              <>
+                <ul className="rounded-xl bg-navy-50/50 dark:bg-white/5 px-3 divide-y divide-navy-100 dark:divide-white/10 max-h-72 overflow-y-auto">
+                  {log.map((e, i) => (
+                    <li key={i} className="py-2 text-xs text-navy-700 dark:text-white/70">
+                      <span className="font-semibold text-navy-900 dark:text-white">{LOG_LABEL[e.ev] || e.ev}</span>
+                      {e.id ? <span className="text-navy-400 dark:text-white/40"> · …{e.id}</span> : null}
+                      <span className="block">{e.why}{e.at ? ` · due ${stamp(e.at)}` : ''}</span>
+                      <span className="block text-navy-400 dark:text-white/40">{stamp(e.t)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="btn-ghost text-xs mt-1" onClick={clearLog}>Clear log</button>
+              </>
+            )}
+          </details>
         </>
       )}
     </div>

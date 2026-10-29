@@ -43,6 +43,7 @@ object ResultNotifier {
         }
         // Smart append: the capture lives inside another note → open that one; Undo/answer by capture id
         val note = response.optJSONObject("note")
+        if (note != null) runCatching { ReminderAlarms.scheduleFromNote(ctx, note, "capture result") }
         RecordingLog.noteSaved(ctx, note?.optString("clientId"), note?.optString("id"), note?.optString("title"))
         val captureId = conf?.optString("captureId")?.takeIf { it.isNotBlank() } ?: note?.optString("id")
         val ask = tone == "ask"

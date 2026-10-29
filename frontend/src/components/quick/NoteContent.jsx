@@ -12,6 +12,7 @@ import { hasChecklist, isTyped } from './noteHelpers';
 import GeoPlacePrompt from '../places/GeoPlacePrompt';
 import NoteMap from '../places/NoteMap';
 import NoteAttachments from './NoteAttachments';
+import ReminderAlertLine from './ReminderAlertLine';
 import DocumentCard from './DocumentCard';
 import PagesEditor from './PagesEditor';
 import { noteRole } from '../../lib/sharing';
@@ -85,6 +86,7 @@ export default function NoteContent({ note, onChanged, projectName, arrivalReady
   return (
     <div className="min-w-0">
       <GeoPlacePrompt note={note} onChanged={onChanged} />
+      <ReminderAlertLine note={note} />
       <NoteMap note={note} />
       {/* What the user typed (markdown): below the photos/scans, or above them (Edit → Text position) */}
       {note.bodyPosition === 'above' && typedBody}

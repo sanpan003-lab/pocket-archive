@@ -208,10 +208,12 @@ object ErrandSync {
     fun requestJson(ctx: Context, method: String, path: String, body: JSONObject = JSONObject()): Pair<Boolean, JSONObject?> {
         val apiBase = TokenStore.apiBase(ctx) ?: return true to null
         val token = TokenStore.token(ctx) ?: return true to null
+        // GET / HEAD must not carry a body (OkHttp throws IllegalArgumentException)
+        val hasBody = method != "GET" && method != "HEAD"
         val request = Request.Builder()
             .url("$apiBase$path")
             .header("Authorization", "Bearer $token")
-            .method(method, body.toString().toRequestBody("application/json".toMediaType()))
+            .method(method, if (hasBody) body.toString().toRequestBody("application/json".toMediaType()) else null)
             .build()
         return try {
             client.newCall(request).execute().use { r ->

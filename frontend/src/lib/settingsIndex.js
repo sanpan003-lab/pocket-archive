@@ -107,6 +107,8 @@ const ENTRIES = [
   E('documents', 'Kinds of documents', 'Turn each kind on or off', 'receipt bill medical school warranty business card'),
   E('places', 'Places & errands', 'Home, saved places, store reminders', 'location gps map address errands'),
   E('reminder-alerts', 'Reminder alerts', 'Alert at the due time of a reminder, test button, permissions and battery check', 'reminder alarm notify due time snooze exact alarm battery unrestricted samsung test watch', { native: true }),
+  E('reminder-alerts', 'Alert for events', 'Also alert when a calendar event with a time starts', 'event calendar alarm alert', { native: true }),
+  E('reminder-alerts', 'Alert log', 'Scheduled, fired and cancelled reminder alerts, with the reason', 'log history debug why reminder alert missed', { native: true }),
   E('reminder-alerts', 'Test reminder alert', 'Sends a test to this phone and your watch', 'test reminder alert watch buzz', { native: true }),
   E('places', 'Home location', '', 'home address house'),
   E('places', 'Remind me on arrival for store errands', '', 'arrival store geofence location reminder'),

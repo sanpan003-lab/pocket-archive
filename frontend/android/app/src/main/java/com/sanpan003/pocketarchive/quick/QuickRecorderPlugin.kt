@@ -774,14 +774,38 @@ class QuickRecorderPlugin : Plugin() {
     fun scheduleReminder(call: PluginCall) {
         val id = call.getString("id") ?: return call.reject("id required")
         val due = call.getDouble("dueAt")?.toLong() ?: return call.reject("dueAt required")
-        ReminderAlarms.schedule(context, ReminderAlarms.Reminder(id, call.getString("title").orEmpty(), call.getString("text").orEmpty(), due))
+        ReminderAlarms.schedule(context, ReminderAlarms.Reminder(id, call.getString("title").orEmpty(), call.getString("text").orEmpty(), due,
+            call.getString("kind") ?: "reminder", call.getString("clientId")), "saved in the app")
+        call.resolve()
+    }
+
+    /** A note as the server / offline copy returns it: arm, move or cancel its alert (reminder dueDate, event start). */
+    @PluginMethod
+    fun noteSeen(call: PluginCall) {
+        val note = call.getObject("note") ?: return call.reject("note required")
+        call.resolve(JSObject().put("result", ReminderAlarms.scheduleFromNote(context, note, call.getString("source") ?: "saved in the app")))
+    }
+
+    /** "🔔 Alert set for 3:00 PM" line: { state: set | approx | blocked | off | fired | none, dueAt } */
+    @PluginMethod
+    fun getReminderStatus(call: PluginCall) {
+        val id = call.getString("id") ?: return call.reject("id required")
+        call.resolve(JSObject.fromJSONObject(ReminderAlarms.status(context, id)))
+    }
+
+    @PluginMethod
+    fun getReminderLog(call: PluginCall) = call.resolve(JSObject().put("entries", ReminderAlarms.logJson(context)))
+
+    @PluginMethod
+    fun clearReminderLog(call: PluginCall) {
+        ReminderAlarms.clearLog(context)
         call.resolve()
     }
 
     /** Done / deleted / undone / no longer timed. */
     @PluginMethod
     fun cancelReminder(call: PluginCall) {
-        ReminderAlarms.cancel(context, call.getString("id") ?: return call.reject("id required"))
+        ReminderAlarms.cancel(context, call.getString("id") ?: return call.reject("id required"), call.getString("reason") ?: "Done, deleted or undone")
         call.resolve()
     }
 
@@ -797,7 +821,8 @@ class QuickRecorderPlugin : Plugin() {
 
     @PluginMethod
     fun setReminderAlerts(call: PluginCall) {
-        ReminderAlarms.setEnabled(context, call.getBoolean("enabled", true) == true)
+        call.getBoolean("alertEvents")?.let { ReminderAlarms.setAlertEvents(context, it) }
+        call.getBoolean("enabled")?.let { ReminderAlarms.setEnabled(context, it) }
         call.resolve(JSObject.fromJSONObject(ReminderAlarms.health(context)))
     }
 
