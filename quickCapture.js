@@ -749,7 +749,7 @@ function desiredGoogleEvent(note, { link } = {}) {
     'Created by Pocket Archive Quick Capture',
   ].filter(Boolean).join('\n\n');
 
-  let start, end, summary;
+  let start, end, summary, reminders = null;
   if (note.type === 'event' && note.start) {
     summary = note.title;
     if (DATE_ONLY_RE.test(note.start)) {
@@ -767,11 +767,13 @@ function desiredGoogleEvent(note, { link } = {}) {
     } else {
       start = { dateTime: note.dueDate, timeZone: TIMEZONE };
       end   = { dateTime: toZonedIso(new Date(parseZoned(note.dueDate).getTime() + 30 * 60000)), timeZone: TIMEZONE };
+      // A secondary calendar has no default alerts: always ask for a popup at the due time
+      reminders = { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] };
     }
   } else {
     return null;
   }
-  return { summary, description, location: note.location || undefined, start, end };
+  return { summary, description, location: note.location || undefined, start, end, ...(reminders ? { reminders } : {}) };
 }
 
 // Make Google match the note: create, update, or delete its event.
@@ -2135,6 +2137,25 @@ function createQuickCapture(deps) {
             })),
           }));
         res.json({ generatedAt: new Date().toISOString(), errands: [...geo, ...errands] });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // GET /api/reminders/timed — open reminders with a due TIME, for the phone's local alarms (2.12.0).
+    // Own notes + editable shared ones; due times as epoch ms so the phone needs no time-zone logic.
+    app.get('/api/reminders/timed', (_req, res) => {
+      try {
+        const since = Date.now() - 10 * 60000;
+        const reminders = [...store.list(), ...(foreign?.listAll?.() || [])]
+          .filter(n => n.type === 'reminder' && n.format !== 'list' && !n.geo && typeof n.dueDate === 'string' && !DATE_ONLY_RE.test(n.dueDate)
+            && !n.reminderDone && !n.undone && !n.hidden && !n.cancelled && n.status !== 'pending_decision')
+          .map(n => ({ n, at: parseZoned(n.dueDate) }))
+          .filter(({ at }) => at && at.getTime() >= since)
+          .sort((a, b) => a.at - b.at)
+          .slice(0, 200)
+          .map(({ n, at }) => ({ id: n.id, title: n.title, text: String(n.content || n.title || '').slice(0, 300), dueAt: at.getTime() }));
+        res.json({ generatedAt: new Date().toISOString(), reminders });
       } catch (err) {
         res.status(500).json({ error: err.message });
       }

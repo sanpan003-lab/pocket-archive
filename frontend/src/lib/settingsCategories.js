@@ -24,7 +24,7 @@ export const SECTION_CATEGORY = {
   security: 'account', passkeys: 'account', 'app-lock': 'account',
   recording: 'recording', accidental: 'recording', 'recording-log': 'recording', alarms: 'recording',
   'notes-look': 'notes', 'smart-append': 'notes',
-  places: 'places', calendar: 'places',
+  places: 'places', 'reminder-alerts': 'places', calendar: 'places',
   documents: 'documents',
   sharing: 'sharing', notifications: 'sharing',
   offline: 'offline',

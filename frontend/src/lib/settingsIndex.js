@@ -8,7 +8,7 @@ export const SECTIONS = {
   layout: 'Layout on this device', appearance: 'Appearance & layout', offline: 'Offline & storage', recording: 'Recording & shortcuts',
   alarms: 'Alarms & phone actions', notifications: 'Notifications', backend: 'Server', archive: 'Archive',
   'smart-append': 'Smart append', documents: 'Documents', places: 'Places & errands', sharing: 'Shared lists',
-  calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
+  'reminder-alerts': 'Reminder alerts', calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
   about: 'About', 'notes-look': 'Notes & inbox', watch: 'Galaxy Watch',
 };
 
@@ -106,6 +106,8 @@ const ENTRIES = [
   E('documents', 'Organize documents automatically', '', 'auto file categories'),
   E('documents', 'Kinds of documents', 'Turn each kind on or off', 'receipt bill medical school warranty business card'),
   E('places', 'Places & errands', 'Home, saved places, store reminders', 'location gps map address errands'),
+  E('reminder-alerts', 'Reminder alerts', 'Alert at the due time of a reminder, test button, permissions and battery check', 'reminder alarm notify due time snooze exact alarm battery unrestricted samsung test watch', { native: true }),
+  E('reminder-alerts', 'Test reminder alert', 'Sends a test to this phone and your watch', 'test reminder alert watch buzz', { native: true }),
   E('places', 'Home location', '', 'home address house'),
   E('places', 'Remind me on arrival for store errands', '', 'arrival store geofence location reminder'),
   E('places', 'My Places', 'Saved places with nicknames', 'saved places aliases work school'),

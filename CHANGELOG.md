@@ -5,6 +5,15 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.12.0 — Oct 29, 2026
+
+### Reminders now alert you at the due time
+- A reminder with a time now rings **on your phone** (and buzzes your watch) at that time, even offline and even when Google Calendar doesn’t. The notification has **Done**, **Snooze 10 min**, **Snooze 1 h** and **Open**
+- With app lock on, the notification just says “Reminder” — no note text on the lock screen
+- Alerts are re-armed after a restart, an app update, a time-zone change and when a reminder changes on another device. Done, delete and undo cancel the alert
+- New **Settings → Places & reminders → Reminder alerts**: turn alerts on or off (on by default), **Test reminder alert**, and a check of notifications, exact alarms and battery “Unrestricted” with a **Fix** button for each
+- Reminders added to Google Calendar now always include a popup at the due time
+
 ## 2.11.0 — Oct 26, 2026
 
 ### Settings, organized like your phone’s

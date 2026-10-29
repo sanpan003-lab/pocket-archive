@@ -2,6 +2,7 @@ import axios from 'axios';
 import { API_BASE, isNative } from './platform';
 import { getDeviceToken, getMediaToken } from '../native/nativeSession';
 import { installOfflineAdapter } from './offline/adapter';
+import { responseSeen } from './reminderAlarms';
 
 // Web: same-origin "/api" + session cookie (unchanged).
 // Android app: server URL from .env.android + "Authorization: Bearer <device token>".
@@ -14,6 +15,11 @@ if (isNative) {
     const token = getDeviceToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
+  });
+  // Timed reminders: keep the phone's local alarms in step with what was just saved
+  http.interceptors.response.use(response => {
+    try { responseSeen(response.config, response.data); } catch { /* alarms are best effort */ }
+    return response;
   });
   // Token revoked or expired → back to sign-in
   http.interceptors.response.use(undefined, error => {

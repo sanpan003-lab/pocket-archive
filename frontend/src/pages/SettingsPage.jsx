@@ -15,6 +15,7 @@ import AppearanceSettings from '../components/AppearanceSettings';
 import RecordingSettings from '../components/RecordingSettings';
 import PhoneActionsSettings from '../components/PhoneActionsSettings';
 import NotificationSettings from '../components/NotificationSettings';
+import ReminderAlerts from '../components/settings/ReminderAlerts';
 import { AboutSection } from '../components/WhatsNew';
 import SecuritySettings from '../components/SecuritySettings';
 import CalendarSettings from '../components/CalendarSettings';
@@ -39,7 +40,7 @@ function CategoryContent({ id, lite, archive, isAdmin }) {
     case 'account': return <SecuritySettings />;
     case 'recording': return <><RecordingSettings /><PhoneActionsSettings /></>;
     case 'notes': return <><AppearanceSettings part="notes" />{!lite && <SmartAppendSettings />}</>;
-    case 'places': return <><PlacesSettings /><CalendarSettings /></>;
+    case 'places': return <><PlacesSettings /><ReminderAlerts /><CalendarSettings /></>;
     case 'documents': return <DocumentSettings />;
     case 'sharing': return <><SharingSettings /><NotificationSettings /></>;
     case 'offline': return <OfflineSettings />;

@@ -18,6 +18,16 @@ inside the Android app (`android/`). The backend lives in
   `F4:41:B0:E3:7B:F5:10:40:73:9B:96:31:70:61:D1:71:F2:E1:C4:49:7F:79:D5:25:33:F3:12:06:5C:35:C7:21`.
   Phones refuse updates signed with any other key. If the keystore is missing, stop and ask.
 
+## Usage budget
+
+- Run only the tests for the area I changed, plus a quick smoke test.
+  Run full regression suites only when I say "full release".
+- Screen-only changes (web/frontend): deploy to the NAS only — no Android
+  build, no OTA publish, no version bump for the watch.
+- Build/publish Android only when native code changed.
+- Read only the files needed for the task; don't re-read the whole project.
+- Keep reports short: what changed, what I need to do, a 5-line checklist.
+
 ## How the Android app loads its screens
 
 - `npm run build:android` = `vite build --mode android` → `cap sync android` →

@@ -23,7 +23,8 @@ object Notifications {
     const val CH_RESULT_REVIEW = "result_review"     // single long buzz
     const val CH_RESULT_SILENT = "result_silent"     // "Sound & vibration" off
     const val CH_ARRIVAL = "errand_arrival"          // "You're at Publix" — double buzz
-    const val CH_SHARED = "shared_changes"           // "Jane added Eggs" (shared lists, background check)
+    const val CH_REMINDER = "timed_reminders"        // "⏰ Call the pharmacy" at the due time (2.12.0)
+    const val CH_SHARED = "shared_changes"          // "Jane added Eggs" (shared lists, background check)
     const val CH_ACTIONS = "phone_actions"           // "Tap to set alarm 5:30 AM", "Which Minal?"
     const val CH_UPDATES = "app_updates"             // "Update 2.4.0 available · What's new"
 
@@ -64,7 +65,14 @@ object Notifications {
                 enableVibration(true)
                 vibrationPattern = PATTERN_OK
             },
-            NotificationChannel(CH_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            NotificationChannel(CH_REMINDER, "Reminder alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Reminders with a due time, at that time"
+                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build())
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 250, 150, 250, 150, 250)
+            },
+            NotificationChannel(CH_UPDATES,"App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "A new version of Pocket Archive is ready, and download progress"
             },
             NotificationChannel(CH_ACTIONS, "Phone actions", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -82,6 +90,11 @@ object Notifications {
     }
 
     fun canPost(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+
+    fun channelBlocked(ctx: Context, id: String): Boolean {
+        ensureChannels(ctx)
+        return ctx.getSystemService(NotificationManager::class.java)?.getNotificationChannel(id)?.importance == NotificationManager.IMPORTANCE_NONE
+    }
 
     /** Settings → Notifications: app-level switch + every channel (blocked = importance NONE). */
     fun status(ctx: Context): JSONObject {

@@ -36,6 +36,7 @@ class ErrandWorker(ctx: Context, params: WorkerParameters) : Worker(ctx, params)
                 if (locOn && !prefs.getBoolean("locOn", true)) ErrandSync.forceRearm(ctx)
                 prefs.edit().putBoolean("locOn", locOn).apply()
                 ErrandSync.syncBlocking(ctx)
+                ReminderAlarms.syncBlocking(ctx) // timed reminders → local alarms (2.12.0)
                 // Fallback check with whatever location the phone already has (no extra GPS use)
                 LocationCheck.currentLocation(ctx, fresh = false)?.let { LocationCheck.check(ctx, it, "sync") }
                 sendEvents(ctx)

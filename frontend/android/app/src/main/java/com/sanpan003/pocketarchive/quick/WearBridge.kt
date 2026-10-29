@@ -102,7 +102,7 @@ object WearBridge {
     fun clearToken(ctx: Context) = async { send(ctx, watches(ctx), MSG_TOKEN_CLEAR, ByteArray(0)) }
 
     /** Arrival list → the watch shows its own notification ("Open list" opens the watch checklist). */
-    fun sendArrival(ctx: Context, errand: ErrandStore.Errand, placeName: String?): Boolean {
+    fun sendArrival(ctx: Context, errand: ErrandStore.Errand, placeName: String?, headlineOverride: String? = null): Boolean {
         val payload = JSONObject()
             .put("id", errand.id)
             .put("title", errand.title)
@@ -111,7 +111,7 @@ object WearBridge {
             .put("kind", errand.kind)
             .put("when", errand.whenAt)
             .put("text", errand.text)
-            .put("headline", if (errand.isReminder) ArrivalNotifier.reminderHeadline(errand, placeName ?: errand.placeName) else null)
+            .put("headline", headlineOverride ?: if (errand.isReminder) ArrivalNotifier.reminderHeadline(errand, placeName ?: errand.placeName) else null)
         return send(ctx, watches(ctx), MSG_ARRIVAL, payload.toString().toByteArray())
     }
 

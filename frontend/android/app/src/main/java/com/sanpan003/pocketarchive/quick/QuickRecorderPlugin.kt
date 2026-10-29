@@ -767,6 +767,60 @@ class QuickRecorderPlugin : Plugin() {
         call.resolve(JSObject().put("sent", ok).put("watchApp", WearBridge.watchAppKnown(context)))
     }
 
+    // ── Timed reminder alerts (2.12.0) ────────────────────────────────────
+
+    /** The web layer saved/edited a reminder with a due time: { id, title, text, dueAt (epoch ms) }. Works offline. */
+    @PluginMethod
+    fun scheduleReminder(call: PluginCall) {
+        val id = call.getString("id") ?: return call.reject("id required")
+        val due = call.getDouble("dueAt")?.toLong() ?: return call.reject("dueAt required")
+        ReminderAlarms.schedule(context, ReminderAlarms.Reminder(id, call.getString("title").orEmpty(), call.getString("text").orEmpty(), due))
+        call.resolve()
+    }
+
+    /** Done / deleted / undone / no longer timed. */
+    @PluginMethod
+    fun cancelReminder(call: PluginCall) {
+        ReminderAlarms.cancel(context, call.getString("id") ?: return call.reject("id required"))
+        call.resolve()
+    }
+
+    /** Pull the server's list now (another device changed a reminder). */
+    @PluginMethod
+    fun syncReminders(call: PluginCall) {
+        ErrandWorker.syncNow(context)
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun getReminderHealth(call: PluginCall) = call.resolve(JSObject.fromJSONObject(ReminderAlarms.health(context)))
+
+    @PluginMethod
+    fun setReminderAlerts(call: PluginCall) {
+        ReminderAlarms.setEnabled(context, call.getBoolean("enabled", true) == true)
+        call.resolve(JSObject.fromJSONObject(ReminderAlarms.health(context)))
+    }
+
+    @PluginMethod
+    fun testReminderAlert(call: PluginCall) {
+        call.resolve(JSObject().put("sent", ReminderAlarms.test(context)).put("watchApp", WearBridge.watchAppKnown(context)))
+    }
+
+    /** Fix-it buttons: "exactAlarms" | "battery". */
+    @PluginMethod
+    fun openReminderSetting(call: PluginCall) {
+        val intent = when (call.getString("which")) {
+            "exactAlarms" -> ReminderAlarms.exactAlarmSettingsIntent(context)
+            else -> ReminderAlarms.batteryIntent(context)
+        }
+        val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(intent) }.isFailure && runCatching { context.startActivity(fallback) }.isFailure) {
+            return call.reject("Couldn't open the setting")
+        }
+        call.resolve()
+    }
+
     @PluginMethod
     fun openNotificationSettings(call: PluginCall) {
         runCatching { context.startActivity(Notifications.settingsIntent(context, call.getString("channel"))) }
