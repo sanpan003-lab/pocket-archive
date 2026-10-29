@@ -49,6 +49,7 @@ export default function VoiceWaveform({ level = 0, mode = 'live', variant = 'neo
       const s = state.current;
       const mid = H / 2;
       const still = motion === 'off';
+      const light = !document.documentElement.classList.contains('dark'); // glow reads differently on a light page
       // Smooth toward the live level; a little life even when quiet
       const want = mode === 'collapse' ? 0 : Math.min(1, 0.08 + target.current * 1.25);
       s.amp += (want - s.amp) * (still ? 1 : 0.18);
@@ -76,7 +77,7 @@ export default function VoiceWaveform({ level = 0, mode = 'live', variant = 'neo
         }
       } else {
         const palette = PALETTES[variant] || PALETTES.neon;
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = light ? 'source-over' : 'lighter'; // additive glow only helps on dark
         LAYERS.forEach((L, li) => {
           const [c1, c2] = palette[li];
           const grad = ctx.createLinearGradient(x0, 0, x0 + span, 0);
@@ -114,9 +115,10 @@ export default function VoiceWaveform({ level = 0, mode = 'live', variant = 'neo
         // Bright center line (the "voice")
         ctx.globalAlpha = 0.55 + s.amp * 0.4;
         const core = ctx.createLinearGradient(x0, 0, x0 + span, 0);
-        core.addColorStop(0, 'rgba(255,255,255,0)');
-        core.addColorStop(0.5, '#FFFFFF');
-        core.addColorStop(1, 'rgba(255,255,255,0)');
+        const coreRgb = light ? (variant === 'gold' ? '217,119,6' : '79,70,229') : '255,255,255';
+        core.addColorStop(0, `rgba(${coreRgb},0)`);
+        core.addColorStop(0.5, `rgb(${coreRgb})`);
+        core.addColorStop(1, `rgba(${coreRgb},0)`);
         ctx.fillStyle = core;
         ctx.fillRect(x0, mid - 0.75, span, 1.5);
         ctx.globalAlpha = 1;
@@ -126,9 +128,9 @@ export default function VoiceWaveform({ level = 0, mode = 'live', variant = 'neo
         if (mode === 'collapse' && s.width < 0.2) {
           const r = 10 + (still ? 0 : Math.sin(s.t * 0.12) * 3);
           const g = ctx.createRadialGradient(W / 2, mid, 0, W / 2, mid, r * 2.4);
-          g.addColorStop(0, '#FFFFFF');
+          g.addColorStop(0, light ? (palette[1] || palette[0])[0] : '#FFFFFF');
           g.addColorStop(0.35, (palette[1] || palette[0])[1]);
-          g.addColorStop(1, 'rgba(0,0,0,0)');
+          g.addColorStop(1, light ? 'rgba(99,102,241,0)' : 'rgba(0,0,0,0)'); // fade to the same hue, no grey halo on light
           ctx.fillStyle = g;
           ctx.beginPath();
           ctx.arc(W / 2, mid, r * 2.4, 0, Math.PI * 2);
@@ -141,13 +143,17 @@ export default function VoiceWaveform({ level = 0, mode = 'live', variant = 'neo
     return () => { running = false; cancelAnimationFrame(raf); ro.disconnect(); };
   }, [mode, variant, motion]);
 
+  // No box: the canvas sits on the page background and fades out at all four edges
+  const fade = 'linear-gradient(to right, transparent, #000 14%, #000 86%, transparent), linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent)';
   return (
-    <div
-      className={`relative w-full rounded-3xl overflow-hidden ${variant === 'bars' ? 'bg-navy-50 dark:bg-white/5' : 'bg-[#060814]'}`}
-      style={{ height, '--wave-bar': 'rgb(var(--accent-500))' }}
-    >
-      {variant !== 'bars' && <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(60% 80% at 50% 50%, rgba(59,130,246,0.18), transparent 70%)' }} aria-hidden="true" />}
-      <canvas ref={canvas} className="absolute inset-0 w-full h-full" role="img" aria-label={label || 'Live voice level'} />
+    <div className="relative w-full" style={{ height, '--wave-bar': 'rgb(var(--accent-500))' }}>
+      <canvas
+        ref={canvas}
+        className="absolute inset-0 w-full h-full"
+        style={{ WebkitMaskImage: fade, maskImage: fade, WebkitMaskComposite: 'source-in', maskComposite: 'intersect' }}
+        role="img"
+        aria-label={label || 'Live voice level'}
+      />
     </div>
   );
 }
