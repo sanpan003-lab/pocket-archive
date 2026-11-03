@@ -230,6 +230,14 @@
                 android:resource="@xml/volume_shortcuts" />
         </service>
 
+        <!-- "Couldn't set your timer": Retry / Set manually (transparent so Android lets it open the Clock app) -->
+        <activity
+            android:name=".quick.CommandActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:showWhenLocked="true" />
         <receiver android:name=".quick.DiscardUndoReceiver" android:exported="false" />
         <receiver android:name=".quick.AccidentalRestoreReceiver" android:exported="false" />
         <receiver android:name=".quick.DndRestoreReceiver" android:exported="false" />

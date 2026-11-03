@@ -65,7 +65,7 @@ object PhoneActions {
 
     private fun clock(h: Int, m: Int) = "${if (h % 12 == 0) 12 else h % 12}:${m.toString().padStart(2, '0')} ${if (h < 12) "AM" else "PM"}"
 
-    private fun durationText(sec: Int): String = when {
+    internal fun durationText(sec: Int): String = when {
         sec < 60 -> "$sec s"
         sec % 3600 == 0 -> "${sec / 3600} hr"
         sec >= 3600 -> "${sec / 3600} hr ${(sec % 3600) / 60} min"
@@ -263,7 +263,26 @@ object PhoneActions {
     // ── Starting other apps ────────────────────────────────────────────────
 
     /** May we open another app right now? (on screen, or "Display over other apps") */
-    fun canStartNow(ctx: Context) = QuickRecorderPlugin.isAppVisible() || Settings.canDrawOverlays(ctx)
+    fun canStartNow(ctx: Context) = QuickRecorderPlugin.isAppVisible() || CommandActivity.visible || Settings.canDrawOverlays(ctx)
+
+    /** The server answered a timer/alarm the on-device fast path had already set: record that, don't set it twice */
+    fun alreadyDone(ctx: Context, a: JSONObject): JSONObject {
+        val what = if (a.optString("kind") == "timer") "Timer ${durationText(a.optInt("seconds"))}" else "Alarm ${clock(a.optInt("hour"), a.optInt("minute"))}"
+        val out = outcome("done", if (a.optString("kind") == "timer") "⏲" else "⏰", "$what set", "Already set on this phone", undo = false)
+        report(ctx, a.optString("id"), "done", "${out.optString("icon")} ${out.optString("text")} (on this phone)", null)
+        return out
+    }
+
+    /** Open the Clock app (Samsung Clock first): timers, alarms or stopwatch tab where Android lets us choose */
+    fun clockLaunchIntent(ctx: Context, kind: String): Intent? {
+        val action = when (kind) { "alarm" -> AlarmClock.ACTION_SHOW_ALARMS; "timer" -> AlarmClock.ACTION_SHOW_TIMERS; else -> null }
+        if (action != null) {
+            val i = toClock(ctx, Intent(action))
+            if (i.resolveActivity(ctx.packageManager) != null) return i
+        }
+        for (pkg in CLOCKS) ctx.packageManager.getLaunchIntentForPackage(pkg)?.let { return it }
+        return null
+    }
 
     private fun launch(
         ctx: Context, intent: Intent, a: JSONObject, icon: String, doneText: String, tapText: String,

@@ -147,7 +147,9 @@ object ReminderAlarms {
 
     /** Add or replace one reminder / event. [source] is a fixed phrase for the log ("capture result", "saved in the app", "server list"). */
     fun schedule(ctx: Context, r: Reminder, source: String = "saved in the app") {
-        val rest = all(ctx).filter { it.id != r.id }
+        // The server's note for the same recording replaces the on-device copy (quick command) instead of doubling the alert
+        all(ctx).filter { r.clientId != null && it.clientId == r.clientId && it.id != r.id }.forEach { cancelAlarm(ctx, it.id); log(ctx, "cancelled", it.id, "Replaced by the note made from the same recording") }
+        val rest = all(ctx).filter { it.id != r.id && !(r.clientId != null && it.clientId == r.clientId) }
         when {
             alreadyFired(ctx, r) -> return
             r.dueAt < System.currentTimeMillis() - LATE_GRACE_MS -> { save(ctx, rest); cancelAlarm(ctx, r.id); log(ctx, "skipped", r.id, "Due time already passed", r.dueAt); return }
@@ -294,7 +296,8 @@ object ReminderAlarms {
         Notifications.ensureChannels(ctx)
         // App lock on and locked: "Reminder" only, no note text (also on the lock screen / watch)
         val locked = runCatching { AppLock.isLocked(ctx) }.getOrDefault(false)
-        val title = if (locked) "⏰ Reminder" else "⏰ ${r.title}"
+        val icon = if (r.kind == "timer") "⏲" else "⏰"
+        val title = if (locked) "$icon Reminder" else "$icon ${r.title}"
         val body = if (locked) "Open Pocket Archive to see it" else r.text.takeIf { it.isNotBlank() && it != r.title } ?: if (r.kind == "event") "Starting now" else "Reminder is due"
         val nid = if (test) Notifications.ID_TEST + 1 else notificationId(r.id)
         val watchApp = WearBridge.watchAppKnown(ctx)
@@ -318,7 +321,7 @@ object ReminderAlarms {
                 .setOnlyAlertOnce(quiet)
                 .setContentIntent(Notifications.openApp(ctx, if (test) "/settings" else "/quick/${r.id}"))
             if (!test) {
-                if (r.kind != "event") b.addAction(0, "Done", action(ctx, ReminderAlarmReceiver.ACTION_DONE, r.id))
+                if (r.kind == "reminder") b.addAction(0, "Done", action(ctx, ReminderAlarmReceiver.ACTION_DONE, r.id))
                 b.addAction(0, "Snooze 10 min", action(ctx, ReminderAlarmReceiver.ACTION_SNOOZE_10, r.id))
                     .addAction(0, "Snooze 1 h", action(ctx, ReminderAlarmReceiver.ACTION_SNOOZE_60, r.id))
                     .addAction(0, "Open", Notifications.openApp(ctx, "/quick/${r.id}"))

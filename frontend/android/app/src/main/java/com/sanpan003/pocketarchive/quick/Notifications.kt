@@ -23,6 +23,7 @@ object Notifications {
     const val CH_RESULT_REVIEW = "result_review"     // single long buzz
     const val CH_RESULT_SILENT = "result_silent"     // "Sound & vibration" off
     const val CH_ARRIVAL = "errand_arrival"          // "You're at Publix" — double buzz
+    const val CH_COMMAND_FAILED = "command_failed"   // "Couldn't set your timer" — loud on purpose (2.13.0)
     const val CH_REMINDER = "timed_reminders"        // "⏰ Call the pharmacy" at the due time (2.12.0)
     const val CH_SHARED = "shared_changes"          // "Jane added Eggs" (shared lists, background check)
     const val CH_ACTIONS = "phone_actions"           // "Tap to set alarm 5:30 AM", "Which Minal?"
@@ -64,6 +65,12 @@ object Notifications {
                 setSound(null, null)
                 enableVibration(true)
                 vibrationPattern = PATTERN_OK
+            },
+            NotificationChannel(CH_COMMAND_FAILED, "Couldn't set a timer or alarm", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "When a spoken timer, alarm or reminder could not be set: strong vibration, with Retry and Set manually"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 600, 200, 600, 200, 900)
+                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).build())
             },
             NotificationChannel(CH_REMINDER, "Reminder alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Reminders with a due time, at that time"

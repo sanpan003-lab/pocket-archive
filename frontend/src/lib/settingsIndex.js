@@ -8,7 +8,7 @@ export const SECTIONS = {
   layout: 'Layout on this device', appearance: 'Appearance & layout', offline: 'Offline & storage', recording: 'Recording & shortcuts',
   alarms: 'Alarms & phone actions', notifications: 'Notifications', backend: 'Server', archive: 'Archive',
   'smart-append': 'Smart append', documents: 'Documents', places: 'Places & errands', sharing: 'Shared lists',
-  'reminder-alerts': 'Reminder alerts', calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
+  'reminder-alerts': 'Reminder alerts', 'quick-commands': 'Quick commands', calendar: 'Google Calendar', security: 'Security', users: 'Users', sync: 'Syncing Recordings', welcome: 'Welcome tour',
   about: 'About', 'notes-look': 'Notes & inbox', watch: 'Galaxy Watch',
 };
 
@@ -106,6 +106,8 @@ const ENTRIES = [
   E('documents', 'Organize documents automatically', '', 'auto file categories'),
   E('documents', 'Kinds of documents', 'Turn each kind on or off', 'receipt bill medical school warranty business card'),
   E('places', 'Places & errands', 'Home, saved places, store reminders', 'location gps map address errands'),
+  E('quick-commands', 'Quick commands on this phone', 'Timers, alarms and reminders set on the phone, offline', 'timer alarm wake me remind offline on device speech recognition quick command', { native: true }),
+  E('quick-commands', 'Say it out loud', 'Speak a confirmation after a timer or alarm is set', 'speak voice confirmation tts spoken', { native: true }),
   E('reminder-alerts', 'Reminder alerts', 'Alert at the due time of a reminder, test button, permissions and battery check', 'reminder alarm notify due time snooze exact alarm battery unrestricted samsung test watch', { native: true }),
   E('reminder-alerts', 'Alert for events', 'Also alert when a calendar event with a time starts', 'event calendar alarm alert', { native: true }),
   E('reminder-alerts', 'Alert log', 'Scheduled, fired and cancelled reminder alerts, with the reason', 'log history debug why reminder alert missed', { native: true }),

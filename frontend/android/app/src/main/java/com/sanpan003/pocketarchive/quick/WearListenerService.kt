@@ -43,6 +43,7 @@ class WearListenerService : WearableListenerService() {
                 PendingStore.holdFile(ctx, owner, file)
                 return file.nameWithoutExtension.substringAfter('_')
             }
+            LocalCommands.analyze(ctx, file, "watch") // same fast path for what was said into the watch
             UploadWorker.enqueue(ctx, file)
             QuickRecorderPlugin.notifyPending(ctx)
             return file.nameWithoutExtension.substringAfter('_')

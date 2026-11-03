@@ -5,6 +5,14 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.13.0 — Nov 2, 2026
+
+### Timers and alarms that never wait for the server
+- Say **“timer 10 minutes”**, **“set an alarm for 6:30”**, **“wake me at 5”** or **“remind me in 20 minutes”** and the phone sets it **at once, on the device** — also offline, and for what you say into your **watch**. Filler words (“uh”, “like”, “please”) and spoken numbers (“an hour and a half”, “twenty five minutes”) are fine
+- The recording is still saved as a note, and the server’s answer can’t set a second timer
+- If a timer, alarm or reminder can’t be set you now get a loud **“Couldn’t set your timer”** alert with strong vibration, with **Retry**, **Set manually** (number picker) and **Open Clock**
+- A buzz and “⏲ Timer set · 10 min” confirm it. Optional: have it **spoken** (Settings → Recording & shortcuts → Quick commands on this phone)
+
 ## 2.12.1 — Oct 29, 2026
 
 ### Reminder alerts that actually arrive

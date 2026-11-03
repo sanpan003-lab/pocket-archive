@@ -476,6 +476,7 @@ class QuickRecorderService : Service() {
     // ── Upload (stays in the foreground while sending) ─────────────────────
 
     private fun upload(captured: File) {
+        LocalCommands.analyze(this, captured, "phone") // timer / alarm / reminder fast path: on the device, offline, in parallel with the upload
         uploadsInFlight++
         WidgetState.uploading(this)
         try {

@@ -22,7 +22,7 @@ export const CATEGORY_NAME = Object.fromEntries(CATEGORIES.map(c => [c.id, c.nam
 /** Section (element id) → category. Old "/settings#<id>" links and search use this. */
 export const SECTION_CATEGORY = {
   security: 'account', passkeys: 'account', 'app-lock': 'account',
-  recording: 'recording', accidental: 'recording', 'recording-log': 'recording', alarms: 'recording',
+  recording: 'recording', 'quick-commands': 'recording', accidental: 'recording', 'recording-log': 'recording', alarms: 'recording',
   'notes-look': 'notes', 'smart-append': 'notes',
   places: 'places', 'reminder-alerts': 'places', calendar: 'places',
   documents: 'documents',

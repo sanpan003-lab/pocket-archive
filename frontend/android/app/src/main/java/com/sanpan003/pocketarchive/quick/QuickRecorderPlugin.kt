@@ -769,6 +769,22 @@ class QuickRecorderPlugin : Plugin() {
 
     // ── Timed reminder alerts (2.12.0) ────────────────────────────────────
 
+    // ── Quick commands (2.13.0) ───────────────────────────────────────────
+
+    @PluginMethod
+    fun getQuickCommandSettings(call: PluginCall) {
+        call.resolve(JSObject().put("enabled", LocalCommands.enabled(context)).put("speak", LocalCommands.speak(context))
+            .put("recognizer", LocalSpeech.available(context)).put("overlay", android.provider.Settings.canDrawOverlays(context))
+            .put("log", LocalCommands.logJson(context)))
+    }
+
+    @PluginMethod
+    fun setQuickCommandSettings(call: PluginCall) {
+        call.getBoolean("enabled")?.let { LocalCommands.setEnabled(context, it) }
+        call.getBoolean("speak")?.let { LocalCommands.setSpeak(context, it) }
+        getQuickCommandSettings(call)
+    }
+
     /** The web layer saved/edited a reminder with a due time: { id, title, text, dueAt (epoch ms) }. Works offline. */
     @PluginMethod
     fun scheduleReminder(call: PluginCall) {

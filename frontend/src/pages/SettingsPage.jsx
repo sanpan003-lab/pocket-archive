@@ -16,6 +16,7 @@ import RecordingSettings from '../components/RecordingSettings';
 import PhoneActionsSettings from '../components/PhoneActionsSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import ReminderAlerts from '../components/settings/ReminderAlerts';
+import QuickCommands from '../components/settings/QuickCommands';
 import { AboutSection } from '../components/WhatsNew';
 import SecuritySettings from '../components/SecuritySettings';
 import CalendarSettings from '../components/CalendarSettings';
@@ -38,7 +39,7 @@ function useWide() {
 function CategoryContent({ id, lite, archive, isAdmin }) {
   switch (id) {
     case 'account': return <SecuritySettings />;
-    case 'recording': return <><RecordingSettings /><PhoneActionsSettings /></>;
+    case 'recording': return <><RecordingSettings /><PhoneActionsSettings /><QuickCommands /></>;
     case 'notes': return <><AppearanceSettings part="notes" />{!lite && <SmartAppendSettings />}</>;
     case 'places': return <><PlacesSettings /><ReminderAlerts /><CalendarSettings /></>;
     case 'documents': return <DocumentSettings />;

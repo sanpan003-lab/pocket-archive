@@ -24,7 +24,16 @@ object ResultNotifier {
     fun deliver(ctx: Context, response: JSONObject, fromQueue: Boolean) {
         // A phone action ("wake me at 5:30"): do it now; the result replaces the confirmation
         val action = response.optJSONObject("phoneAction")
-        val actionOutcome = action?.let { PhoneActions.run(ctx, it) }
+        // A timer/alarm the on-device fast path already set is not set a second time
+        val captureClientId = response.optJSONObject("note")?.optString("clientId").orEmpty()
+        val actionOutcome = action?.let {
+            val kind = it.optString("kind")
+            if ((kind == "timer" || kind == "alarm") && captureClientId.isNotBlank() && !LocalCommands.claims(ctx).claim(captureClientId, LocalCommands.SOURCE_SERVER)) PhoneActions.alreadyDone(ctx, it)
+            else PhoneActions.run(ctx, it).also { out ->
+                // Even the server's answer can fail: say so loudly, with Retry / Set manually / Open Clock
+                if ((kind == "timer" || kind == "alarm") && out.optString("status") == "failed") { Feedback.warning(ctx); LocalCommands.failure(ctx, kind, it, "Couldn't set your $kind") }
+            }
+        }
         val conf = if (action != null && actionOutcome != null) actionConfirmation(action, actionOutcome, response.optJSONObject("note"))
             else response.optJSONObject("confirmation")
         // App locked: nothing about the note on the lock screen, the widget or the watch — "Saved" only
