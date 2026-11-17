@@ -126,7 +126,7 @@
              Pick it for the Samsung side key ("Double press → Open app"). -->
         <activity-alias
             android:name=".QuickRecordLauncher"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".quick.QuickRecordLauncherActivity"
             android:label="@string/quick_record_label"
             android:icon="@mipmap/ic_quick_record"
             android:roundIcon="@mipmap/ic_quick_record"
@@ -138,7 +138,7 @@
         </activity-alias>
         <activity-alias
             android:name=".QuickRecordLauncherLight"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".quick.QuickRecordLauncherActivity"
             android:label="@string/quick_record_label"
             android:icon="@mipmap/ic_quick_record_light"
             android:roundIcon="@mipmap/ic_quick_record_light"
@@ -151,7 +151,7 @@
         </activity-alias>
         <activity-alias
             android:name=".QuickRecordLauncherAmoled"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".quick.QuickRecordLauncherActivity"
             android:label="@string/quick_record_label"
             android:icon="@mipmap/ic_quick_record_amoled"
             android:roundIcon="@mipmap/ic_quick_record_amoled"
@@ -205,6 +205,17 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- "Quick Record": its own throw-away activity (never the root of the app's task, never restored from Recents)
+             so a restored task can't start a recording; every launch goes through StartGate -->
+        <activity
+            android:name=".quick.QuickRecordLauncherActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- Invisible: lets the widget and tile start recording without opening the app -->
         <activity
             android:name=".quick.RecordTrampolineActivity"

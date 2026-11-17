@@ -930,6 +930,13 @@ class QuickRecorderPlugin : Plugin() {
         call.resolve(out)
     }
 
+    /** "Report as accidental": mark the start that made this note (by clientId), keep what started it */
+    @PluginMethod
+    fun reportAccidental(call: PluginCall) {
+        RecordingLog.reportAccidental(context, call.getString("clientId"), call.getString("noteId"), call.getString("trigger"))
+        call.resolve()
+    }
+
     @PluginMethod
     fun clearRecordingLog(call: PluginCall) {
         RecordingLog.clear(context)

@@ -6,7 +6,7 @@ import { QuickRecorder } from '../native/quickRecorder';
 const SCREEN = { off: 'Screen off', locked: 'Locked', on: 'Unlocked' };
 const RESULT = {
   saved: ['Saved', 'badge-green'], recorded: ['Recorded', 'badge-green'], recording: ['Recording…', 'badge-gold'], starting: ['Starting…', 'badge-gold'],
-  ignored: ['Ignored', 'badge-slate'], discarded: ['Discarded', 'badge-slate'], cancelled: ['Cancelled', 'badge-slate'], failed: ['Failed', 'badge-orange'],
+  blocked: ['Blocked automatic start', 'badge-orange'], reported: ['Reported as accidental', 'badge-orange'], ignored: ['Ignored', 'badge-slate'], discarded: ['Discarded', 'badge-slate'], cancelled: ['Cancelled', 'badge-slate'], failed: ['Failed', 'badge-orange'],
 };
 
 const when = ms => new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });

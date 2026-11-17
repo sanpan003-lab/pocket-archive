@@ -5,6 +5,15 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.13.2 — Nov 17, 2026
+
+### No more recordings that start by themselves
+- **Fixed:** Pocket Archive could start recording with nobody touching the phone (the phone’s log showed starts on a lit lock screen, even at 3 AM). The “Quick Record” entry was part of the app’s own task, so whenever Android restored or re-launched that task, the old launch was replayed and recording began. “Quick Record” (side key, Routines, S Pen, Edge panel) is now its own short-lived screen that is never restored
+- A recording can only start from a real press. Launches from Recents, restored or re-created screens, and launches made on behalf of the app while the phone is locked are **blocked** and listed as “Blocked automatic start” (Settings → Recording & shortcuts → Advanced → Recent recording starts)
+- A start from a side key, Routine or Edge panel while the lock screen has been lit for a while now asks you to confirm (3 seconds, volume up or tap)
+- **Watch:** the tile and complication now need a deliberate **hold for half a second** on the button (a tap only opens it, and it closes by itself after 8 s). A watch app that was restored or re-created never starts recording
+- New **Report as accidental** on a note: deletes it and keeps a record of what started it
+
 ## 2.13.1 — Nov 17, 2026
 
 ### Offline mode now works on the phone

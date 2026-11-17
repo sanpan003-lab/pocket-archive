@@ -30,6 +30,8 @@ class MainActivity : ComponentActivity() {
     private var startSource = "app"
     private val micGranted = mutableStateOf(false)
     private val openErrand = mutableStateOf<String?>(null)
+    /** tile | complication: waiting for the deliberate "hold to record" (HoldToRecord) */
+    private val holdFor = mutableStateOf<String?>(null)
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         micGranted.value = hasMic()
@@ -52,7 +54,8 @@ class MainActivity : ComponentActivity() {
         WatchUpdater.afterStart(this)
         WatchUpdater.schedule(this)
         micGranted.value = hasMic()
-        handleIntent(intent)
+        // A re-created activity (watch restarted the app, task restored) must never re-run the launch that created it
+        handleIntent(intent, fresh = savedInstanceState == null)
 
         setContent {
             WatchApp(
@@ -61,6 +64,13 @@ class MainActivity : ComponentActivity() {
                 openErrand = openErrand.value,
                 onErrandOpened = { openErrand.value = null },
             )
+            holdFor.value?.let { from ->
+                HoldToRecord(
+                    from = from,
+                    onConfirmed = { holdFor.value = null; startOnResume = false; if (micGranted.value) WatchRecorderService.start(this, from) else { startSource = from; startOnResume = true; requestMic() } },
+                    onCancel = { holdFor.value = null; WatchStartLog.blocked(this, from, "Not held to confirm (tap only)") },
+                )
+            }
         }
 
         // Fresh notes/errands + the token for the direct-upload fallback
@@ -75,14 +85,25 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        handleIntent(intent, fresh = true)
     }
 
-    private fun handleIntent(intent: Intent?) {
+    private fun handleIntent(intent: Intent?, fresh: Boolean) {
         intent ?: return
         val quickRecord = intent.component?.className?.endsWith(".QuickRecord") == true
         if (quickRecord || intent.getBooleanExtra(EXTRA_RECORD, false)) {
             startSource = intent.getStringExtra(EXTRA_FROM) ?: if (quickRecord) "key" else "app"
+            // Hard rule: only a real press starts a recording. Restored / re-created / from-Recents launches never do.
+            val fromHistory = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+            if (!fresh || fromHistory) {
+                WatchStartLog.blocked(this, startSource, if (!fresh) "The app was restored or re-created (no new press)" else "Opened from Recents / a restored task (no new press)")
+                return
+            }
+            // Tile and complication: a tap alone is not enough — hold the button for half a second
+            if (!WatchState.isRecording && (startSource == "tile" || startSource == "complication")) {
+                holdFor.value = startSource
+                return
+            }
             when {
                 // The press that started it (e.g. a key also bound elsewhere): nothing to do
                 WatchState.isRecording && WatchPrefs.justStarted() -> Unit

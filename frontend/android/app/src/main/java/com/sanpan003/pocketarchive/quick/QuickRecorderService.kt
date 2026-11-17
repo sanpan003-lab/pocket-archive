@@ -46,6 +46,7 @@ class QuickRecorderService : Service() {
         const val EXTRA_REFERRER = "referrer"
         const val EXTRA_SCREEN = "screen"       // screen at the press: off | locked | on
         const val EXTRA_WOKEN = "woken"         // the press just woke the screen
+        const val EXTRA_CONFIRM = "confirm"     // StartGate: a start we can't vouch for must be confirmed (3 s)
         private const val CONFIRM_MS = 3_000L
         private const val MIN_LENGTH_MS = 2_000L
         private const val COUNTDOWN_MS = 900L
@@ -115,6 +116,7 @@ class QuickRecorderService : Service() {
 
     private fun startRecording(intent: Intent) {
         source = intent.getStringExtra(EXTRA_SOURCE) ?: "external"
+        forceConfirm = intent.getBooleanExtra(EXTRA_CONFIRM, false)
         val referrer = intent.getStringExtra(EXTRA_REFERRER)
         // The screen as it was at the press (the launch may have waited for an unlock)
         val screen = intent.getStringExtra(EXTRA_SCREEN)?.let { RecordingLog.Screen(it, intent.getBooleanExtra(EXTRA_WOKEN, false)) }
@@ -176,8 +178,10 @@ class QuickRecorderService : Service() {
         afterChecks(prefs, outside)
     }
 
+    private var forceConfirm = false
+
     private fun afterChecks(prefs: RecorderPrefs.Settings, outside: Boolean) {
-        if (outside && prefs.confirmStart) { askToConfirm(); return }
+        if (outside && (prefs.confirmStart || forceConfirm)) { askToConfirm(); return }
         beginOrCountdown(prefs)
     }
 

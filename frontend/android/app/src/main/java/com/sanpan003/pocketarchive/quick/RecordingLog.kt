@@ -86,6 +86,27 @@ object RecordingLog {
         return id
     }
 
+    /** An automatic start that StartGate refused (restored task, launch on a locked screen…): logged, never recorded */
+    fun blockedStart(ctx: Context, source: String, referrer: String?, reason: String, screen: Screen = screenNow(ctx)) {
+        val id = start(ctx, source, referrer, screen)
+        update(ctx, id, "result" to "blocked", "reason" to reason)
+    }
+
+    /** "Report as accidental" on a note: remember which start made it (the entry is kept, marked) */
+    fun reportAccidental(ctx: Context, clientId: String?, noteId: String?, trigger: String?) {
+        var found = false
+        if (!clientId.isNullOrBlank()) edit(ctx) { list ->
+            for (i in list.length() - 1 downTo 0) {
+                val e = list.getJSONObject(i)
+                if (e.optString("clientId") == clientId) { e.put("result", "reported").put("reason", "You reported this note as accidental"); found = true; break }
+            }
+        }
+        if (!found) { // the entry rolled out of the list of 20: keep a record of the report itself
+            val id = start(ctx, "other", null)
+            update(ctx, id, "result" to "reported", "trigger" to (trigger ?: "Unknown start"), "reason" to "You reported a note as accidental", "noteId" to noteId)
+        }
+    }
+
     /** One that never reached the recorder (guards) */
     fun ignoredStart(ctx: Context, source: String, referrer: String?, reason: String) {
         val id = start(ctx, source, referrer)

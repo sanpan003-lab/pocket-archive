@@ -1,6 +1,6 @@
 import {
   Pencil, Pin, PinOff, Palette, FolderInput, Merge, Share2, Trash2, RotateCcw, Sparkles,
-  CheckCircle2, Split, RefreshCw, Users, Paperclip, Images,
+  CheckCircle2, Split, RefreshCw, Users, Paperclip, Images, ShieldAlert,
 } from 'lucide-react';
 import { noteRole } from '../../lib/sharing';
 
@@ -20,6 +20,8 @@ export const TOOLBAR_ACTIONS = [
   { id: 'summarize', label: 'Summarize', icon: Sparkles, when: n => !!(n?.transcript || n?.content || n?.mediaText || (n?.items || []).length), role: 'edit' },
   { id: 'split', label: 'Split back', icon: Split, when: n => (n?.combinedGroups || []).length > 0 },
   { id: 'retry', label: 'Retry AI', icon: RefreshCw, when: n => n?.status === 'needs_review' },
+  // A recording that started by itself: deletes the note and keeps a record of what started it (phone log)
+  { id: 'accidental', label: 'Report as accidental', icon: ShieldAlert, danger: true, when: n => n?.source === 'voice' && !n?.undone },
   { id: 'delete', label: 'Delete', icon: Trash2, danger: true },
 ];
 

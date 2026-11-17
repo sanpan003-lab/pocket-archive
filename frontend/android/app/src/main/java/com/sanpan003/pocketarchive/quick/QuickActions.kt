@@ -12,6 +12,8 @@ object QuickActions {
     const val ACTION_OPEN_INBOX = "com.sanpan003.pocketarchive.OPEN_INBOX"
     const val ACTION_OPEN_ROUTE = "com.sanpan003.pocketarchive.OPEN_ROUTE"
     const val EXTRA_ROUTE = "route"
+    /** Set only by this app's own explicit gestures (never by an external launcher): StartGate lets it through */
+    const val EXTRA_USER_ACTION = "userAction"
 
     fun hasMicPermission(ctx: Context) =
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -31,7 +33,7 @@ object QuickActions {
      */
     fun start(
         ctx: Context, source: String = "external", force: Boolean = false,
-        referrer: String? = null, screen: RecordingLog.Screen? = null,
+        referrer: String? = null, screen: RecordingLog.Screen? = null, requireConfirm: Boolean = false,
     ): Boolean {
         if (blocker(ctx) != null) return false
         if (!RecorderState.recording) {
@@ -43,6 +45,7 @@ object QuickActions {
             val i = QuickRecorderService.intent(ctx, QuickRecorderService.ACTION_START)
                 .putExtra(QuickRecorderService.EXTRA_SOURCE, source)
                 .putExtra(QuickRecorderService.EXTRA_REFERRER, referrer)
+                .putExtra(QuickRecorderService.EXTRA_CONFIRM, requireConfirm)
             screen?.let { i.putExtra(QuickRecorderService.EXTRA_SCREEN, it.state).putExtra(QuickRecorderService.EXTRA_WOKEN, it.justWoken) }
             ContextCompat.startForegroundService(ctx, i)
         }

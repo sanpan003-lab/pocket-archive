@@ -21,6 +21,8 @@ class MainActivity : BridgeActivity() {
     private var launchReferrer: String? = null
     private var launchScreen: com.sanpan003.pocketarchive.quick.RecordingLog.Screen? = null
     private var swallowKeyUp = 0
+    /** StartGate asked for the 3 s "press again" before this launch may record */
+    private var confirmOnResume = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(QuickRecorderPlugin::class.java)
@@ -70,7 +72,7 @@ class MainActivity : BridgeActivity() {
         com.sanpan003.pocketarchive.quick.ErrandSync.onAppResumed(this) // location permission changed → re-arm geofences
         if (startRecordingOnResume) {
             startRecordingOnResume = false
-            QuickActions.start(this, "quick-record", referrer = launchReferrer, screen = launchScreen) // if not possible yet, /quick shows sign-in / permission
+            QuickActions.start(this, "quick-record", referrer = launchReferrer, screen = launchScreen, requireConfirm = confirmOnResume) // if not possible yet, /quick shows sign-in / permission
         }
     }
 
@@ -131,10 +133,28 @@ class MainActivity : BridgeActivity() {
         // "Quick Record" launcher alias (e.g. Samsung side key → open app) behaves like START_RECORDING,
         // and stops a running recording instead when that setting is on
         val isQuickRecordAlias = intent.component?.className?.contains(".QuickRecordLauncher") == true // any tile
-        val wantsRecording = intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias
+        var wantsRecording = intent.action == QuickActions.ACTION_START_RECORDING || isQuickRecordAlias
         if (wantsRecording) {
             launchReferrer = referrer?.host
             launchScreen = com.sanpan003.pocketarchive.quick.RecordingLog.screenNow(this)
+            // Hard rule: only a real press starts a recording. The Quick Record entries now open their own activity
+            // (QuickRecordLauncherActivity); the alias reaching here is an OLD task being restored, and launches from
+            // Recents, on behalf of this app on a locked screen, or from an unknown sender are refused / confirmed.
+            val screen = launchScreen!!
+            val gate = com.sanpan003.pocketarchive.quick.StartGate.decide(com.sanpan003.pocketarchive.quick.StartGate.Input(
+                referrer = launchReferrer, ownPackage = packageName,
+                fromHistory = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0,
+                recreated = false, staleAlias = isQuickRecordAlias, screen = screen.state, justWoken = screen.justWoken,
+                explicitInApp = intent.getBooleanExtra(QuickActions.EXTRA_USER_ACTION, false),
+            ))
+            if (gate.verdict == com.sanpan003.pocketarchive.quick.StartGate.Verdict.BLOCK) {
+                RecorderGuard.note("Blocked automatic start: ${gate.reason}")
+                com.sanpan003.pocketarchive.quick.RecordingLog.blockedStart(this, "quick-record", launchReferrer, gate.reason, screen)
+                wantsRecording = false
+                startRecordingOnResume = false
+                return
+            }
+            confirmOnResume = gate.verdict == com.sanpan003.pocketarchive.quick.StartGate.Verdict.CONFIRM
         }
         when {
             wantsRecording && RecorderState.recording -> {

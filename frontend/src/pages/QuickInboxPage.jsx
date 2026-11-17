@@ -29,6 +29,8 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useAppearance } from '../context/appearanceStore';
 import { setFabHidden, onQuickChanged } from '../lib/uiBus';
 import { shareNote } from '../lib/shareNote';
+import { isNative } from '../lib/platform';
+import { QuickRecorder } from '../native/quickRecorder';
 import { CATEGORIES } from '../lib/documents';
 
 const FILTERS = [
@@ -326,6 +328,16 @@ export default function QuickInboxPage({ sharedOnly = false, listsOnly = false }
           replace(await undoQuickNote(note.id));
           setToast({
             id: stamp(), icon: '🗑️', text: 'Note deleted', tone: 'queued', duration: 30000,
+            actions: [{ label: 'Undo', onClick: async () => { try { replace(await restoreQuickNote(note.id)); } catch (err) { fail(err); } } }],
+          });
+        });
+      case 'accidental':
+        if (!window.confirm('Report this note as an accidental recording? It is deleted, and the phone keeps a record of what started it (Settings → Recording & shortcuts → Advanced).')) return;
+        return run(note, kind, async () => {
+          if (isNative) await QuickRecorder.reportAccidental({ clientId: note.clientId || '', noteId: note.id, trigger: note.trigger || '' }).catch(() => {});
+          replace(await undoQuickNote(note.id));
+          setToast({
+            id: stamp(), icon: '🚩', text: 'Reported as accidental and deleted', tone: 'queued', duration: 30000,
             actions: [{ label: 'Undo', onClick: async () => { try { replace(await restoreQuickNote(note.id)); } catch (err) { fail(err); } } }],
           });
         });
