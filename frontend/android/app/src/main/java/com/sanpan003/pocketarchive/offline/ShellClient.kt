@@ -25,6 +25,14 @@ class ShellClient(private val bridge: Bridge, private val ctx: Context) : Bridge
     private val nasHost: String? = runCatching { Uri.parse(bridge.serverUrl ?: "").host }.getOrNull()
     private val documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
+    /** What the page really got (is Capacitor's bridge there? which script?) → logcat OfflineShell, for phone bug reports */
+    override fun onPageFinished(view: WebView, url: String?) {
+        super.onPageFinished(view, url)
+        view.evaluateJavascript(
+            "(function(){var c=window.Capacitor;return JSON.stringify({url:location.href,cap:!!c,platform:c&&c.getPlatform&&c.getPlatform(),native:c&&c.isNativePlatform&&c.isNativePlatform(),bridge:typeof window.androidBridge,script:(document.querySelector('script[type=module]')||{}).src})})()",
+        ) { android.util.Log.i("OfflineShell", "page finished: $it") }
+    }
+
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
         val url = request.url
         if (nasHost != null && url.host.equals(nasHost, ignoreCase = true) && request.method == "GET") {
@@ -36,8 +44,10 @@ class ShellClient(private val bridge: Bridge, private val ctx: Context) : Bridge
                 Bundled.file(ctx, path)?.let { return it }
                 // The app's pages: bundled screens when the NAS can't be reached (Capacitor's bridge script is added
                 // to every page of this address by the WebView itself — DOCUMENT_START_SCRIPT)
-                if (request.isForMainFrame && documentStart && !NasProbe.check(TokenStore.apiBase(ctx), maxAgeMs = 10_000)) {
-                    Bundled.index(ctx)?.let { return it }
+                if (request.isForMainFrame) {
+                    val reachable = if (documentStart) NasProbe.check(TokenStore.apiBase(ctx), maxAgeMs = 10_000) else null
+                    android.util.Log.i("OfflineShell", "page ${url.path} documentStartScript=$documentStart nasReachable=$reachable")
+                    if (documentStart && reachable == false) Bundled.index(ctx)?.let { android.util.Log.i("OfflineShell", "serving the bundled screens"); return it }
                 }
             }
         }

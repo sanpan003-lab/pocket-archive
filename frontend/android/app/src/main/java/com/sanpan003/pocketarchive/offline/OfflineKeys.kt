@@ -117,6 +117,9 @@ object OfflineKeys {
         cached = key
     }
 
+    /** For the status screen: where the database key lives ("none" = no copy was ever created on this phone) */
+    fun describe(ctx: Context): String = prefs(ctx).let { if (it.getString("lock", null) != null) "behind the app lock" else if (it.getString("plain", null) != null) "keystore" else "none" }
+
     /** Locked again (timeout / sign out): forget the key in memory */
     fun forget() { cached?.fill(0); cached = null }
 

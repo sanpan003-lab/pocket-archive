@@ -5,6 +5,13 @@ truth: the app shows it in Settings → About → "What's new" (copied into
 `frontend/src/generated/changelog.md` by `npm run changelog`, which also runs
 before every build). Every release bumps the version and adds an entry here.
 
+## 2.13.1 — Nov 17, 2026
+
+### Offline mode now works on the phone
+- **Fixed:** offline mode never worked on a real phone (2.9.0 – 2.13.0). The app couldn’t reach its own offline copy, so **Settings → Offline & storage** was empty and the screens showed “Network Error” without a connection. Now, with no connection at all (airplane mode, Wi-Fi off), the app opens with “Offline · last synced …” and your notes, search and settings
+- **Settings → Offline & storage** is never blank any more: it always shows a status (“Offline copy not set up · Set up now”, “Locked”, or what is wrong) and a one-line diagnostics summary
+- Errors in the background copy are no longer swallowed: the last problem is shown in Settings
+
 ## 2.13.0 — Nov 2, 2026
 
 ### Timers and alarms that never wait for the server

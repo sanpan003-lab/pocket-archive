@@ -23,6 +23,16 @@ object OfflineStore {
     @Volatile var syncing = false
         private set
     @Volatile private var lastProgress: JSONObject? = null
+    /** The last thing that went wrong in the background (class + short message, no note content) — shown in Settings → Offline */
+    @Volatile var lastError: String? = null
+        private set
+    /** Why open() returned null the last time (signed out, locked, no user id…) — shown in Settings → Offline */
+    @Volatile var openProblem: String? = null
+        private set
+    fun fail(t: Throwable) {
+        lastError = "${t.javaClass.simpleName}: ${(t.message ?: "").take(120)}"
+        Log.e(TAG, "Offline copy problem", t)
+    }
     private val listeners = mutableListOf<(String, JSONObject) -> Unit>()
 
     fun onEvent(fn: (String, JSONObject) -> Unit) = synchronized(listeners) { listeners += fn }
@@ -34,9 +44,13 @@ object OfflineStore {
     @Synchronized
     fun open(ctx: Context): SqlCipherData? {
         val userId = TokenStore.userId(ctx)
-        if (userId == null || !TokenStore.signedIn(ctx)) { close(); return null }
+        if (userId == null || !TokenStore.signedIn(ctx)) {
+            close()
+            openProblem = if (!TokenStore.signedIn(ctx)) "This phone has no sign-in token" else "This phone has a token but no user id (sign out and in again)"
+            return null
+        }
         when (val k = OfflineKeys.get(ctx)) {
-            is OfflineKeys.Result.Locked -> { close(); return null }
+            is OfflineKeys.Result.Locked -> { close(); openProblem = "App lock is closed"; return null }
             is OfflineKeys.Result.Lost -> {
                 Log.i(TAG, "Key can't be opened any more (fingerprints changed?): starting a new copy")
                 wipeFiles(ctx); OfflineKeys.reset(ctx)
@@ -45,7 +59,10 @@ object OfflineStore {
             is OfflineKeys.Result.Key -> {
                 if (data == null) {
                     if (k.fresh) wipeFiles(ctx)
-                    val d = try { SqlCipherData.open(File(dir(ctx), "copy.db"), k.key) } catch (e: Exception) {
+                    val d = try { SqlCipherData.open(File(dir(ctx), "copy.db"), k.key) } catch (e: UnsatisfiedLinkError) {
+                        fail(e); return null // the database library itself is missing: nothing to wipe, nothing to retry
+                    } catch (e: Exception) {
+                        fail(e)
                         Log.w(TAG, "Can't open the copy: ${e.javaClass.simpleName} — starting over")
                         wipeFiles(ctx); OfflineKeys.reset(ctx); return null
                     }
@@ -55,6 +72,7 @@ object OfflineStore {
                     data = d
                 }
                 val d = data!!
+                openProblem = null
                 // Only ever one account's data on the phone
                 if (d.meta("userId") != userId) {
                     if (d.meta("userId") != null) { d.clearAll(); vault?.deleteAll() }
@@ -148,9 +166,13 @@ object OfflineStore {
     // ── Status for the screens ──────────────────────────────────────────────
     fun status(ctx: Context): JSONObject {
         val s = settings(ctx)
-        val o = JSONObject().put("available", true).put("enabled", s.enabled).put("online", NasProbe.reachable ?: true)
+        val o = JSONObject().put("available", true).put("lastError", lastError ?: JSONObject.NULL).put("enabled", s.enabled).put("online", NasProbe.reachable ?: true)
             .put("syncing", syncing).put("settings", s.toJson().put("lockProtected", com.sanpan003.pocketarchive.quick.AppLock.enabled(ctx)))
-        val d = runCatching { open(ctx) }.getOrNull()
+        val d = runCatching { open(ctx) }.onFailure { fail(it) }.getOrNull()
+        o.put("diag", JSONObject().put("signedIn", TokenStore.signedIn(ctx)).put("userId", TokenStore.userId(ctx) != null)
+            .put("lock", com.sanpan003.pocketarchive.quick.AppLock.enabled(ctx)).put("keys", OfflineKeys.describe(ctx))
+            .put("dbBytes", File(dir(ctx), "copy.db").length()).put("openProblem", openProblem ?: JSONObject.NULL)
+            .put("nas", NasProbe.reachable ?: JSONObject.NULL).put("apiBase", TokenStore.apiBase(ctx) != null))
         if (d == null) return o.put("open", false).put("locked", com.sanpan003.pocketarchive.quick.AppLock.isLocked(ctx)).put("pending", 0).put("conflicts", 0)
         val usage = JSONObject().put("text", d.textBytes())
         for (k in listOf("photo", "scan", "file", "audio", "thumb", "recording", "map")) usage.put(k, 0L)

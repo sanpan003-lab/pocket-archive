@@ -35,7 +35,7 @@ class OfflinePlugin : Plugin() {
         bg { NasProbe.check(TokenStore.apiBase(ctx), 0) }
     }
 
-    private fun bg(block: () -> Unit) = Thread { runCatching(block) }.start()
+    private fun bg(block: () -> Unit) = Thread { try { block() } catch (t: Throwable) { OfflineStore.fail(t) } }.start()
 
     /** Run on a worker thread; reject "locked" when the copy can't be opened */
     private fun withData(call: PluginCall, block: (SqlCipherData) -> JSObject) = bg {
@@ -45,8 +45,18 @@ class OfflinePlugin : Plugin() {
 
     private fun jsArray(list: List<JSONObject>): JSArray = JSArray(JSONArray(list).toString())
 
+    /** The web layer's own breadcrumbs (page identity, status timing) → logcat tag OfflineJS; no note content */
     @PluginMethod
-    fun status(call: PluginCall) = bg { call.resolve(JSObject.fromJSONObject(OfflineStore.status(context))) }
+    fun trace(call: PluginCall) {
+        android.util.Log.i("OfflineJS", (call.getString("msg") ?: "").take(300))
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun status(call: PluginCall) = bg {
+        try { call.resolve(JSObject.fromJSONObject(OfflineStore.status(context))) }
+        catch (t: Throwable) { OfflineStore.fail(t); call.reject(t.message ?: t.javaClass.simpleName) } // never leave the web layer waiting
+    }
 
     @PluginMethod
     fun getAll(call: PluginCall) = withData(call) { d ->

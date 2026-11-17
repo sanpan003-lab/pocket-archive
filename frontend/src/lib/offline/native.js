@@ -17,13 +17,24 @@ import { isNative } from '../platform';
 const plugin = isNative ? registerPlugin('Offline') : null;
 let testStore = null;
 
+// NEVER return or await the Capacitor plugin object itself. It is a Proxy that answers every property — including
+// "then" — with a native method call, so `await plugin` (or an async function returning it) calls plugin.then(),
+// which never settles: every caller of offlineStore() hung forever on a real phone (2.9.0 – 2.13.0: no offline status,
+// a blank Settings section, "Network Error" instead of the offline copy). A plain object with the methods is safe to await.
+const METHODS = ['status', 'getAll', 'get', 'getKv', 'putKv', 'putNotes', 'removeNote', 'enqueue', 'queue', 'syncNow', 'putMedia',
+  'setSettings', 'freeUpSpace', 'wipe', 'resolveConflict', 'trace'];
+const nativeStore = plugin ? {
+  ...Object.fromEntries(METHODS.map(m => [m, (...args) => plugin[m](...args)])),
+  addListener: (event, fn) => plugin.addListener(event, fn),
+} : null;
+
 function testMode() {
   try { return !isNative && localStorage.getItem('pa_offlineTest') === '1'; } catch { return false; }
 }
 
 /** The store, or null when this device keeps no offline copy (any browser) */
 export async function offlineStore() {
-  if (plugin) return plugin;
+  if (nativeStore) return nativeStore;
   if (testMode()) {
     if (!testStore) {
       testStore = (async () => {

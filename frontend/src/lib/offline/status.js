@@ -4,8 +4,15 @@
 import { useSyncExternalStore } from 'react';
 import { offlineStore, offlineCapable } from './native';
 import { reload, renameNote } from './localData';
+import { isNative } from '../platform';
+
+/** Breadcrumbs for logcat (tag OfflineJS) — how a phone problem is found without a debugger */
+export async function trace(msg) {
+  try { (await offlineStore())?.trace?.({ msg: String(msg) }).catch(() => {}); } catch { /* tracing never breaks the app */ }
+}
 
 let status = {
+  checked: false, error: null, lastError: null,
   available: false, online: true, syncing: false, pending: 0, conflicts: 0, lastSyncAt: null,
   progress: null, settings: null, usage: null, open: true, locked: false,
 };
@@ -33,14 +40,34 @@ export async function markOffline() {
   store?.syncNow?.({ reason: 'network-error' }).catch(() => {});
 }
 
+function withTimeout(p, ms) {
+  return Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error('The offline plugin did not answer')), ms))]);
+}
+
+/** Ask native code for the status now (5 s limit). Resolves true when it answered; the reason is kept in status.error */
+export async function refreshOfflineStatus() {
+  const store = await offlineStore();
+  if (!store) return false;
+  const t0 = Date.now();
+  try {
+    update({ ...(await withTimeout(store.status(), 5000)), checked: true, error: null });
+    trace(`status ok in ${Date.now() - t0} ms · available=${status.available} online=${status.online}`);
+    return true;
+  } catch (err) {
+    update({ checked: true, error: err?.message || String(err) });
+    trace(`status FAILED after ${Date.now() - t0} ms: ${err?.message || err}`);
+    return false;
+  }
+}
+
 let started = false;
 /** Once, at start: follow native status, and reload the in-memory copy when sync changed notes */
 export async function startOfflineStatus() {
   if (started || !offlineCapable()) return;
   started = true;
   const store = await offlineStore();
+  trace(`start · native=${isNative} · page=${location.origin}${location.pathname} · script=${document.querySelector('script[type=module]')?.getAttribute('src')}`);
   if (!store) return;
-  try { update(await store.status()); } catch { /* not ready yet */ }
   store.addListener?.('status', s => update(s));
   store.addListener?.('changed', () => { reload().then(() => window.dispatchEvent(new CustomEvent('pa:quick-changed', { detail: null }))); });
   store.addListener?.('idmap', e => { renameNote(e.tempId, e.id); window.dispatchEvent(new CustomEvent('pa:offline-idmap', { detail: e })); });
@@ -56,6 +83,14 @@ export async function startOfflineStatus() {
     clearTimeout(liveTimer);
     liveTimer = setTimeout(() => store.syncNow?.({ reason: 'live' }).catch(() => {}), 3000);
   });
+  // First status (the app only waits 400 ms for it); if native code is slow or fails, keep trying in the background
+  // and keep the reason in status.error, so Settings can say what is wrong instead of staying blank
+  if (!(await refreshOfflineStatus())) {
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+      if (await refreshOfflineStatus()) break;
+    }
+  }
 }
 
 /** Tests / settings: status changed elsewhere */

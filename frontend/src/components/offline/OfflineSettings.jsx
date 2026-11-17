@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { HardDriveDownload, RefreshCw, Trash2, Eraser, Loader2 } from 'lucide-react';
-import { useOfflineStatus } from '../../lib/offline/status';
+import { useOfflineStatus, refreshOfflineStatus } from '../../lib/offline/status';
 import { offlineStore, offlineCapable } from '../../lib/offline/native';
 import { describe, ago, gb } from '../../lib/offline/format';
 import { getOfflineManifest } from '../../lib/api';
@@ -29,6 +29,59 @@ function Switch({ label, hint, checked, onChange, disabled }) {
   );
 }
 
+/** One line of facts for "why isn't it working": shown under the status, so a bug report needs no adb */
+function Diag({ st }) {
+  const d = st.diag;
+  if (!d && !st.error && !st.lastError) return null;
+  const facts = d ? [
+    d.signedIn ? 'signed in' : 'NOT signed in', d.userId ? 'user id ok' : 'NO user id', d.lock ? 'app lock on' : 'app lock off',
+    `key: ${d.keys}`, `copy ${Math.round((d.dbBytes || 0) / 1024)} KB`, d.nas === true ? 'NAS reachable' : d.nas === false ? 'NAS unreachable' : 'NAS unchecked',
+    d.openProblem ? `closed: ${d.openProblem}` : null,
+  ].filter(Boolean).join(' · ') : null;
+  return (
+    <div className="mt-2 text-[11px] text-navy-500 dark:text-white/50 break-words" data-offline-diag="">
+      {facts && <p>{facts}</p>}
+      {st.error && <p>Plugin: {st.error}</p>}
+      {st.lastError && <p className="text-red-600 dark:text-red-400">Last problem: {st.lastError}</p>}
+    </div>
+  );
+}
+
+/** Shown instead of the full section while native code hasn't reported yet (or can't): never a blank screen */
+function OfflineStatusProblem({ st }) {
+  const [busy, setBusy] = useState(false);
+  async function retry(setup) {
+    setBusy(true);
+    try {
+      if (setup) await (await offlineStore())?.syncNow?.({ reason: 'user' });
+      await refreshOfflineStatus();
+    } catch { /* the reason stays in st.error */ } finally { setBusy(false); }
+  }
+  return (
+    <div id="offline" className="glass-panel p-5 sm:p-6 mb-4 scroll-mt-20" data-offline-settings="" data-offline-state={st.checked ? 'unavailable' : 'checking'}>
+      <div className="flex items-center gap-2 mb-1">
+        <HardDriveDownload size={18} className="text-gold-500" />
+        <h2 className="font-bold text-navy-900 dark:text-white">Offline & storage</h2>
+      </div>
+      <p className="text-sm font-semibold text-navy-900 dark:text-white" data-offline-status="">
+        {st.checked ? 'Offline copy not set up · the app isn’t answering yet' : 'Checking the offline copy…'}
+      </p>
+      {st.checked && (
+        <p className="text-xs text-navy-500 dark:text-white/50 mt-1">
+          This phone keeps an encrypted copy so everything works without a connection. It couldn’t be reached just now{st.error ? ` (${st.error})` : ''}.
+        </p>
+      )}
+      <Diag st={st} />
+      <div className="flex flex-wrap gap-2 mt-3">
+        <button type="button" className="btn-white text-xs min-h-[40px] px-3" disabled={busy} onClick={() => retry(false)}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Check again
+        </button>
+        <button type="button" className="btn-white text-xs min-h-[40px] px-3" disabled={busy} onClick={() => retry(true)} data-set-up-now="">Set up now</button>
+      </div>
+    </div>
+  );
+}
+
 /** Settings → Offline & storage (Android app): what the phone keeps, how much space it uses, Sync now / Free up / Delete */
 export default function OfflineSettings() {
   const st = useOfflineStatus();
@@ -48,14 +101,17 @@ export default function OfflineSettings() {
     return () => { alive = false; };
   }, [st.pending, st.lastSyncAt]);
 
-  if (!offlineCapable() || !st.available) return null;
+  if (!offlineCapable()) return null; // browsers keep no offline copy
+  if (!st.available) return <OfflineStatusProblem st={st} />;
   const s = st.settings || {};
   const usage = st.usage || {};
   const used = KINDS.reduce((a, [k]) => a + (usage[k] || 0), 0);
   const limit = s.limitBytes || 0;
   const nearLimit = limit > 0 && used > limit * 0.9;
-  const { text: statusText } = describe(st);
   const p = st.progress;
+  // Never synced (or switched off with "Delete offline data") reads as "not set up", not as a green "Up to date"
+  const notSetUp = s.enabled === false || (!st.lastSyncAt && !st.syncing && !(p && p.bytesTotal > 0));
+  const statusText = st.locked ? 'Locked · unlock Pocket Archive to use the offline copy' : notSetUp ? 'Offline copy not set up' : describe(st).text;
 
   async function set(patch) {
     const store = await offlineStore();
@@ -86,6 +142,7 @@ export default function OfflineSettings() {
             <p className="text-[11px] text-navy-500 dark:text-white/50 mt-1">{p.phase === 'text' ? 'Notes first' : p.phase === 'thumbs' ? 'Then thumbnails' : 'Then photos, scans and audio'}{p.waitingForWifi ? ' · waiting for Wi-Fi' : ''}</p>
           </div>
         )}
+        <Diag st={st} />
         {queue?.ops?.length > 0 && (
           <p className="text-xs text-navy-600 dark:text-white/65 mt-1.5">Waiting: {queue.ops.slice(0, 6).map(o => o.label || o.method).join(' · ')}{queue.ops.length > 6 ? ' …' : ''}</p>
         )}
@@ -93,7 +150,7 @@ export default function OfflineSettings() {
           <p className="text-xs text-red-600 dark:text-red-400 mt-1">{queue.failed.length} change{queue.failed.length === 1 ? '' : 's'} couldn’t be saved: {queue.failed.slice(-3).map(f => f.error || f.status).join(' · ')}</p>
         )}
         <button type="button" className="btn-white text-xs mt-2 min-h-[40px] px-3" disabled={!!busy || !st.online} onClick={() => act('sync', store => store.syncNow({ reason: 'user' }))} data-sync-now="">
-          {busy === 'sync' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Sync now
+          {busy === 'sync' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {notSetUp ? 'Set up now' : 'Sync now'}
         </button>
       </div>
 

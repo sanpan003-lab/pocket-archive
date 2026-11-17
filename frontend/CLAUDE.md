@@ -251,6 +251,16 @@ inside the Android app (`android/`). The backend lives in
    (1.1.0 was once announced but never deployed: the work stopped at an approval gate before the
    build/deploy steps and nothing checked it. That's why this check exists.)
 
+### Offline gate (rule, since 2.13.1)
+
+Any release that touches the app shell (`ShellClient`, `MainActivity`, `offline/*`), sync, or the API client
+(`src/lib/api.js`, `src/lib/offline/*`) must pass `node scripts/test-offline-device.mjs` on a **real phone** before it
+is published: online status check, airplane mode (adb), cold start, Inbox / a note / Search / Settings → Offline, logcat.
+It refuses to run during a phone call (airplane mode drops it) and always switches airplane mode back off. It writes
+`build/offline-device-test/last-pass.json`. Never start the app with `monkey -p … LAUNCHER` (that starts Quick Record):
+use `am start -n <pkg>/com.sanpan003.pocketarchive.MainActivity`. Settings → Offline & storage must never be blank on the app:
+it always shows a status (and, under it, the diagnostics line) — keep it that way.
+
 ## Android release procedure
 
 1. Make sure the web part is deployed if it changed (the app loads its screens from the NAS).

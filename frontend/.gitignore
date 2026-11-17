@@ -38,3 +38,6 @@ android/capacitor-cordova-android-plugins/
 *.keystore
 *.apk
 *.aab
+
+# Device test output (screenshots of the phone: never commit)
+build/offline-device-test/
